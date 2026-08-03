@@ -1,11 +1,15 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """SAVER Jetson 자동시험 — 하드웨어 없이 전부 통과해야 합니다."""
-import os, sys, time, json, subprocess, threading
+import os, sys, time, json, csv, shutil, subprocess, tempfile, threading
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from saver import protocol as P
 from saver.state_machine import StateMachine
 from saver.teensy_serial import TeensyLink
+from saver.logger import CsvLogger
+from saver.mark import split_mark, build_message
+from simulators.fake_teensy import write_demo_log
+from tools import analyze_log as A
 
 P_ = {"pass": 0, "fail": 0}
 def ck(name, ok, detail=""):
@@ -41,8 +45,10 @@ f2.fire("VACUUM_ERROR")
 ck("오류 진입", f2.node == "S10" and f2.error_cause == "vacuum")
 f2.fire("RECHECK"); ck("RECHECK 복귀 S10→S5", f2.node == "S5")
 
-spec = json.load(open(StateMachine().spec and os.path.join(
-    os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "..", "protocol", "state_machine_v2.json")))
+spec_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                         "..", "protocol", "state_machine_v2.json")
+with open(spec_path, "r", encoding="utf-8") as spec_fp:
+    spec = json.load(spec_fp)
 bad = [(n, e, t) for n, d in spec["nodes"].items()
        for e, t in d.get("on", {}).items() if t != "@return" and t not in spec["nodes"]]
 ck("노드 참조 무결성", not bad, str(bad[:2]))
@@ -52,7 +58,94 @@ ck("이벤트 정의 무결성", not unknown, str(unknown[:2]))
 cmds = set(c for d in spec["nodes"].values() for c in d.get("enter_cmds", []))
 ck("enter_cmds 가 명세 명령인지", cmds <= set(P.CMD), str(sorted(cmds - set(P.CMD))))
 
-print("\n== 3. 가짜 Teensy 실물 연결 ==")
+print("\n== 3. 측정 mark와 로그 분석 ==")
+label, note = split_mark("trial_1 depth 50mm")
+ck("mark CLI 한 인자 분리", label == "trial_1" and note == "depth 50mm")
+ck("mark WebSocket 메시지", build_message(label, note) ==
+   {"type": "mark", "label": "trial_1", "note": "depth 50mm"})
+
+tmpdir = tempfile.mkdtemp(prefix="saver_test_")
+try:
+    logger = CsvLogger(tmpdir, prefix="mark")
+    mark_path = logger.path
+    mark_ok = logger.mark("vacuum_1", "surface=mat, voltage=24V\nload=0kg")
+    logger.close()
+    with open(mark_path, "r", newline="", encoding="utf-8") as fp:
+        mark_rows = list(csv.DictReader(fp))
+    ck("mark CSV source/label", mark_ok and len(mark_rows) == 1 and
+       mark_rows[0]["source"] == "mark" and mark_rows[0]["mark_label"] == "vacuum_1")
+    ck("mark note 자유 문자열", mark_rows[0]["mark_note"] ==
+       "surface=mat, voltage=24V load=0kg")
+
+    analysis_path = os.path.join(tmpdir, "analysis.csv")
+    fields = ["ts_ms", "source", "mark_label", "mark_note", "vac_kPa",
+              "cp_rate_cpm", "cp_depth_mm", "cp_depth_mm_ok",
+              "cp_force_N", "cp_motor_i_A"]
+    rows = [
+        {"ts_ms": 0, "source": "mark", "mark_label": "vacuum_1",
+         "mark_note": "target=-22.5 tol=2.5"},
+        {"ts_ms": 1000, "source": "mcu", "vac_kPa": -15.0},
+        {"ts_ms": 2000, "source": "mcu", "vac_kPa": -20.0},
+        {"ts_ms": 3000, "source": "mcu", "vac_kPa": -19.0},
+        {"ts_ms": 4000, "source": "mark", "mark_label": "compression_1",
+         "mark_note": "depth=50mm"},
+        {"ts_ms": 4000, "source": "mcu", "cp_rate_cpm": 120,
+         "cp_depth_mm": 50, "cp_depth_mm_ok": "true", "cp_force_N": 300,
+         "cp_motor_i_A": 5},
+        {"ts_ms": 4250, "source": "mcu", "cp_rate_cpm": 120,
+         "cp_depth_mm": 999, "cp_depth_mm_ok": "false", "cp_force_N": 310,
+         "cp_motor_i_A": 5.2},
+        {"ts_ms": 4500, "source": "mcu", "cp_rate_cpm": 120,
+         "cp_depth_mm": 51, "cp_depth_mm_ok": "true", "cp_force_N": 320,
+         "cp_motor_i_A": 5.4},
+        {"ts_ms": 4750, "source": "mcu", "cp_rate_cpm": 120,
+         "cp_depth_mm": 52, "cp_depth_mm_ok": "true", "cp_force_N": 330,
+         "cp_motor_i_A": 5.6},
+        {"ts_ms": 5000, "source": "mcu", "cp_rate_cpm": 120,
+         "cp_depth_mm": 53, "cp_depth_mm_ok": "true", "cp_force_N": 340,
+         "cp_motor_i_A": 5.8},
+    ]
+    with open(analysis_path, "w", newline="", encoding="utf-8") as fp:
+        writer = csv.DictWriter(fp, fieldnames=fields)
+        writer.writeheader()
+        writer.writerows(rows)
+    analysis_fields, segments = A.read_segments(analysis_path)
+    ck("mark 기준 구간 분리", len(segments) == 2 and
+       [s["label"] for s in segments] == ["vacuum_1", "compression_1"])
+    vacuum = A.vacuum_metrics(segments[0], -22.5, 2.5)
+    ck("음압 목표 도달 시간", vacuum["reach_s"] == 2.0, str(vacuum["reach_s"]))
+    ck("음압 누설률", vacuum["leak_kpa_min"] is not None and
+       vacuum["leak_kpa_min"] > 0, str(vacuum["leak_kpa_min"]))
+    depth_values = [A.number(row, "cp_depth_mm") for row in segments[1]["rows"]]
+    depth_summary = A.summarize(depth_values)
+    ck("*_ok=false 결측값 제외", depth_summary["max"] == 53 and
+       depth_summary["n"] == 4, str(depth_summary))
+    cycles = A.compression_cycles(segments[1]["rows"])
+    ck("압박 사이클 구분", len(cycles) == 3, str(len(cycles)))
+
+    fake_log_path = write_demo_log(tmpdir, hz=10, duration_s=1.0, seed=2)
+    fake_fields, fake_segments = A.read_segments(fake_log_path)
+    ck("fake_teensy mark 로그 생성", [s["label"] for s in fake_segments] ==
+       ["vacuum_1", "compression_1"])
+    ck("fake_teensy 압박 로그 분석", bool(A.compression_cycles(fake_segments[1]["rows"])))
+finally:
+    shutil.rmtree(tmpdir)
+
+if "--unit-only" in sys.argv:
+    print("\n%s  (통과 %d / 실패 %d)\n" %
+          ("단위시험 통과" if P_["fail"] == 0 else "실패 있음",
+           P_["pass"], P_["fail"]))
+    sys.exit(0 if P_["fail"] == 0 else 1)
+
+if os.name != "posix":
+    print("\n== 4~6. Linux 가상 시리얼 통합 ==")
+    print("  SKIP Windows에는 pty와 /tmp 가 없어 Jetson/Linux에서 실행합니다.")
+    print("\n%s  (플랫폼 독립 통과 %d / 실패 %d)\n" %
+          ("플랫폼 독립 시험 통과" if P_["fail"] == 0 else "실패 있음",
+           P_["pass"], P_["fail"]))
+    sys.exit(0 if P_["fail"] == 0 else 1)
+
+print("\n== 4. 가짜 Teensy 실물 연결 ==")
 sim = subprocess.Popen([sys.executable, "-u",
     os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "simulators", "fake_teensy.py"),
     "--port", "/tmp/ttyFAKE_TEST", "--hz", "20", "--seed", "1", "--quiet"],
@@ -95,7 +188,7 @@ last = tel[-1]
 ck("압박 데이터 수신", "cp_depth_mm" in last and last["cp_depth_mm"] > 40, str(last.get("cp_depth_mm")))
 ck("음압 음수 부호", last.get("vac_kPa", 0) < 0, str(last.get("vac_kPa")))
 
-print("\n== 4. 고장 주입 ==")
+print("\n== 5. 고장 주입 ==")
 sim.stdin.write(b"oc\n"); sim.stdin.flush(); time.sleep(0.6)
 oc = [e for e in errs if e.get("code") == "3-CU-021"]
 ck("과전류 보고", bool(oc) and oc[-1]["sev"] == 3)
@@ -111,7 +204,7 @@ ck("ACK 미수신 → 2-CM-002", any(e.get("code") == "2-CM-002" for e in errs[n
 sim.stdin.write(b"ok\n"); sim.stdin.flush(); time.sleep(0.8)
 ck("복구 후 재수신", not link.is_stale())
 
-print("\n== 5. 재연결 ==")
+print("\n== 6. 재연결 ==")
 sim.terminate(); sim.wait(); time.sleep(1.0)
 ck("장치 소멸 감지", (not link.connected) or link.is_stale())
 sim2 = subprocess.Popen([sys.executable, "-u",

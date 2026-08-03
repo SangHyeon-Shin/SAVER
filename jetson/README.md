@@ -55,6 +55,36 @@ python3 tests/test_all.py
 프로토콜·상태머신·실제 시리얼 연결·고장 주입·자동 재연결까지 40개 항목을 검사합니다.
 하드웨어가 하나도 없어도 전부 통과해야 합니다.
 
+## 측정 구간 mark와 로그 분석
+
+브리지가 실행 중일 때 WebSocket 또는 CLI로 측정 시작점을 CSV에 남길 수 있습니다.
+CLI의 첫 단어가 `label`, 나머지가 측정 조건 `note`가 됩니다.
+
+```bash
+python3 -m saver.mark "vacuum_1 surface=mat voltage=24V load=0kg"
+python3 -m saver.mark compression_1 --note "depth=50mm load=30kg"
+```
+
+CSV에는 `source=mark`, `mark_label`, `mark_note`가 기록됩니다. 분석기는 mark 행을
+다음 측정 구간의 시작으로 사용하며, mark 이전 데이터는 `unmarked`로 따로 표시합니다.
+
+```bash
+python3 tools/analyze_log.py logs/saver_YYYYMMDD_HHMMSS.csv
+python3 tools/analyze_log.py logs/saver_YYYYMMDD_HHMMSS.csv \
+  --vacuum-target-kpa -22.5 --vacuum-tol-kpa 2.5
+```
+
+기본적으로 `jetson/config.json`의 `vacuum_target_kPa`와 `vacuum_tol_kPa`를 읽으며,
+CLI 값이 있으면 CLI가 우선합니다. 목표값이 없으면 목표 도달 시간과 누설률을 추측하지
+않습니다. 빈 셀과 `*_ok=false` 값은 통계에서 제외하고 0으로 바꾸지 않습니다.
+
+가상 시리얼 PTY가 없는 PC에서도 `fake_teensy.py`의 동일한 텔레메트리 생성기로
+mark 포함 예제 로그를 만들 수 있습니다.
+
+```bash
+python3 simulators/fake_teensy.py --write-log logs --duration 4 --seed 7
+```
+
 ## 설정값 — 중요
 
 `saver/bridge.py`의 `CONFIG`는 기본이 **0**입니다. 0인 값은 Teensy로 보내지 않고,

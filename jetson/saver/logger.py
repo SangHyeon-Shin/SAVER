@@ -10,7 +10,7 @@ import os
 from datetime import datetime
 
 HEADER = [
-    "ts_ms", "source", "mode", "state", "substate",
+    "ts_ms", "source", "mark_label", "mark_note", "mode", "state", "substate",
     "cp_rate_cpm", "cp_depth_mm", "cp_force_N", "cp_motor_cmd", "cp_motor_i_A",
     "vac_kPa", "vac_cmd", "vac_leak_flag",
     "radar_rr_bpm", "radar_hr_bpm", "radar_sqi",
@@ -41,7 +41,7 @@ class CsvLogger(object):
             pass
         name = datetime.now().strftime(prefix + "_%Y%m%d_%H%M%S.csv")
         self.path = os.path.join(outdir, name)
-        self.fp = open(self.path, "w", newline="")
+        self.fp = open(self.path, "w", newline="", encoding="utf-8")
         self.w = csv.DictWriter(self.fp, fieldnames=HEADER, extrasaction="ignore")
         self.w.writeheader()
         self.fp.flush()
@@ -55,8 +55,9 @@ class CsvLogger(object):
         try:
             self.w.writerow(row)
             self.fp.flush()
+            return True
         except Exception:
-            pass                       # 로그 실패가 제어를 막으면 안 된다
+            return False              # 로그 실패가 제어를 막으면 안 된다
 
     def telemetry(self, msg):
         row = {}
@@ -68,6 +69,18 @@ class CsvLogger(object):
 
     def event(self, source, name, **kw):
         self._row(source=source, decision=name)
+
+    def mark(self, label, note=""):
+        """측정 구간의 시작을 CSV에 기록한다.
+
+        CSV 한 행이 실제 한 줄로 유지되도록 줄바꿈만 공백으로 바꾼다.
+        쉼표와 한글 등 나머지 문자열은 csv 모듈이 그대로 보존한다.
+        """
+        label = str(label).replace("\r", " ").replace("\n", " ").strip()
+        note = str(note or "").replace("\r", " ").replace("\n", " ").strip()
+        if not label:
+            return False
+        return self._row(source="mark", mark_label=label, mark_note=note)
 
     def transition(self, frm, event, to, state):
         self.state = state or to

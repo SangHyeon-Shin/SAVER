@@ -36,9 +36,6 @@ Teensy 실물 구현과 동작이 일치해야 합니다. 다르면 명세를 �
 import argparse
 import json
 import os
-import pty
-import termios
-import tty
 import random
 import signal
 import sys
@@ -49,9 +46,84 @@ PROTO_VERSION = 1
 MAX_LINE = 512
 
 
+def build_telemetry(state, elapsed_s, rng, target_bpm=110.0, target_depth=0.0,
+                    leak=False, estop=False, fault=None):
+    """전송 방식과 무관한 가짜 텔레메트리 생성기."""
+    import math
+    m = {"t": "tel", "ms": int(elapsed_s * 1000), "state": state}
+
+    if state == "CPR_RUNNING":
+        m["cp_rate_cpm"] = round(target_bpm + math.sin(elapsed_s * 0.7) * 1.2, 2)
+        m["cp_depth_mm"] = round(target_depth + math.sin(elapsed_s * 1.9) * 1.4, 2)
+        m["cp_force_N"] = round(380 + math.sin(elapsed_s * 1.9) * 45, 2)
+        m["cp_motor_i_A"] = round(6.5 + abs(math.sin(elapsed_s * 1.9)) * 2.0, 2)
+    elif state in ("CPR_PAUSED", "CPR_READY"):
+        m["cp_rate_cpm"] = 0.0
+        m["cp_depth_mm"] = 0.0
+        m["cp_force_N"] = 0.0
+        m["cp_motor_i_A"] = 0.1
+
+    if state in ("VACUUM_HOLD", "CPR_READY", "CPR_RUNNING", "CPR_PAUSED", "FAULT"):
+        base = -29.5 if not leak else -18.0
+        m["vac_kPa"] = round(base + rng.uniform(-0.4, 0.4), 2)
+    else:
+        m["vac_kPa"] = round(rng.uniform(-0.5, 0.0), 2)
+
+    # PPG: 신호 품질이 나쁘면 필드를 생략한다 (명세 §6 — 0을 보내지 않는다)
+    sqi = round(rng.uniform(0.75, 0.95), 2)
+    m["ppg_sqi"] = sqi
+    if sqi >= 0.5:
+        m["ppg_hr_bpm"] = round(70 + math.sin(elapsed_s * 0.3) * 5, 2)
+        m["spo2_pct"] = round(96 + rng.uniform(0, 2), 2)
+
+    load = 1.0 if state == "CPR_RUNNING" else 0.0
+    m["temp_C"] = round(28 + load * (6 + 3 * abs(math.sin(elapsed_s * 0.05))), 2)
+    m["fan_pct"] = round(100.0 if m["temp_C"] >= 40 else (40.0 if load else 0.0), 2)
+    m["estop"] = estop
+    m["limit_top"] = state in ("IDLE", "ARMED", "HOMED")
+    m["limit_bottom"] = False
+    m["vac_leak"] = leak
+    m["faults"] = [fault] if fault else []
+    return m
+
+
+def write_demo_log(outdir, hz=20.0, duration_s=4.0, seed=None):
+    """하드웨어와 PTY 없이 J4/J5 검증용 CSV를 만든다."""
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    if root not in sys.path:
+        sys.path.insert(0, root)
+    from saver.logger import CsvLogger
+
+    rng = random.Random(seed)
+    logger = CsvLogger(outdir, prefix="fake_teensy")
+    period = 1.0 / max(1.0, float(hz))
+    vacuum_s = max(0.5, min(1.0, duration_s / 3.0))
+    started = time.time()
+    logger.mark("vacuum_1", "target=-22.5kPa tol=2.5kPa simulation=true")
+    while time.time() - started < vacuum_s:
+        elapsed = time.time() - started
+        logger.telemetry(build_telemetry("VACUUM_HOLD", elapsed, rng))
+        time.sleep(period)
+
+    logger.mark("compression_1", "bpm=110 depth=50mm simulation=true")
+    while time.time() - started < duration_s:
+        elapsed = time.time() - started
+        logger.telemetry(build_telemetry("CPR_RUNNING", elapsed, rng,
+                                         target_bpm=110.0, target_depth=50.0))
+        time.sleep(period)
+    logger.close()
+    return logger.path
+
+
 class FakeTeensy(object):
 
     def __init__(self, tel_hz=20, seed=None):
+        try:
+            import pty
+            import termios
+            import tty
+        except ImportError:
+            raise RuntimeError("가상 시리얼 PTY는 Linux/Jetson에서만 지원됩니다")
         self.master, self.slave = pty.openpty()
         # 실제 시리얼처럼 raw 모드로. 기본 pty 는 에코가 켜져 있어서
         # 자기가 보낸 텔레메트리를 되읽어 명령과 뒤엉킨다(→ 1-CM-003 유발).
@@ -125,45 +197,12 @@ class FakeTeensy(object):
 
     # ── 텔레메트리 ──────────────────────────────────────────
     def telemetry(self):
-        import math
         t = time.time() - self.t0
-        m = {"t": "tel", "ms": self.ms(), "state": self.state}
-
-        if self.state == "CPR_RUNNING":
-            m["cp_rate_cpm"] = round(self.target_bpm + math.sin(t * 0.7) * 1.2, 2)
-            m["cp_depth_mm"] = round(self.target_depth + math.sin(t * 1.9) * 1.4, 2)
-            m["cp_force_N"] = round(380 + math.sin(t * 1.9) * 45, 2)
-            m["cp_motor_i_A"] = round(6.5 + abs(math.sin(t * 1.9)) * 2.0, 2)
-        elif self.state in ("CPR_PAUSED", "CPR_READY"):
-            m["cp_rate_cpm"] = 0.0
-            m["cp_depth_mm"] = 0.0
-            m["cp_force_N"] = 0.0
-            m["cp_motor_i_A"] = 0.1
-
-        if self.state in ("VACUUM_HOLD", "CPR_READY", "CPR_RUNNING", "CPR_PAUSED", "FAULT"):
-            base = -29.5 if not self.leak else -18.0
-            m["vac_kPa"] = round(base + self.rng.uniform(-0.4, 0.4), 2)
-        else:
-            m["vac_kPa"] = round(self.rng.uniform(-0.5, 0.0), 2)
-
-        # PPG: 신호 품질이 나쁘면 필드를 생략한다 (명세 §6 — 0을 보내지 않는다)
-        sqi = round(self.rng.uniform(0.75, 0.95), 2)
-        m["ppg_sqi"] = sqi
-        if sqi >= 0.5:
-            m["ppg_hr_bpm"] = round(70 + math.sin(t * 0.3) * 5, 2)
-            m["spo2_pct"] = round(96 + self.rng.uniform(0, 2), 2)
-
-        # 구동부 온도 — 압박 중에는 상승
-        load = 1.0 if self.state == "CPR_RUNNING" else 0.0
-        m["temp_C"] = round(28 + load * (6 + 3 * abs(math.sin(t * 0.05))), 2)
-        m["fan_pct"] = round(100.0 if m["temp_C"] >= 40 else (40.0 if load else 0.0), 2)
-
-        m["estop"] = self.estop
-        m["limit_top"] = self.state in ("IDLE", "ARMED", "HOMED")
-        m["limit_bottom"] = False
-        m["vac_leak"] = self.leak
-        m["faults"] = [self.fault] if self.fault else []
-        self._send(m)
+        self._send(build_telemetry(self.state, t, self.rng,
+                                   target_bpm=self.target_bpm,
+                                   target_depth=self.target_depth,
+                                   leak=self.leak, estop=self.estop,
+                                   fault=self.fault))
 
     # ── 명령 처리 ───────────────────────────────────────────
     def require(self, seq, need, why):
@@ -373,7 +412,17 @@ def main():
     ap.add_argument("--fifo", default=None,
                     help="고장 주입용 FIFO 경로. 백그라운드 실행 시 사용")
     ap.add_argument("--quiet", action="store_true")
+    ap.add_argument("--write-log", default=None,
+                    help="PTY 없이 J4/J5 검증용 CSV를 만들 출력 디렉터리")
+    ap.add_argument("--duration", type=float, default=4.0,
+                    help="--write-log 생성 시간(초)")
     a = ap.parse_args()
+
+    if a.write_log:
+        path = write_demo_log(a.write_log, hz=a.hz, duration_s=a.duration,
+                              seed=a.seed)
+        print(path)
+        return
 
     fake = FakeTeensy(tel_hz=a.hz, seed=a.seed)
     link = None

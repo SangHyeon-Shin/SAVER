@@ -217,6 +217,24 @@ class Bridge(object):
                     self.fsm.force(msg["node"])
                 elif t == "cmd" and msg.get("cmd") in P.CMD:  # 진단용 직접 명령
                     self.link.send(msg["cmd"], **(msg.get("args") or {}))
+                elif t == "mark":
+                    label = msg.get("label", "")
+                    note = msg.get("note", "")
+                    if not isinstance(label, str) or not label.strip():
+                        result = {"type": "marked", "ok": False,
+                                  "why": "LABEL_REQUIRED"}
+                    elif note is not None and not isinstance(note, str):
+                        result = {"type": "marked", "ok": False,
+                                  "why": "NOTE_MUST_BE_STRING"}
+                    else:
+                        label = label.strip()
+                        note = (note or "").strip()
+                        ok = self.log.mark(label, note)
+                        result = {"type": "marked", "ok": ok,
+                                  "label": label, "note": note}
+                        if not ok:
+                            result["why"] = "LOG_WRITE_FAILED"
+                    await ws.send(json.dumps(result, ensure_ascii=False))
         except Exception:
             pass
         finally:
