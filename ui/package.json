@@ -1,0 +1,27 @@
+{
+  "name": "saver-ui",
+  "private": true,
+  "version": "1.0.0",
+  "description": "SAVER 7인치(1024x600) 터치 UI - 상태머신 v2 (S1~S13)",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 0.0.0.0 --port 5173",
+    "build": "vite build",
+    "preview": "vite preview --host 0.0.0.0 --port 4173",
+    "bridge": "cd ../jetson && python3 -m saver.bridge",
+    "build:single": "node scripts/sync-protocol.mjs && SINGLE=1 vite build && node scripts/build-single.mjs",
+    "smoke": "node scripts/smoke-test.cjs",
+    "predev": "node scripts/sync-protocol.mjs",
+    "prebuild": "node scripts/sync-protocol.mjs",
+    "presmoke": "node scripts/sync-protocol.mjs && node -e \"require('fs').existsSync('dist-single/SAVER_UI.html')||process.exit(1)\" || npm run build:single"
+  },
+  "dependencies": {
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.3.4",
+    "jsdom": "^29.1.1",
+    "vite": "^5.4.11"
+  }
+}

@@ -1,0 +1,136 @@
+import React from 'react'
+import { C } from '../tokens'
+import { EV } from '../stateMachine'
+import { Dark, AlarmRed, Header, Btn, WavePanel } from '../ui'
+
+import { IMG } from '../images'
+
+/* ================= 13 · ROSC 의심 · S9 · UI-09 · ★핵심·경고 ================= */
+export function Screen13({ fire, waves }) {
+  return (
+    <Dark band={C.warning} bandH={14}>
+      <Header dark h={72} titleSize={25} title="자발순환 회복 확인" titleEn="ROSC Check"
+        right="경고 · WARNING" rightColor={C.warning} />
+      <div style={{ flex: 1, display: 'flex', minHeight: 0 }}>
+        <div style={{ width: '46%', background: 'linear-gradient(180deg,rgba(242,96,0,.22),rgba(242,96,0,.07))', padding: '24px 26px', display: 'flex', flexDirection: 'column' }}>
+          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', textAlign: 'center' }}>
+            <div style={{ fontSize: 46, fontWeight: 800, color: '#FF8A3D', lineHeight: 1.25 }}>환자 상태를<br />확인하세요</div>
+            <div style={{ fontSize: 25, color: '#eef1f6', marginTop: 18, lineHeight: 1.5 }}>
+              자발순환(ROSC) 의심.<br />맥박·호흡을 확인하세요.
+            </div>
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            <div style={{ display: 'flex', gap: 10 }}>
+              <Btn flex={1} fs={22} fw={700} onPress={() => fire(EV.RESUME_CPR)}>압박 재개</Btn>
+              <Btn flex={1} fs={22} variant="warning" onPress={() => fire(EV.STOP_CPR)}>압박 중단</Btn>
+            </div>
+            {/* 장치는 ROSC를 확정하지 않는다 — 사용자 확인 기록용 (연동표 v2 §0) */}
+            <Btn variant="ghostDark" h={52} fs={20} fw={400} onPress={() => fire(EV.STOP_CPR)}>소생 확인</Btn>
+          </div>
+        </div>
+        <div style={{ flex: 1, padding: 16, display: 'flex', flexDirection: 'column', gap: 10, minHeight: 0 }}>
+          <WavePanel label="도플러 추정 호흡 / Resp." d={waves.breath} color={C.breath} dur="11s" pad="8px 12px" labelSize={14} />
+          <WavePanel label="PPG / PPG signal" d={waves.ppg2} color={C.ppg} dur="6s" pad="8px 12px" labelSize={14} />
+        </div>
+      </div>
+    </Dark>
+  )
+}
+
+/* ================= 14 · 기기 오류 확인 · S10 · UI-10 · 경고 ================= */
+const CAUSES = {
+  tubing:   [{ t: '튜빙 연결을 확인하세요',   s: '→ 튜빙을 다시 끼운 뒤 재확인하세요.' },
+             { t: '흡착이 불안정합니다',      s: '→ 장치를 가슴 중앙에 다시 밀착하세요.' }],
+  vacuum:   [{ t: '흡착이 불안정합니다',      s: '→ 장치를 가슴 중앙에 다시 밀착하세요.' },
+             { t: '음압이 유지되지 않습니다', s: '→ 실링 패드와 바닥면 상태를 확인하세요.' }],
+  position: [{ t: '압박 위치를 확인하세요',   s: '→ 초록색 유도선에 맞춰 환자를 정렬하세요.' },
+             { t: '장치가 흉부 중앙에서 벗어났습니다', s: '→ 장치를 들어 다시 배치하세요.' }],
+  sensor:   [{ t: '센서 신호가 불안정합니다', s: '→ PPG 센서 착용 상태를 확인하세요.' }],
+}
+
+export function Screen14({ fire, ctx }) {
+  const list = CAUSES[ctx.errorCause] || CAUSES.tubing
+  return (
+    <Dark band={C.warning} bandH={14}>
+      <Header dark h={72} titleSize={26} title="장치 상태 확인" right="경고" rightColor={C.warning} />
+      <div style={{ flex: 1, position: 'relative', padding: '24px 30px', display: 'flex', flexDirection: 'column' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+          <div style={{ width: 56, height: 56, borderRadius: '50%', background: C.warning, color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 34, fontWeight: 800 }}>!</div>
+          <div style={{ fontSize: 36, fontWeight: 800 }}>장치 상태를 확인하세요</div>
+        </div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 14, marginTop: 26 }}>
+          {list.map((r, i) => (
+            <div key={i} style={{ background: C.darkCard, borderRadius: 10, padding: '16px 18px', display: 'flex', alignItems: 'center', gap: 14 }}>
+              <span style={{ width: 12, height: 12, borderRadius: '50%', background: C.warning, flexShrink: 0 }} />
+              <div>
+                <div style={{ fontSize: 22, fontWeight: 700 }}>{r.t}</div>
+                <div style={{ fontSize: 17, color: '#9aa3b0', marginTop: 3 }}>{r.s}</div>
+              </div>
+            </div>
+          ))}
+        </div>
+        <div style={{ position: 'absolute', right: 30, bottom: 24, display: 'flex', gap: 12 }}>
+          <Btn w={200} fs={23} fw={700} onPress={() => fire(EV.RECHECK)}>재확인</Btn>
+          <Btn variant="ghostDark" w={160} fs={23} fw={400} onPress={() => fire(EV.STOP)}>정지</Btn>
+        </div>
+      </div>
+    </Dark>
+  )
+}
+
+/* ================= 15 · 압박 위치 이탈 경고 · 경보음 ================= */
+export function Screen15({ fire }) {
+  return (
+    <AlarmRed>
+      <div style={{ height: 72, display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 26px', borderBottom: '1px solid rgba(255,255,255,.35)', flexShrink: 0 }}>
+        <div style={{ fontSize: 25, fontWeight: 800 }}>
+          압박 위치 확인 <span style={{ fontSize: 17, fontWeight: 500, color: 'rgba(255,255,255,.8)' }}>/ Position Alert</span>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 18, fontWeight: 700 }}>
+          <span data-safety-blink style={{ width: 11, height: 11, borderRadius: '50%', background: '#fff', display: 'inline-block', animation: 'sblink .7s infinite' }} />경보음
+        </div>
+      </div>
+      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 14, padding: '0 30px' }}>
+        <div style={{ fontSize: 40, fontWeight: 800, textAlign: 'center' }}>⚠ 압박 위치가 어긋났습니다</div>
+        <div style={{ fontSize: 22, color: 'rgba(255,255,255,.92)', textAlign: 'center' }}>
+          초록색 유도선에 맞춰 압박 지점을 조정해 주세요<br />
+          <span style={{ fontSize: 17, color: 'rgba(255,255,255,.7)' }}>Re-align the compression point to the green guide</span>
+        </div>
+        <div style={{ position: 'relative', width: 420, height: 200, border: '1px solid #c4cbd4', borderRadius: 10, overflow: 'hidden', background: '#0e1116' }}>
+          <img src={IMG.patient_topdown} alt="환자 (위에서 본 모습)" style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'center', display: 'block' }} />
+          <div style={{ position: 'absolute', left: '31%', top: '6%', bottom: '6%', width: 3, background: C.success, transform: 'translateX(-50%)', boxShadow: `0 0 6px ${C.success}` }} />
+          <div style={{ position: 'absolute', top: '50%', left: '6%', right: '6%', height: 3, background: C.success, boxShadow: `0 0 6px ${C.success}` }} />
+          <div style={{ position: 'absolute', left: '31%', top: '50%', width: 24, height: 24, border: `3px solid ${C.success}`, borderRadius: '50%', background: 'rgba(30,142,62,.15)', transform: 'translate(-50%,-50%)', boxShadow: '0 0 8px rgba(30,142,62,.6)' }} />
+          <div data-safety-blink style={{ position: 'absolute', left: '52%', top: '30%', width: 26, height: 26, borderRadius: '50%', background: C.danger, boxShadow: '0 0 0 6px rgba(216,40,40,.25)', animation: 'sblink .8s infinite' }} />
+          <div style={{ position: 'absolute', left: '55%', top: '15%', font: "600 12px 'Pretendard',sans-serif", color: '#ff8a8a' }}>현재 위치</div>
+        </div>
+        <div style={{ display: 'flex', gap: 14, marginTop: 4 }}>
+          <Btn variant="white" w={280} h={70} fs={26} onPress={() => fire(EV.REALIGN_DONE)}>재정렬 완료 · 압박 재개</Btn>
+          <Btn variant="outlineWhite" w={180} h={70} fs={26} onPress={() => fire(EV.STOP)}>정지</Btn>
+        </div>
+      </div>
+    </AlarmRed>
+  )
+}
+
+/* ================= 16 · 안전정지 · S11 · UI-11 · ★핵심·위험 ================= */
+export function Screen16({ fire }) {
+  return (
+    <AlarmRed>
+      <div style={{ height: 80, display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 28px', borderBottom: '1px solid rgba(255,255,255,.35)', flexShrink: 0 }}>
+        <div style={{ fontSize: 28, fontWeight: 800 }}>안전 정지 · SAFETY STOP</div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 19, fontWeight: 700 }}>
+          <span data-safety-blink style={{ width: 12, height: 12, borderRadius: '50%', background: '#fff', display: 'inline-block', animation: 'sblink .6s infinite' }} />연속 경고음
+        </div>
+      </div>
+      <div style={{ flex: 1, position: 'relative', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '0 40px' }}>
+        <div style={{ fontSize: 58, fontWeight: 800, textAlign: 'center', lineHeight: 1.2 }}>장치를 멈췄습니다<br />환자를 확인하세요</div>
+        <div style={{ fontSize: 24, marginTop: 16, opacity: .95 }}>수동으로 장치를 해제할 수 있습니다.</div>
+        <div style={{ position: 'absolute', left: 32, right: 32, bottom: 28, display: 'flex', gap: 18 }}>
+          <Btn variant="white" flex={1} h={90} fs={30} onPress={() => fire(EV.MANUAL_RELEASE)}>수동 해제</Btn>
+          <Btn variant="outlineWhite" flex={1} h={90} fs={30} onPress={() => fire(EV.END)}>종료</Btn>
+        </div>
+      </div>
+    </AlarmRed>
+  )
+}

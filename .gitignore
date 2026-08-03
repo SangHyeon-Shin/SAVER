@@ -1,0 +1,35 @@
+# 의존성
+node_modules/
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# 빌드 산출물
+dist/
+dist-single/
+docs/build/
+ui/src/generated/          # protocol/ 에서 자동 복사됨. 편집 금지
+
+# 실행 산출물
+logs/
+data/raw/
+data/parsed/
+*.csv
+!protocol/examples/*.csv
+
+# 아두이노
+teensy/test
+teensy/*.o
+build/
+
+# 설정 (확정값은 커밋하되 개인 환경 설정은 제외)
+jetson/config.local.json
+.env
+.env.local
+
+# 편집기 / OS
+.DS_Store
+.vscode/
+.idea/
+*.swp

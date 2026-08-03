@@ -1,0 +1,53 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 600" width="1200" height="600">
+  <!-- 환자 상체 · 위에서 본 모습.
+       압박점(가슴 중앙)이 가로 31% 위치에 오도록 배치했습니다.
+       화면 06/15 의 초록 유도선이 이 좌표에 겹쳐집니다. -->
+  <defs>
+    <linearGradient id="td-bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#161b23"/>
+      <stop offset="1" stop-color="#0d1015"/>
+    </linearGradient>
+  </defs>
+  <rect width="1200" height="600" fill="url(#td-bg)"/>
+
+  <!-- 바닥 질감 -->
+  <g stroke="#1e242e" stroke-width="2">
+    <line x1="0" y1="120" x2="1200" y2="120"/>
+    <line x1="0" y1="480" x2="1200" y2="480"/>
+  </g>
+
+  <g fill="#e6e8ec" stroke="#79818f" stroke-width="4" stroke-linejoin="round">
+    <!-- 팔 (몸통 양옆) -->
+    <path d="M300 208 L640 176 Q672 172 674 190 Q676 208 646 214 L306 250 Z"/>
+    <path d="M300 392 L640 424 Q672 428 674 410 Q676 392 646 386 L306 350 Z"/>
+
+    <!-- 다리 -->
+    <path d="M700 232 L1150 244 Q1178 246 1178 268 Q1178 290 1150 290 L700 282 Z"/>
+    <path d="M700 368 L1150 356 Q1178 354 1178 332 Q1178 310 1150 310 L700 318 Z"/>
+
+    <!-- 몸통 -->
+    <path d="M262 196 Q262 176 288 174 L300 174 Q318 174 320 194
+             L332 300 L320 406 Q318 426 300 426 L288 426 Q262 424 262 404
+             Z" transform="translate(0,0)"/>
+    <path d="M288 174 L640 196 Q700 206 700 244 L700 356 Q700 394 640 404 L288 426
+             Q266 426 266 404 L266 196 Q266 174 288 174 Z"/>
+
+    <!-- 목 -->
+    <rect x="222" y="262" width="56" height="76" rx="20"/>
+
+    <!-- 머리 -->
+    <ellipse cx="150" cy="300" rx="78" ry="66"/>
+  </g>
+
+  <!-- 흉골(압박점) 음영 — 가로 31% 지점 -->
+  <ellipse cx="372" cy="300" rx="62" ry="86" fill="#cfd4db" opacity=".55"/>
+  <path d="M372 232 L372 368" stroke="#9aa3b0" stroke-width="3" opacity=".7"/>
+
+  <!-- 갈비뼈 암시 -->
+  <g stroke="#b6bcc6" stroke-width="3" fill="none" opacity=".45">
+    <path d="M330 250 Q372 240 414 250"/>
+    <path d="M330 282 Q372 272 414 282"/>
+    <path d="M330 318 Q372 328 414 318"/>
+    <path d="M330 350 Q372 360 414 350"/>
+  </g>
+</svg>

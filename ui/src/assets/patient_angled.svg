@@ -1,0 +1,47 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 660" width="1200" height="660">
+  <!-- 바닥에 누운 환자 · 비스듬히 본 모습 -->
+  <defs>
+    <linearGradient id="an-sky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#1a212b"/>
+      <stop offset="1" stop-color="#11161d"/>
+    </linearGradient>
+    <linearGradient id="an-floor" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#0f1218"/>
+      <stop offset="1" stop-color="#080a0e"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="1200" height="660" fill="url(#an-sky)"/>
+  <rect y="300" width="1200" height="360" fill="url(#an-floor)"/>
+  <line x1="0" y1="300" x2="1200" y2="300" stroke="#28303c" stroke-width="3"/>
+
+  <!-- 바닥 원근선 -->
+  <g stroke="#1b212b" stroke-width="2">
+    <line x1="0" y1="390" x2="1200" y2="390"/>
+    <line x1="0" y1="500" x2="1200" y2="500"/>
+    <line x1="0" y1="620" x2="1200" y2="620"/>
+  </g>
+
+  <!-- 그림자 -->
+  <ellipse cx="600" cy="470" rx="450" ry="58" fill="#000" opacity=".45"/>
+
+  <g fill="#e6e8ec" stroke="#79818f" stroke-width="4" stroke-linejoin="round" stroke-linecap="round">
+    <!-- 먼쪽 팔 -->
+    <path d="M420 388 L700 366 Q728 364 730 380 Q732 396 704 400 L424 424 Z" fill="#d3d7dd"/>
+    <!-- 다리 -->
+    <path d="M760 404 L1090 396 Q1120 396 1120 416 Q1120 436 1090 436 L760 442 Z"/>
+    <path d="M760 448 L1080 452 Q1108 454 1106 472 Q1104 490 1076 488 L760 480 Z" fill="#d3d7dd"/>
+    <!-- 몸통 -->
+    <path d="M368 390 L740 398 Q790 402 790 428 L790 448 Q790 474 740 476 L368 462
+             Q344 460 344 438 L344 414 Q344 392 368 390 Z"/>
+    <!-- 목 -->
+    <path d="M310 412 L352 408 L356 452 L314 456 Z"/>
+    <!-- 머리 (옆으로 살짝 돌린 얼굴) -->
+    <ellipse cx="248" cy="428" rx="72" ry="58"/>
+    <!-- 가까운쪽 팔 -->
+    <path d="M420 452 L706 470 Q734 472 732 490 Q730 508 702 504 L422 486 Z"/>
+  </g>
+
+  <!-- 가슴 중앙 표시 -->
+  <ellipse cx="470" cy="428" rx="52" ry="34" fill="#cfd4db" opacity=".5"/>
+</svg>

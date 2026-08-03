@@ -1,0 +1,16 @@
+{"v":1,"t":"evt","ms":120,"evt":"BOOT"}
+{"v":1,"t":"ack","seq":1,"ok":true,"state":"IDLE"}
+{"v":1,"t":"tel","ms":1050,"state":"IDLE","vac_kPa":-0.20,"estop":false,"limit_top":true,"limit_bottom":false,"vac_leak":false,"faults":[]}
+{"v":1,"t":"ack","seq":3,"ok":true,"state":"ARMED"}
+{"v":1,"t":"evt","ms":8400,"evt":"HOMING_DONE"}
+{"v":1,"t":"tel","ms":12000,"state":"VACUUM_HOLD","vac_kPa":-29.80,"estop":false,"limit_top":true,"limit_bottom":false,"vac_leak":false,"faults":[]}
+{"v":1,"t":"evt","ms":15200,"evt":"SCAN_RESULT","points":8,"best_idx":4}
+{"v":1,"t":"tel","ms":184320,"state":"CPR_RUNNING","cp_rate_cpm":109.80,"cp_depth_mm":49.20,"cp_force_N":382.10,"cp_motor_i_A":6.80,"vac_kPa":-27.60,"ppg_hr_bpm":72.40,"spo2_pct":97.00,"ppg_sqi":0.86,"estop":false,"limit_top":false,"limit_bottom":false,"vac_leak":false,"faults":[]}
+{"v":1,"t":"tel","ms":184370,"state":"CPR_RUNNING","cp_rate_cpm":110.20,"cp_depth_mm":51.10,"cp_force_N":401.50,"cp_motor_i_A":7.20,"vac_kPa":-27.50,"ppg_hr_bpm":72.10,"spo2_pct":97.00,"ppg_sqi":0.84,"estop":false,"limit_top":false,"limit_bottom":false,"vac_leak":false,"faults":[]}
+{"v":1,"t":"tel","ms":184420,"state":"CPR_RUNNING","cp_rate_cpm":110.00,"cp_depth_mm":50.40,"cp_force_N":395.00,"cp_motor_i_A":7.00,"vac_kPa":-27.60,"ppg_sqi":0.31,"estop":false,"limit_top":false,"limit_bottom":false,"vac_leak":false,"faults":[]}
+{"v":1,"t":"err","ms":201500,"code":"3-CU-021","sev":3,"latched":true,"why":"OVER_CURRENT"}
+{"v":1,"t":"tel","ms":201550,"state":"FAULT","vac_kPa":-27.40,"estop":false,"limit_top":false,"limit_bottom":false,"vac_leak":false,"faults":["3-CU-021"]}
+{"v":1,"t":"ack","seq":15,"ok":false,"err":"3-CU-021","why":"FAULT_PERSISTS"}
+{"v":1,"t":"ack","seq":16,"ok":true,"state":"FAULT"}
+{"v":1,"t":"ack","seq":17,"ok":false,"err":"1-CM-005","why":"UNKNOWN_COMMAND"}
+{"v":1,"t":"err","ms":205000,"code":"3-CM-001","sev":3,"latched":true,"why":"VERSION_MISMATCH"}

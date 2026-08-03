@@ -1,0 +1,56 @@
+/* ===== SAVER UI 전역 스타일 =====
+   디자인 원본(SAVER UI.dc.html)의 @keyframes를 그대로 이식했습니다.
+   화면별 인라인 스타일은 각 screens/*.jsx 안에 있습니다. */
+
+* { box-sizing: border-box; }
+
+html, body, #root {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;              /* 키오스크: 스크롤 금지 */
+  background: #0a0d12;
+}
+
+body {
+  font-family: 'Pretendard', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans KR', sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* --- 터치 최적화 (장갑 착용/젖은 손 대응) --- */
+* {
+  -webkit-tap-highlight-color: transparent;  /* 터치 시 파란 박스 제거 */
+  -webkit-touch-callout: none;               /* 길게 누르기 메뉴 제거 */
+  -webkit-user-select: none;
+  user-select: none;
+  touch-action: manipulation;                /* 더블탭 확대 방지 + 300ms 지연 제거 */
+}
+input, textarea { -webkit-user-select: auto; user-select: auto; }
+
+button {
+  font-family: inherit;
+  cursor: pointer;
+  transition: transform .06s ease-out, filter .06s ease-out;
+}
+/* 눌림 피드백: 터치 스크린에서 반응이 있었는지 즉시 보이게 */
+button:active, [data-press]:active { transform: scale(.975); filter: brightness(.92); }
+button:focus-visible, [data-press]:focus-visible { outline: 3px solid #00C8FF; outline-offset: 2px; }
+
+/* --- 디자인 원본 애니메이션 --- */
+@keyframes scrollwave { from { transform: translateX(0) } to { transform: translateX(-50%) } }
+@keyframes sblink     { 0%,100% { opacity:1 } 50% { opacity:.2 } }
+@keyframes sirenglow  { 0%,100% { box-shadow: inset 0 0 0 5px rgba(216,40,40,.12) } 50% { box-shadow: inset 0 0 0 12px rgba(216,40,40,.6) } }
+@keyframes orangeglow { 0%,100% { box-shadow: inset 0 0 0 4px rgba(242,96,0,.18) } 50% { box-shadow: inset 0 0 0 11px rgba(242,96,0,.6) } }
+@keyframes redalarm   { 0%,100% { background:#D82828 } 50% { background:#b51d1d } }
+@keyframes ringcount  { from { stroke-dashoffset:0 } to { stroke-dashoffset:339.292 } }
+@keyframes prog       { 0% { left:-42% } 100% { left:100% } }
+@keyframes pulsedot   { 0%,100% { transform:scale(1); opacity:1 } 50% { transform:scale(1.6); opacity:.35 } }
+@keyframes bluepulse  { 0%,100% { background:#fff } 50% { background:#e8f1ff } }
+@keyframes arrowmove  { 0%,100% { transform:translateX(0) } 50% { transform:translateX(12px) } }
+@keyframes scanmove   { 0% { left:22%; top:43% } 50% { left:43%; top:50% } 100% { left:22%; top:43% } }
+
+/* 접근성: 모션 최소화 설정을 존중 (경고 깜빡임은 안전상 유지) */
+@media (prefers-reduced-motion: reduce) {
+  *:not([data-safety-blink]) { animation-duration: .01ms !important; animation-iteration-count: 1 !important; }
+}

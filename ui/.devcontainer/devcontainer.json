@@ -1,0 +1,18 @@
+{
+  "name": "SAVER UI (Vite + React)",
+  "image": "mcr.microsoft.com/devcontainers/javascript-node:20",
+  "features": {
+    "ghcr.io/devcontainers/features/python:1": { "version": "3.11" }
+  },
+  "postCreateCommand": "npm install && pip install --user 'websockets>=12' pyserial",
+  "forwardPorts": [5173, 8765],
+  "portsAttributes": {
+    "5173": { "label": "SAVER UI (터치 화면)", "onAutoForward": "openPreview" },
+    "8765": { "label": "젯슨 브리지 WebSocket", "onAutoForward": "silent" }
+  },
+  "customizations": {
+    "vscode": {
+      "extensions": ["dbaeumer.vscode-eslint", "esbenp.prettier-vscode"]
+    }
+  }
+}

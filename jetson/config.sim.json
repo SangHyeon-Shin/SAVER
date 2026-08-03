@@ -1,0 +1,8 @@
+{
+  "_README": "시뮬레이션 전용 설정입니다. 의학적·공학적 근거가 없는 임시값이며 실제 장비 구동에 사용하면 안 됩니다. 확정값은 명세 §11 담당자에게서 받아 config.json 으로 따로 만드세요.",
+  "_simulation_only": true,
+  "target_bpm": 110,
+  "target_depth_mm": 50,
+  "force_max_N": 600,
+  "vacuum_target_kPa": -30
+}
