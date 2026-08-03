@@ -1,0 +1,13 @@
+{
+  "_README": "실기 구동용 확정 설정. 근거는 docs/DECISIONS.md D-40~D-42 참조.",
+  "_updated": "2026-08-03",
+
+  "target_bpm": 110,
+  "target_depth_mm": 0,
+  "force_max_N": 0,
+
+  "vacuum_target_kPa": -22.5,
+  "vacuum_tol_kPa": 2.5,
+  "vacuum_min_start_kPa": -15.0,
+  "vacuum_abort_kPa": -10.0
+}

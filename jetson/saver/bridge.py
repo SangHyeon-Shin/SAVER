@@ -60,7 +60,7 @@ def load_config(path):
     config.sim.json 은 시뮬레이션 전용이며 의학적 근거가 없습니다."""
     if not path:
         return
-    with open(path) as f:
+    with open(path, "r", encoding="utf-8") as f:
         data = json.load(f)
     sim = bool(data.pop("_simulation_only", False))
     CONFIG.update({k: v for k, v in data.items() if not k.startswith("_")})
