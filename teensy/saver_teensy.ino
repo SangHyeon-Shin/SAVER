@@ -10,7 +10,7 @@
  *   - Teensy 내부 상태 관리
  *
  * 이 파일이 하지 않는 일  →  [구현] 표시된 곳을 채워 주세요
- *   - 실제 모터 PID/PWM, 엔코더, 로드셀, 압력센서, MAX30102 읽기
+ *   - 실제 모터 PID/PWM, 엔코더 환산, 로드셀·변위·전류 센서 보정
  *
  * 이전 작업 참고:  teensy/reference/
  *   음압 모터 드라이버 신호(ERR/RUN/EN/VSP/FG), 압력센서 변환식,
@@ -20,7 +20,13 @@
  * 통신 계층과 제어 계층을 섞지 마세요. 제어 루프는 아래 controlTick() 안에서만
  * 돌리고, 통신은 이 파일이 알아서 합니다. 그래야 통신이 막혀도 제어가 안 멈춥니다.
  * ==========================================================================*/
+#include <OneWire.h>
+#include <Wire.h>
+#include <MAX30105.h>       /* SparkFun MAX3010x library 1.1.2 */
+#include <spo2_algorithm.h>
+
 #include "saver_proto.h"
+#include "pinmap.h"
 
 /* ──────────────────────────── 1. 설정값 ────────────────────────────
  * ⚠ 아래 TODO 값은 명세 §11의 미확정 항목입니다.
@@ -30,15 +36,28 @@ const uint32_t COMM_WATCHDOG_MS      = 2000;    /* 명세 §9 */
 const uint32_t T_COMM_MS             = 30000;   /* TODO 확정: 한성윤 (의학 근거) */
 const uint32_t CONTROL_PERIOD_US     = 2000;    /* 500 Hz 제어 루프 */
 
-const float I_LIMIT_A       = 0.0f;   /* TODO 확정: 한건민 — 0 이면 과전류 보호 비활성 */
-const float VAC_TARGET_KPA  = 0.0f;   /* TODO 확정: 서정준+한건민
-                                         참고: 이전 ESP32 코드에 30000 Pa(=-30 kPa),
-                                         허용오차 500 Pa 가 있었음.
-                                         teensy/reference/Pressure_logic_esp32.ino */
-const float VAC_TOL_KPA     = 0.5f;   /* 허용 오차. 위 참고값 기준 */
-const float TEMP_FAN_ON_C   = 40.0f;  /* 팬 가동 온도. 이전 코드 기준 */
+const float I_LIMIT_A          = 12.0f;  /* 확정: 정상 구동 과전류 임계 */
+const float I_LIMIT_FIRSTRUN_A = 6.0f;   /* 확정: 최초 구동 과전류 임계 */
+const float VAC_TARGET_KPA     = -22.5f; /* 확정: 목표 음압 */
+const float VAC_TOL_KPA        = 2.5f;   /* 확정: 목표 음압 허용 오차 */
+const float VAC_MIN_START_KPA  = -15.0f; /* 확정: 음압 시작 최소값 */
+const float VAC_ABORT_KPA      = -10.0f; /* 확정: 음압 중단 임계 */
+const float TEMP_FAN_ON_C      = 40.0f;  /* 확정: 팬 가동 온도 */
+const float TEMP_STOP_C        = 70.0f;  /* 확정: 온도 정지 임계 */
 const float DEPTH_TARGET_MM = 0.0f;   /* TODO 확정: 한성윤 (가이드라인 근거) */
 const float RATE_TARGET_CPM = 110.0f; /* 확정됨: BPM 110 */
+
+/* 센서 데이터시트/reference에 근거한 취득 설정. 의료 판단 임계값이 아니다. */
+const uint16_t ADC_MAX_12BIT          = 4095;
+const float ADC_REFERENCE_V          = 3.3f;
+const float PRESSURE_MIN_PA          = 2500.0f;
+const float PRESSURE_MAX_PA          = 700000.0f;
+const uint8_t PRESSURE_VALID_SAMPLES = 2;
+const uint32_t DS18B20_CONVERSION_MS = 750;
+const uint32_t DS18B20_RETRY_MS      = 1000;
+const uint32_t DS18B20_STALE_MS      = 2000;
+const uint32_t MAX30102_POLL_MS      = 10;
+const uint32_t MAX30102_STALE_MS     = 1000;
 
 /* ──────────────────────────── 2. 상태 ──────────────────────────── */
 enum State {
@@ -76,6 +95,234 @@ struct Sensors {
   bool  ppg_hr_ok, spo2_ok, ppg_sqi_ok, temp_ok, fan_ok;
   bool  estop, limit_top, limit_bottom, vac_leak;
 } g_s;
+
+/* DS18B20은 750 ms 변환 대기를 delay()로 막지 않고 여러 controlTick()에 나눈다.
+ * pinmap상 이 1-Wire 버스에는 DS18B20 한 개만 연결되므로 Skip ROM을 사용한다. */
+class Ds18b20Reader {
+ public:
+  explicit Ds18b20Reader(uint8_t pin)
+      : pin_(pin), phase_(START_RESET), phaseAtMs_(0), lastGoodMs_(0),
+        dataIndex_(0) {}
+
+  void begin() {
+    bus_.begin(pin_);
+    phase_ = START_RESET;
+    phaseAtMs_ = 0;
+    lastGoodMs_ = 0;
+    dataIndex_ = 0;
+  }
+
+  void tick(Sensors& sensors, uint32_t nowMs) {
+    if (lastGoodMs_ == 0 || nowMs - lastGoodMs_ > DS18B20_STALE_MS) {
+      sensors.temp_ok = false;
+    }
+
+    switch (phase_) {
+      case START_RESET:
+        if ((int32_t)(nowMs - phaseAtMs_) < 0) return;
+        if (!bus_.reset()) {
+          fail(sensors, nowMs);
+          return;
+        }
+        phase_ = START_CONVERSION;
+        return;
+
+      case START_CONVERSION:
+        bus_.skip();
+        bus_.write(0x44);  /* Convert T; 외부 전원형(3선식), strong pull-up 불필요. */
+        phaseAtMs_ = nowMs;
+        phase_ = WAIT_CONVERSION;
+        return;
+
+      case WAIT_CONVERSION:
+        if (nowMs - phaseAtMs_ < DS18B20_CONVERSION_MS) return;
+        phase_ = READ_RESET;
+        return;
+
+      case READ_RESET:
+        if (!bus_.reset()) {
+          fail(sensors, nowMs);
+          return;
+        }
+        phase_ = START_READ;
+        return;
+
+      case START_READ:
+        bus_.skip();
+        bus_.write(0xBE);  /* Read Scratchpad. */
+        dataIndex_ = 0;
+        phase_ = READ_BYTES;
+        return;
+
+      case READ_BYTES:
+        data_[dataIndex_++] = bus_.read();
+        if (dataIndex_ < sizeof data_) return;
+        finishRead(sensors, nowMs);
+        return;
+    }
+  }
+
+ private:
+  enum Phase {
+    START_RESET,
+    START_CONVERSION,
+    WAIT_CONVERSION,
+    READ_RESET,
+    START_READ,
+    READ_BYTES
+  };
+
+  void fail(Sensors& sensors, uint32_t nowMs) {
+    sensors.temp_ok = false;  /* 마지막 값은 보존하고 유효성만 내린다. */
+    phase_ = START_RESET;
+    phaseAtMs_ = nowMs + DS18B20_RETRY_MS;
+    dataIndex_ = 0;
+  }
+
+  void finishRead(Sensors& sensors, uint32_t nowMs) {
+    bool crcOk = (OneWire::crc8(data_, 8) == data_[8]);
+    int16_t raw = (int16_t)(((uint16_t)data_[1] << 8) | data_[0]);
+    float tempC = (float)raw / 16.0f;
+
+    if (crcOk && tempC >= -20.0f && tempC <= 120.0f) {
+      sensors.temp_C = tempC;
+      sensors.temp_ok = true;
+      lastGoodMs_ = nowMs;
+      phase_ = START_RESET;
+      phaseAtMs_ = nowMs;
+      dataIndex_ = 0;
+    } else {
+      fail(sensors, nowMs);
+    }
+  }
+
+  uint8_t pin_;
+  OneWire bus_;
+  Phase phase_;
+  uint32_t phaseAtMs_;
+  uint32_t lastGoodMs_;
+  uint8_t data_[9];
+  uint8_t dataIndex_;
+};
+
+/* SparkFun Example8의 MAX30102 호환 설정과 Maxim 알고리즘을 비차단 수집으로 옮겼다.
+ * 유효 플래그가 나온 HR/SpO2만 공개하며, 저장소에 정의가 없는 SQI는 공개하지 않는다. */
+class Max30102Reader {
+ public:
+  Max30102Reader()
+      : ready_(false), sampleCount_(0), samplesSinceCalc_(0),
+        lastPollMs_(0), lastSampleMs_(0) {}
+
+  void begin() {
+    Wire.setSDA(PIN_MAX30102_SDA);
+    Wire.setSCL(PIN_MAX30102_SCL);
+    ready_ = sensor_.begin(Wire, I2C_SPEED_FAST);
+    if (!ready_) return;
+
+    const uint8_t ledBrightness = 60;
+    const uint8_t sampleAverage = 4;
+    const uint8_t ledMode = 2;      /* Red + IR */
+    const int sampleRate = 100;
+    const int pulseWidth = 411;
+    const int adcRange = 4096;
+    sensor_.setup(ledBrightness, sampleAverage, ledMode,
+                  sampleRate, pulseWidth, adcRange);
+    lastPollMs_ = millis();
+    lastSampleMs_ = lastPollMs_;
+  }
+
+  void tick(Sensors& sensors, uint32_t nowMs) {
+    sensors.ppg_sqi_ok = false;  /* SQI 산출 근거가 없어 값을 만들지 않는다. */
+    if (!ready_) {
+      invalidate(sensors);
+      return;
+    }
+
+    if (nowMs - lastSampleMs_ > MAX30102_STALE_MS) {
+      invalidate(sensors);
+      sampleCount_ = 0;
+      samplesSinceCalc_ = 0;
+    }
+    if (nowMs - lastPollMs_ < MAX30102_POLL_MS) return;
+    lastPollMs_ = nowMs;
+
+    sensor_.check();
+    while (sensor_.available()) {
+      pushSample(sensor_.getFIFOIR(), sensor_.getFIFORed());
+      sensor_.nextSample();
+      lastSampleMs_ = nowMs;
+
+      if (sampleCount_ == SAMPLE_COUNT &&
+          (samplesSinceCalc_ == 0 || samplesSinceCalc_ >= RECALC_SAMPLES)) {
+        calculate(sensors);
+        samplesSinceCalc_ = 0;
+      }
+    }
+  }
+
+ private:
+  static const uint16_t SAMPLE_COUNT = 100;
+  static const uint8_t RECALC_SAMPLES = 25;
+
+  void invalidate(Sensors& sensors) {
+    sensors.ppg_hr_ok = false;
+    sensors.spo2_ok = false;
+    sensors.ppg_sqi_ok = false;
+  }
+
+  void pushSample(uint32_t ir, uint32_t red) {
+    if (sampleCount_ < SAMPLE_COUNT) {
+      ir_[sampleCount_] = ir;
+      red_[sampleCount_] = red;
+      ++sampleCount_;
+      if (sampleCount_ == SAMPLE_COUNT) samplesSinceCalc_ = 0;
+      return;
+    }
+
+    for (uint16_t i = 1; i < SAMPLE_COUNT; ++i) {
+      ir_[i - 1] = ir_[i];
+      red_[i - 1] = red_[i];
+    }
+    ir_[SAMPLE_COUNT - 1] = ir;
+    red_[SAMPLE_COUNT - 1] = red;
+    ++samplesSinceCalc_;
+  }
+
+  void calculate(Sensors& sensors) {
+    int32_t spo2 = 0;
+    int32_t heartRate = 0;
+    int8_t spo2Valid = 0;
+    int8_t heartRateValid = 0;
+    maxim_heart_rate_and_oxygen_saturation(
+        ir_, SAMPLE_COUNT, red_, &spo2, &spo2Valid, &heartRate, &heartRateValid);
+
+    sensors.ppg_hr_ok =
+        heartRateValid && heartRate >= 0 && heartRate <= 250;
+    if (sensors.ppg_hr_ok) sensors.ppg_hr = (float)heartRate;
+
+    sensors.spo2_ok = spo2Valid && spo2 >= 0 && spo2 <= 100;
+    if (sensors.spo2_ok) sensors.spo2 = (float)spo2;
+  }
+
+  MAX30105 sensor_;
+  bool ready_;
+  uint32_t ir_[SAMPLE_COUNT];
+  uint32_t red_[SAMPLE_COUNT];
+  uint16_t sampleCount_;
+  uint8_t samplesSinceCalc_;
+  uint32_t lastPollMs_;
+  uint32_t lastSampleMs_;
+};
+
+Ds18b20Reader& tempReader() {
+  static Ds18b20Reader reader(PIN_DS18B20);
+  return reader;
+}
+
+Max30102Reader& ppgReader() {
+  static Max30102Reader reader;
+  return reader;
+}
 
 /* ──────────────────────────── 3. 송신 ──────────────────────────── */
 char g_out[SAVER_MAX_LINE];
@@ -116,14 +363,9 @@ void sendTel() {
 
 /* ──────────────────────── 4. 안전 · 고장 ──────────────────────── */
 void motorsOff() {
-  /* [구현] PWM 0, 드라이버 Enable LOW. 음압은 유지한다 (명세 §7)
-
-     음압 모터 드라이버 신호 (teensy/reference/ 에서 확인):
-       ERR  입력  LOW  → 드라이버 오류        → 2-VU-007
-       RUN  입력  LOW  → 모터 동작 중
-       EN   출력  LOW  → 긴급 정지, HIGH → 재가동
-       VSP  출력  속도 지령 PWM (0~3.3V → 레벨 변환 0~5V)
-       FG   입력  속도 피드백 펄스                                */
+  analogWrite(PIN_CP_MOTOR_VSP, 0);
+  digitalWrite(PIN_CP_MOTOR_EN, LOW);
+  /* 명세 §7: 음압 유지. PIN_VAC_MOTOR_VSP/EN 은 변경하지 않는다. */
 }
 
 void raiseFault(const char* code, int sev, const char* why) {
@@ -134,7 +376,8 @@ void raiseFault(const char* code, int sev, const char* why) {
 
 /* E-stop 은 하드웨어 회로가 이미 모터를 끊은 상태. 여기서는 보고만 한다. */
 void checkEstop() {
-  bool e = false;   /* [구현] digitalRead(PIN_ESTOP) 등 */
+  /* [실물확인 8/5] E-stop 상태 입력은 HIGH=활성으로 배선한다고 가정한다. */
+  bool e = (digitalRead(PIN_ESTOP) == HIGH);
   g_s.estop = e;
   if (e && g_state != ST_ESTOP) {
     g_state = ST_ESTOP;
@@ -318,13 +561,62 @@ void commWatchdog() {
 }
 
 /* ──────────────────── 8. 실시간 제어 (한건민 영역) ──────────────────── */
+void readPressureSensor(Sensors& sensors) {
+  static uint8_t consecutiveValid = 0;
+  sensors.vac_ok = false;  /* 실패 시 마지막 수치 자체는 덮어쓰지 않는다. */
+
+  uint16_t adcValue = (uint16_t)analogRead(PIN_PRESSURE_SENSOR);
+  if (adcValue == 0 || adcValue >= ADC_MAX_12BIT) {
+    consecutiveValid = 0;
+    return;
+  }
+
+  /* reference/Pressure_logic_esp32.ino의 식을 12-bit Teensy ADC에 그대로 적용. */
+  float voltage = (float)adcValue * (ADC_REFERENCE_V / (float)ADC_MAX_12BIT);
+  if (voltage < 0.5f) {
+    consecutiveValid = 0;
+    return;  /* 센서 명시 출력 하한보다 낮으면 미연결/실패 취급. */
+  }
+
+  float pressurePa = PRESSURE_MIN_PA
+      + (voltage - 0.5f) * (PRESSURE_MAX_PA - PRESSURE_MIN_PA) / 4.0f;
+  float vacKPa = -pressurePa / 1000.0f;  /* 명세 §6: 음압 게이지압은 음수. */
+  if (vacKPa < -80.0f || vacKPa > 0.0f) {
+    consecutiveValid = 0;
+    return;
+  }
+
+  if (consecutiveValid < PRESSURE_VALID_SAMPLES) ++consecutiveValid;
+  if (consecutiveValid < PRESSURE_VALID_SAMPLES) return;
+
+  sensors.vac_kPa = vacKPa;
+  sensors.vac_ok = true;
+}
+
 void controlTick() {
   /* [구현] 500 Hz 제어 루프
-     - 엔코더/변위/로드셀/전류/압력 읽기 → g_s 갱신
+     - 엔코더/변위/로드셀/전류 읽기 → g_s 갱신
      - g_state == ST_CPR_RUNNING 일 때만 PID → PWM
      - 과전류·리미트 이탈은 여기서 즉시 차단하고 raiseFault() 호출
 
      주의: 이 함수 안에서 Serial 을 길게 쓰지 마세요. 제어 주기가 흔들립니다. */
+
+  /* 활성 극성은 실물 검증 전이다. 현재 핀의 HIGH 논리 레벨을 그대로 보고한다.
+   * 이 bool 필드에는 *_ok가 없어 미연결을 표현할 수 없다는 프로토콜 제약이 있다. */
+  g_s.limit_top = (digitalRead(PIN_LIMIT_TOP) == HIGH);
+  g_s.limit_bottom = (digitalRead(PIN_LIMIT_BOTTOM) == HIGH);
+
+  readPressureSensor(g_s);
+  tempReader().tick(g_s, millis());
+  ppgReader().tick(g_s, millis());
+
+  /* 저장소에 N/mm/A 환산 보정값과 엔코더 PPR·기구비가 없다.
+   * ADC raw/count를 물리 단위 필드에 넣지 않고 측정 불가로 생략한다. */
+  g_s.rate_ok = false;
+  g_s.depth_ok = false;
+  g_s.force_ok = false;
+  g_s.motor_i_ok = false;
+  g_s.fan_ok = false;
 
   if (I_LIMIT_A > 0.0f && g_s.motor_i_ok && g_s.motor_i_A > I_LIMIT_A) {
     raiseFault("3-CU-021", 3, "OVER_CURRENT");
@@ -333,8 +625,42 @@ void controlTick() {
 
 /* ──────────────────────────── 9. 진입점 ──────────────────────────── */
 void setup() {
+  /* 출력 래치를 먼저 LOW 로 두어 OUTPUT 전환 순간에도 구동 신호가 올라가지 않게 한다. */
+  digitalWrite(PIN_CP_MOTOR_VSP, LOW);
+  digitalWrite(PIN_VAC_MOTOR_VSP, LOW);
+  digitalWrite(PIN_COOLING_FAN, LOW);
+  digitalWrite(PIN_CP_MOTOR_EN, LOW);
+  digitalWrite(PIN_VAC_MOTOR_EN, LOW);
+
+  pinMode(PIN_CP_MOTOR_VSP, OUTPUT);
+  pinMode(PIN_VAC_MOTOR_VSP, OUTPUT);
+  pinMode(PIN_COOLING_FAN, OUTPUT);
+  pinMode(PIN_CP_MOTOR_EN, OUTPUT);
+  pinMode(PIN_VAC_MOTOR_EN, OUTPUT);
+
+  /* 외부 회로의 바이어스와 레벨 변환을 사용하며 내부 pull-up은 가정하지 않는다. */
+  pinMode(PIN_VAC_MOTOR_ERR, INPUT);
+  pinMode(PIN_VAC_MOTOR_RUN, INPUT);
+  pinMode(PIN_LIMIT_TOP, INPUT);
+  pinMode(PIN_LIMIT_BOTTOM, INPUT);
+  pinMode(PIN_ESTOP, INPUT);
+  pinMode(PIN_ENCODER_A, INPUT);
+  pinMode(PIN_ENCODER_B, INPUT);
+  pinMode(PIN_HALL_SENSOR, INPUT);
+  pinMode(PIN_VAC_MOTOR_FG, INPUT);
+
+  pinMode(PIN_PRESSURE_SENSOR, INPUT);
+  pinMode(PIN_LOAD_CELL, INPUT);
+  pinMode(PIN_LINEAR_SENSOR, INPUT);
+  pinMode(PIN_CURRENT_SENSOR, INPUT);
+  pinMode(PIN_MAX30102_SDA, INPUT);
+  pinMode(PIN_MAX30102_SCL, INPUT);
+  pinMode(PIN_DS18B20, INPUT);
+
+  analogReadResolution(12);
   Serial.begin(115200);          /* Teensy 4.1 네이티브 USB 는 이 값을 무시함 */
-  /* [구현] 핀 모드, 드라이버 Disable, 센서 초기화 */
+  tempReader().begin();
+  ppgReader().begin();
   g_lastRx = millis();
   sendEvt("BOOT");
 }

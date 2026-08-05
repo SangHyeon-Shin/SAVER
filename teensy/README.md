@@ -39,6 +39,10 @@ g++ -std=c++11 -Wall -o test test_saver_proto.cpp && ./test
 `saver_teensy.ino` 와 `saver_proto.h` 를 같은 폴더에 두고 업로드하세요.
 모터·센서 코드가 하나도 없어도 이 상태에서 이미 동작합니다.
 
+센서 취득 코드까지 컴파일할 때는 Arduino Library Manager에서
+`SparkFun MAX3010x Pulse and Proximity Sensor Library` **1.1.2**를 설치하세요.
+DS18B20은 Teensyduino 1.62에 포함된 `OneWire` 2.3.8을 사용합니다.
+
 **3. 시리얼 모니터로 확인**
 
 아두이노 시리얼 모니터를 열고 (줄 끝: **Newline**) 아래를 붙여넣으세요.
