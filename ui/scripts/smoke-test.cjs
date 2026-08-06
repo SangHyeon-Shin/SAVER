@@ -15,7 +15,8 @@ const errors = []
 const vc = new VirtualConsole()
 vc.on('jsdomError', (e) => errors.push(String(e.message || e).slice(0, 300)))
 
-const dom = new JSDOM(readFileSync(FILE, 'utf8'), {
+const singleHtml = readFileSync(FILE, 'utf8')
+const dom = new JSDOM(singleHtml, {
   runScripts: 'dangerously', pretendToBeVisual: true,
   url: 'file:///SAVER_UI.html', virtualConsole: vc,
 })
@@ -63,15 +64,19 @@ const check = (name, ok, detail = '') => {
 
   tap(B('다음'))
   check('08 흡착·고정 확인', await until(has('흡착·고정')))
+  check('08 파란 진행 바 애니메이션', [...d.querySelectorAll('[data-essential-motion]')].some((el) => el.style.animation.includes('prog')))
 
   tap(B('재확인'))
   check('09 환자 정보 입력', await until(has('환자 정보')))
+  check('09 파란 스캔 원 애니메이션', [...d.querySelectorAll('[data-essential-motion]')].some((el) => el.style.animation.includes('scanmove')))
 
   tap(B('확인'))
   check('10 압박 준비', await until(has('압박 준비')))
 
   tap(d.querySelector('#root [role="button"]'))
   check('11 압박 수행 진입', await until(has('압박 모니터링')))
+  check('11 MR60 호흡·심박 추이 표시', T().includes('호흡 추이') && T().includes('심박 추이'))
+  check('11 기존 임의 파형 제거', !T().includes('압박 리듬') && !T().includes('PPG 신호'))
 
   const v1 = () => T().match(/\d+:\d\d/)?.[0]
   const t0 = v1()
@@ -92,7 +97,8 @@ const check = (name, ok, detail = '') => {
   tap(B('완료'))
   check('18 종료·기록 저장', await until(has('작동을 마쳤습니다')))
 
-  check('이미지 5장 로드', d.querySelectorAll('img[src^="data:image"]').length >= 0)
+  const embeddedPngs = (singleHtml.match(/data:image\/png;base64,/g) || []).length
+  check('원본 PNG 5장 포함', embeddedPngs >= 5, `${embeddedPngs}장`)
   check('런타임 오류 없음', errors.length === 0, errors[0] || '')
 
   console.log(`\n${fail === 0 ? '✅ 전체 통과' : '❌ 실패 있음'}  (통과 ${pass} / 실패 ${fail})\n`)

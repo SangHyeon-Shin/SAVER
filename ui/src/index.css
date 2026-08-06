@@ -44,13 +44,13 @@ button:focus-visible, [data-press]:focus-visible { outline: 3px solid #00C8FF; o
 @keyframes orangeglow { 0%,100% { box-shadow: inset 0 0 0 4px rgba(242,96,0,.18) } 50% { box-shadow: inset 0 0 0 11px rgba(242,96,0,.6) } }
 @keyframes redalarm   { 0%,100% { background:#D82828 } 50% { background:#b51d1d } }
 @keyframes ringcount  { from { stroke-dashoffset:0 } to { stroke-dashoffset:339.292 } }
-@keyframes prog       { 0% { left:-42% } 100% { left:100% } }
+@keyframes prog       { from { transform:translateX(-100%) } to { transform:translateX(240%) } }
 @keyframes pulsedot   { 0%,100% { transform:scale(1); opacity:1 } 50% { transform:scale(1.6); opacity:.35 } }
 @keyframes bluepulse  { 0%,100% { background:#fff } 50% { background:#e8f1ff } }
 @keyframes arrowmove  { 0%,100% { transform:translateX(0) } 50% { transform:translateX(12px) } }
-@keyframes scanmove   { 0% { left:22%; top:43% } 50% { left:43%; top:50% } 100% { left:22%; top:43% } }
+@keyframes scanmove   { 0%,100% { left:25%; top:43% } 50% { left:46%; top:54% } }
 
 /* 접근성: 모션 최소화 설정을 존중 (경고 깜빡임은 안전상 유지) */
 @media (prefers-reduced-motion: reduce) {
-  *:not([data-safety-blink]) { animation-duration: .01ms !important; animation-iteration-count: 1 !important; }
+  *:not([data-safety-blink]):not([data-essential-motion]) { animation-duration: .01ms !important; animation-iteration-count: 1 !important; }
 }

@@ -57,7 +57,7 @@ export function Screen03({ fire }) {
             <div style={{ width: 0, height: 0, borderTop: '15px solid transparent', borderBottom: '15px solid transparent', borderLeft: `26px solid ${C.success}` }} />
           </div>
           <div style={{ width: 330, height: 240, border: `1px solid ${C.lightLine}`, borderRadius: 10, overflow: 'hidden', background: '#0e1116', flexShrink: 0 }}>
-            <img src={IMG.patient_angled} alt="환자" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+            <img src={IMG.patient_angled} alt="환자" style={{ width: '100%', height: '100%', objectFit: 'contain', objectPosition: 'center', display: 'block' }} />
           </div>
         </div>
         <div style={{ fontSize: 26, fontWeight: 600 }}>환자 위치로 끌고 이동해 주세요</div>
@@ -75,7 +75,7 @@ export function Screen04({ fire }) {
       <div style={{ flex: 1, position: 'relative' }}>
         <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 26 }}>
           <div style={{ width: 540, height: 230, border: `1px solid ${C.lightLine}`, borderRadius: 10, overflow: 'hidden', background: '#0e1116' }}>
-            <img src={IMG.patient_angled} alt="환자를 바닥에 눕힌 모습" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+            <img src={IMG.patient_angled} alt="환자를 바닥에 눕힌 모습" style={{ width: '100%', height: '100%', objectFit: 'contain', objectPosition: 'center', display: 'block' }} />
           </div>
           <div style={{ fontSize: 48, fontWeight: 800, color: '#1a1f29' }}>환자를 단단한 바닥에 눕히세요.</div>
         </div>
@@ -87,10 +87,7 @@ export function Screen04({ fire }) {
 }
 
 /* ================= 05 · 겉옷 제거 (카메라 인식) =================
-   원본 디자인은 clothes.png 를 좌/우 2분할 스프라이트로 가정해
-   background-size:200% auto 로 패닝했으나, 실제 파일은 한 장짜리 사진이라
-   2배 확대되어 세로 27% 만 보였습니다. 사진 전체를 보여주고
-   상태 표시는 테두리·라벨·배지로 처리합니다. */
+   전달패키지의 clothes.png는 좌측이 겉옷 착용, 우측이 제거 상태인 원본 이미지다. */
 export function Screen05({ fire, demo }) {
   const [done, setDone] = useState(false)
   useEffect(() => {
@@ -113,9 +110,17 @@ export function Screen05({ fire, demo }) {
           border: `3px solid ${col}`, background: '#0e1116',
           animation: done ? 'none' : 'sblink 1.1s infinite',
         }}>
-          <img src={done ? IMG.clothes_off : IMG.clothes_on}
+          <img
+            src={IMG.clothes}
+            role="img"
             alt={done ? '겉옷이 제거된 환자 상체' : '겉옷을 착용한 환자 상체'}
-            style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'center', display: 'block' }} />
+            style={{
+              position: 'absolute', left: '50%', top: '50%', height: '135%', width: 'auto', maxWidth: 'none',
+              transform: `translate(${done ? '-79.8%' : '-20.4%'}, -50%)`,
+              clipPath: done ? 'inset(0 0 0 59.6%)' : 'inset(0 59.3% 0 0)',
+              transition: 'transform .35s ease, clip-path .35s ease',
+            }}
+          />
 
           {/* 상태 배지 — 화면 상단에 겹쳐 표시 */}
           <div style={{
@@ -151,7 +156,7 @@ export function Screen06({ fire, demo }) {
       <Header title="흉곽 정렬 단계" right={err ? '주의' : '6 / 8'} rightColor={err ? '#9a7000' : null} />
       <div style={{ flex: 1, position: 'relative', display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '22px 28px' }}>
         <div style={{ position: 'relative', width: 460, height: 230, border: '1px solid #c4cbd4', borderRadius: 10, overflow: 'hidden', background: '#0e1116' }}>
-          <img src={IMG.patient_topdown} alt="환자 상체 (위에서 본 모습)" style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'center', display: 'block' }} />
+          <img src={IMG.patient_topdown} alt="환자 상체 (위에서 본 모습)" style={{ width: '100%', height: '100%', objectFit: 'contain', objectPosition: 'center', display: 'block' }} />
           <div style={{ position: 'absolute', left: '31%', top: '6%', bottom: '6%', width: 3, background: C.success, transform: 'translateX(-50%)', boxShadow: `0 0 6px ${C.success}` }} />
           <div style={{ position: 'absolute', top: '50%', left: '6%', right: '6%', height: 3, background: C.success, boxShadow: `0 0 6px ${C.success}` }} />
           <div style={{ position: 'absolute', left: '31%', top: '50%', width: 24, height: 24, border: `3px solid ${C.success}`, borderRadius: '50%', background: 'rgba(30,142,62,.15)', transform: 'translate(-50%,-50%)', boxShadow: '0 0 8px rgba(30,142,62,.6)' }} />
@@ -234,8 +239,8 @@ export function Screen09({ fire, ctx }) {
         <div style={{ flex: 1, display: 'flex', gap: 24, minHeight: 0 }}>
           <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 16 }}>
             <div style={{ width: '100%', height: 220, border: `1px solid ${C.lightLine}`, borderRadius: 10, overflow: 'hidden', background: '#0e1116', position: 'relative' }}>
-              <img src={IMG.patient_angled} alt="환자" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
-              <div style={{ position: 'absolute', left: '22%', top: '43%', width: 30, height: 30, border: `3px solid ${C.primary}`, borderRadius: '50%', background: 'rgba(36,107,235,.18)', transform: 'translate(-50%,-50%)', boxShadow: '0 0 10px rgba(36,107,235,.7)', animation: 'scanmove 5s ease-in-out infinite, sblink 1s infinite' }} />
+              <img src={IMG.patient_angled} alt="환자" style={{ width: '100%', height: '100%', objectFit: 'contain', objectPosition: 'center', display: 'block' }} />
+              <div data-essential-motion style={{ position: 'absolute', left: '25%', top: '43%', width: 30, height: 30, border: `3px solid ${C.primary}`, borderRadius: '50%', background: 'rgba(36,107,235,.24)', transform: 'translate(-50%,-50%)', boxShadow: '0 0 0 6px rgba(36,107,235,.12), 0 0 12px rgba(36,107,235,.85)', animation: 'scanmove 3.2s ease-in-out infinite', willChange: 'left, top' }} />
             </div>
             <div style={{ fontSize: 22, fontWeight: 700, color: C.primary, animation: 'sblink 1.1s infinite' }}>압박 위치 찾는 중…</div>
           </div>

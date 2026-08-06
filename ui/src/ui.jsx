@@ -80,7 +80,7 @@ export function Dot({ color, label, size = 12, fast = false, fontSize = 20 }) {
 export function Progress({ w = 300, color = C.success, dur = '1.8s' }) {
   return (
     <div style={{ width: w, height: 6, borderRadius: 3, background: '#e6eaef', overflow: 'hidden', position: 'relative' }}>
-      <div style={{ position: 'absolute', top: 0, height: '100%', width: '42%', borderRadius: 3, background: color, animation: `prog ${dur} linear infinite` }} />
+      <div data-essential-motion style={{ position: 'absolute', left: 0, top: 0, height: '100%', width: '42%', borderRadius: 3, background: color, animation: `prog ${dur} linear infinite`, willChange: 'transform' }} />
     </div>
   )
 }
@@ -146,6 +146,55 @@ export function WavePanel({ label, d, color, dur, pad = '9px 12px', labelSize = 
     <div style={{ flex: 1, background: C.darkPane, border: `1px solid ${C.darkLine}`, borderRadius: 10, padding: pad, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
       <div style={{ fontSize: labelSize, color: C.darkSub, marginBottom: 3 }}>{label}</div>
       <Wave d={d} color={color} dur={dur} />
+    </div>
+  )
+}
+
+/** MR60BHA2가 보낸 최근 60초 측정 추이. 값이 없으면 임의 파형을 만들지 않는다. */
+export function VitalTrendPanel({ label, value, unit, history, field, color, min, max, status }) {
+  const now = history.length ? history[history.length - 1].at : Date.now()
+  const cutoff = now - 60_000
+  let drawing = false
+  let path = ''
+
+  history.forEach((sample) => {
+    if (sample.at < cutoff || sample[field] == null) {
+      drawing = false
+      return
+    }
+    const x = ((sample.at - cutoff) / 60_000) * 600
+    const bounded = Math.max(min, Math.min(max, sample[field]))
+    const y = 91 - ((bounded - min) / (max - min)) * 75
+    path += `${drawing ? ' L' : ' M'} ${x.toFixed(1)} ${y.toFixed(1)}`
+    drawing = true
+  })
+
+  const display = value == null ? '--' : Number(value).toFixed(0)
+  const statusText = status === 'NORMAL' ? '정상' : status && status !== 'NO_DATA' ? status : '측정 대기'
+
+  return (
+    <div style={{ flex: 1, background: C.darkPane, border: `1px solid ${C.darkLine}`, borderRadius: 10, padding: '8px 12px', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+      <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 12 }}>
+        <div style={{ fontSize: 15, color: C.darkSub }}>{label}</div>
+        <div style={{ display: 'flex', alignItems: 'baseline', gap: 7 }}>
+          <span style={{ fontSize: 31, lineHeight: 1, fontWeight: 800, color, fontVariantNumeric: 'tabular-nums' }}>{display}</span>
+          <span style={{ fontSize: 14, color: C.darkSub }}>{unit}</span>
+          <span style={{ fontSize: 11, color: statusText === '정상' ? C.success : C.caution }}>{statusText}</span>
+        </div>
+      </div>
+      <div style={{ flex: 1, minHeight: 0, position: 'relative', marginTop: 3 }}>
+        <svg viewBox="0 0 600 108" preserveAspectRatio="none" style={{ width: '100%', height: '100%', display: 'block' }}>
+          {[16, 41, 66, 91].map((y) => <line key={y} x1="0" y1={y} x2="600" y2={y} stroke="rgba(255,255,255,.09)" strokeWidth="1" />)}
+          <text x="2" y="106" fill={C.darkSub} fontSize="10">−60초</text>
+          <text x="575" y="106" fill={C.darkSub} fontSize="10">현재</text>
+          {path && <path d={path} fill="none" stroke={color} strokeWidth="3" vectorEffect="non-scaling-stroke" strokeLinecap="round" strokeLinejoin="round" />}
+        </svg>
+        {!path && (
+          <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', color: C.darkSub, fontSize: 14 }}>
+            MR60BHA2 측정값 대기 중
+          </div>
+        )}
+      </div>
     </div>
   )
 }
