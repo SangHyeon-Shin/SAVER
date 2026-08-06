@@ -46,7 +46,7 @@ SAVER/
 
 | 영역 | 담당 | 도구 |
 |---|---|---|
-| `jetson/` `ui/` | 신상현 | Claude Code |
+| `jetson/` `ui/` | 신상현 | Claude Code, Codex |
 | `teensy/` | 한건민 | Codex |
 | `protocol/` | 공동 | 합의 후 변경 |
 
