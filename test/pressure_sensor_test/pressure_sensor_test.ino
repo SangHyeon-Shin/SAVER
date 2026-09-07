@@ -35,13 +35,11 @@ constexpr float DIVIDER_R_BOTTOM_OHM = 10000.0f;  // A8 to GND.
 constexpr float DIVIDER_RATIO =
     DIVIDER_R_BOTTOM_OHM / (DIVIDER_R_TOP_OHM + DIVIDER_R_BOTTOM_OHM);
 
-/* Candidate curve from teensy/reference/Pressure_logic_esp32.ino.
- * Verify the real sensor model and whether its output means absolute pressure,
- * gauge pressure, or vacuum magnitude before treating this as calibrated kPa. */
-constexpr float SENSOR_MIN_V = 0.5f;
-constexpr float SENSOR_MAX_V = 4.5f;
-constexpr float PRESSURE_MIN_PA = 2500.0f;
-constexpr float PRESSURE_MAX_PA = 700000.0f;
+/*
+ * Pressure conversion is intentionally disabled until the complete XGZP6847A
+ * part number is confirmed.  KPG, KPGN, KPGPN, and the trailing "33" option
+ * use different zero voltages, spans, and pressure directions.
+ */
 
 /* User-adjustable print interval: 100 ms = 10 samples per second. */
 constexpr uint32_t SAMPLE_PERIOD_MS = 100;
@@ -64,14 +62,6 @@ void printMeasurement() {
 
   /* Vin = Vout / divider ratio = Vout * (Rtop + Rbottom) / Rbottom. */
   const float sensorVoltage = adcVoltage / DIVIDER_RATIO;
-  const float referencePressurePa = PRESSURE_MIN_PA +
-      (sensorVoltage - SENSOR_MIN_V) *
-      (PRESSURE_MAX_PA - PRESSURE_MIN_PA) /
-      (SENSOR_MAX_V - SENSOR_MIN_V);
-  const float referencePressureKPa = referencePressurePa / 1000.0f;
-
-  const bool candidateRangeOk =
-      sensorVoltage >= SENSOR_MIN_V && sensorVoltage <= SENSOR_MAX_V;
   const bool adcRail = adcRaw <= 1U || adcRaw >= ADC_MAX_12BIT - 1U;
 
   Serial.print("DATA,ms=");
@@ -82,12 +72,6 @@ void printMeasurement() {
   Serial.print(adcVoltage, 4);
   Serial.print(",sensor_V=");
   Serial.print(sensorVoltage, 4);
-  Serial.print(",pressure_kPa_ref=");
-  Serial.print(referencePressureKPa, 2);
-  Serial.print(",vac_kPa_candidate=");
-  Serial.print(-referencePressureKPa, 2);
-  Serial.print(",candidate_range_ok=");
-  Serial.print(candidateRangeOk ? 1 : 0);
   Serial.print(",adc_rail=");
   Serial.println(adcRail ? 1 : 0);
 }
@@ -95,7 +79,7 @@ void printMeasurement() {
 void printHelp() {
   Serial.println("COMMANDS,READ|START|STOP|HELP");
   Serial.println("NOTE,START_and_STOP_control_USB_output_only");
-  Serial.println("NOTE,kPa_values_use_unverified_reference_curve");
+  Serial.println("NOTE,kPa_output_disabled_until_full_XGZP6847A_part_number_is_confirmed");
 }
 
 void handleCommand(char* line) {
@@ -156,9 +140,11 @@ void setup() {
 
   Serial.println("SAVER_PRESSURE_SENSOR_TEST_READY");
   Serial.println("PIN,A8=22,ADC_BITS=12,ADC_MAX_V=3.3");
-  Serial.println("DIVIDER,sensor_out--4k7--A8--10k--GND,ratio=0.680272");
+  Serial.print("DIVIDER,sensor_out--4k7--A8--10k--GND,ratio=");
+  Serial.println(DIVIDER_RATIO, 6);
   Serial.println("WARNING,sensor_output_must_not_reach_5V,A8_would_exceed_3V3");
-  Serial.println("DATA_HEADER,ms,adc_raw,adc_V,sensor_V,pressure_kPa_ref,vac_kPa_candidate,candidate_range_ok,adc_rail");
+  Serial.println("WARNING,pressure_kPa_disabled_full_sensor_part_number_required");
+  Serial.println("DATA_HEADER,ms,adc_raw,adc_V,sensor_V,adc_rail");
   printHelp();
 }
 
