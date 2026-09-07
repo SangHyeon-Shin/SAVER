@@ -9,6 +9,7 @@ protocol/
     commands.jsonl            Jetson → Teensy 예제 (일부러 불량 줄 5개 포함)
     telemetry.jsonl           Teensy → Jetson 예제
 teensy/
+  pinmap.h                    ★ Teensy 4.1 외곽 핀 0~41 통합 배정
   saver_proto.h               ★ JSON 파서/생성기 — 그대로 쓰세요
   saver_teensy.ino            통신 골격 — [구현] 표시된 곳만 채우면 됩니다
   test_saver_proto.cpp        파서 단위시험 (PC에서 실행, 26개 통과 확인됨)
@@ -36,12 +37,13 @@ g++ -std=c++11 -Wall -o test test_saver_proto.cpp && ./test
 
 **2. Teensy에 골격 올리기**
 
-`saver_teensy.ino` 와 `saver_proto.h` 를 같은 폴더에 두고 업로드하세요.
-모터·센서 코드가 하나도 없어도 이 상태에서 이미 동작합니다.
+`saver_teensy.ino`, `saver_proto.h`, `pinmap.h`를 같은 폴더에 두고 업로드하세요.
+핀에 의존하지 않는 USB 통신은 실제 모터 제어가 없어도 시험할 수 있습니다.
 
 센서 취득 코드까지 컴파일할 때는 Arduino Library Manager에서
 `SparkFun MAX3010x Pulse and Proximity Sensor Library` **1.1.2**를 설치하세요.
-DS18B20은 Teensyduino 1.62에 포함된 `OneWire` 2.3.8을 사용합니다.
+온도 센서는 DS18B20 대신 2선 NTC를 `A0/14`의 분압 ADC로 사용합니다. NTC의
+`R25`, B값과 고정저항이 확정되기 전에는 온도값을 만들지 않고 필드를 생략합니다.
 
 **3. 시리얼 모니터로 확인**
 

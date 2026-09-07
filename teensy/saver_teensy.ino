@@ -20,7 +20,6 @@
  * 통신 계층과 제어 계층을 섞지 마세요. 제어 루프는 아래 controlTick() 안에서만
  * 돌리고, 통신은 이 파일이 알아서 합니다. 그래야 통신이 막혀도 제어가 안 멈춥니다.
  * ==========================================================================*/
-#include <OneWire.h>
 #include <Wire.h>
 #include <MAX30105.h>       /* SparkFun MAX3010x library 1.1.2 */
 #include <spo2_algorithm.h>
@@ -53,9 +52,6 @@ const float ADC_REFERENCE_V          = 3.3f;
 const float PRESSURE_MIN_PA          = 2500.0f;
 const float PRESSURE_MAX_PA          = 700000.0f;
 const uint8_t PRESSURE_VALID_SAMPLES = 2;
-const uint32_t DS18B20_CONVERSION_MS = 750;
-const uint32_t DS18B20_RETRY_MS      = 1000;
-const uint32_t DS18B20_STALE_MS      = 2000;
 const uint32_t MAX30102_POLL_MS      = 10;
 const uint32_t MAX30102_STALE_MS     = 1000;
 
@@ -95,115 +91,6 @@ struct Sensors {
   bool  ppg_hr_ok, spo2_ok, ppg_sqi_ok, temp_ok, fan_ok;
   bool  estop, limit_top, limit_bottom, vac_leak;
 } g_s;
-
-/* DS18B20은 750 ms 변환 대기를 delay()로 막지 않고 여러 controlTick()에 나눈다.
- * pinmap상 이 1-Wire 버스에는 DS18B20 한 개만 연결되므로 Skip ROM을 사용한다. */
-class Ds18b20Reader {
- public:
-  explicit Ds18b20Reader(uint8_t pin)
-      : pin_(pin), phase_(START_RESET), phaseAtMs_(0), lastGoodMs_(0),
-        dataIndex_(0) {}
-
-  void begin() {
-    bus_.begin(pin_);
-    phase_ = START_RESET;
-    phaseAtMs_ = 0;
-    lastGoodMs_ = 0;
-    dataIndex_ = 0;
-  }
-
-  void tick(Sensors& sensors, uint32_t nowMs) {
-    if (lastGoodMs_ == 0 || nowMs - lastGoodMs_ > DS18B20_STALE_MS) {
-      sensors.temp_ok = false;
-    }
-
-    switch (phase_) {
-      case START_RESET:
-        if ((int32_t)(nowMs - phaseAtMs_) < 0) return;
-        if (!bus_.reset()) {
-          fail(sensors, nowMs);
-          return;
-        }
-        phase_ = START_CONVERSION;
-        return;
-
-      case START_CONVERSION:
-        bus_.skip();
-        bus_.write(0x44);  /* Convert T; 외부 전원형(3선식), strong pull-up 불필요. */
-        phaseAtMs_ = nowMs;
-        phase_ = WAIT_CONVERSION;
-        return;
-
-      case WAIT_CONVERSION:
-        if (nowMs - phaseAtMs_ < DS18B20_CONVERSION_MS) return;
-        phase_ = READ_RESET;
-        return;
-
-      case READ_RESET:
-        if (!bus_.reset()) {
-          fail(sensors, nowMs);
-          return;
-        }
-        phase_ = START_READ;
-        return;
-
-      case START_READ:
-        bus_.skip();
-        bus_.write(0xBE);  /* Read Scratchpad. */
-        dataIndex_ = 0;
-        phase_ = READ_BYTES;
-        return;
-
-      case READ_BYTES:
-        data_[dataIndex_++] = bus_.read();
-        if (dataIndex_ < sizeof data_) return;
-        finishRead(sensors, nowMs);
-        return;
-    }
-  }
-
- private:
-  enum Phase {
-    START_RESET,
-    START_CONVERSION,
-    WAIT_CONVERSION,
-    READ_RESET,
-    START_READ,
-    READ_BYTES
-  };
-
-  void fail(Sensors& sensors, uint32_t nowMs) {
-    sensors.temp_ok = false;  /* 마지막 값은 보존하고 유효성만 내린다. */
-    phase_ = START_RESET;
-    phaseAtMs_ = nowMs + DS18B20_RETRY_MS;
-    dataIndex_ = 0;
-  }
-
-  void finishRead(Sensors& sensors, uint32_t nowMs) {
-    bool crcOk = (OneWire::crc8(data_, 8) == data_[8]);
-    int16_t raw = (int16_t)(((uint16_t)data_[1] << 8) | data_[0]);
-    float tempC = (float)raw / 16.0f;
-
-    if (crcOk && tempC >= -20.0f && tempC <= 120.0f) {
-      sensors.temp_C = tempC;
-      sensors.temp_ok = true;
-      lastGoodMs_ = nowMs;
-      phase_ = START_RESET;
-      phaseAtMs_ = nowMs;
-      dataIndex_ = 0;
-    } else {
-      fail(sensors, nowMs);
-    }
-  }
-
-  uint8_t pin_;
-  OneWire bus_;
-  Phase phase_;
-  uint32_t phaseAtMs_;
-  uint32_t lastGoodMs_;
-  uint8_t data_[9];
-  uint8_t dataIndex_;
-};
 
 /* SparkFun Example8의 MAX30102 호환 설정과 Maxim 알고리즘을 비차단 수집으로 옮겼다.
  * 유효 플래그가 나온 HR/SpO2만 공개하며, 저장소에 정의가 없는 SQI는 공개하지 않는다. */
@@ -314,11 +201,6 @@ class Max30102Reader {
   uint32_t lastSampleMs_;
 };
 
-Ds18b20Reader& tempReader() {
-  static Ds18b20Reader reader(PIN_DS18B20);
-  return reader;
-}
-
 Max30102Reader& ppgReader() {
   static Max30102Reader reader;
   return reader;
@@ -363,9 +245,17 @@ void sendTel() {
 
 /* ──────────────────────── 4. 안전 · 고장 ──────────────────────── */
 void motorsOff() {
-  analogWrite(PIN_CP_MOTOR_VSP, 0);
-  digitalWrite(PIN_CP_MOTOR_EN, LOW);
-  /* 명세 §7: 음압 유지. PIN_VAC_MOTOR_VSP/EN 은 변경하지 않는다. */
+  /* 구동계 프로토콜은 아직 없지만, 위험 정지 시 두 BTS7960에 정지 논리값을 쓴다. */
+  analogWrite(PIN_DRIVE1_RPWM, 0);
+  analogWrite(PIN_DRIVE1_LPWM, 0);
+  analogWrite(PIN_DRIVE2_RPWM, 0);
+  analogWrite(PIN_DRIVE2_LPWM, 0);
+  digitalWrite(PIN_DRIVE1_EN, LOW);
+  digitalWrite(PIN_DRIVE2_EN, LOW);
+
+  /* [구현] 압박 드라이버 UART 정지 명령: baud와 명령 형식 확정 전에는 송신 금지. */
+
+  /* 명세 §7: 음압 유지. PIN_VAC1/2_VSP 및 PIN_VAC1/2_EN은 변경하지 않는다. */
 }
 
 void raiseFault(const char* code, int sev, const char* why) {
@@ -607,7 +497,6 @@ void controlTick() {
   g_s.limit_bottom = (digitalRead(PIN_LIMIT_BOTTOM) == HIGH);
 
   readPressureSensor(g_s);
-  tempReader().tick(g_s, millis());
   ppgReader().tick(g_s, millis());
 
   /* 저장소에 N/mm/A 환산 보정값과 엔코더 PPR·기구비가 없다.
@@ -616,6 +505,8 @@ void controlTick() {
   g_s.depth_ok = false;
   g_s.force_ok = false;
   g_s.motor_i_ok = false;
+  /* 2선 NTC의 R25/B값/분압 저항이 미확정이므로 마지막 값은 보존하고 생략한다. */
+  g_s.temp_ok = false;
   g_s.fan_ok = false;
 
   if (I_LIMIT_A > 0.0f && g_s.motor_i_ok && g_s.motor_i_A > I_LIMIT_A) {
@@ -626,40 +517,64 @@ void controlTick() {
 /* ──────────────────────────── 9. 진입점 ──────────────────────────── */
 void setup() {
   /* 출력 래치를 먼저 LOW 로 두어 OUTPUT 전환 순간에도 구동 신호가 올라가지 않게 한다. */
-  digitalWrite(PIN_CP_MOTOR_VSP, LOW);
-  digitalWrite(PIN_VAC_MOTOR_VSP, LOW);
-  digitalWrite(PIN_COOLING_FAN, LOW);
-  digitalWrite(PIN_CP_MOTOR_EN, LOW);
-  digitalWrite(PIN_VAC_MOTOR_EN, LOW);
+  digitalWrite(PIN_VAC1_VSP, LOW);
+  digitalWrite(PIN_VAC1_EN, LOW);
+  digitalWrite(PIN_VAC2_VSP, LOW);
+  digitalWrite(PIN_VAC2_EN, LOW);
+  digitalWrite(PIN_FAN1_PWM, LOW);
+  digitalWrite(PIN_FAN2_PWM, LOW);
+  digitalWrite(PIN_DRIVE1_RPWM, LOW);
+  digitalWrite(PIN_DRIVE1_LPWM, LOW);
+  digitalWrite(PIN_DRIVE1_EN, LOW);
+  digitalWrite(PIN_DRIVE2_RPWM, LOW);
+  digitalWrite(PIN_DRIVE2_LPWM, LOW);
+  digitalWrite(PIN_DRIVE2_EN, LOW);
 
-  pinMode(PIN_CP_MOTOR_VSP, OUTPUT);
-  pinMode(PIN_VAC_MOTOR_VSP, OUTPUT);
-  pinMode(PIN_COOLING_FAN, OUTPUT);
-  pinMode(PIN_CP_MOTOR_EN, OUTPUT);
-  pinMode(PIN_VAC_MOTOR_EN, OUTPUT);
+  pinMode(PIN_VAC1_VSP, OUTPUT);
+  pinMode(PIN_VAC1_EN, OUTPUT);
+  pinMode(PIN_VAC2_VSP, OUTPUT);
+  pinMode(PIN_VAC2_EN, OUTPUT);
+  pinMode(PIN_FAN1_PWM, OUTPUT);
+  pinMode(PIN_FAN2_PWM, OUTPUT);
+  pinMode(PIN_DRIVE1_RPWM, OUTPUT);
+  pinMode(PIN_DRIVE1_LPWM, OUTPUT);
+  pinMode(PIN_DRIVE1_EN, OUTPUT);
+  pinMode(PIN_DRIVE2_RPWM, OUTPUT);
+  pinMode(PIN_DRIVE2_LPWM, OUTPUT);
+  pinMode(PIN_DRIVE2_EN, OUTPUT);
 
   /* 외부 회로의 바이어스와 레벨 변환을 사용하며 내부 pull-up은 가정하지 않는다. */
-  pinMode(PIN_VAC_MOTOR_ERR, INPUT);
-  pinMode(PIN_VAC_MOTOR_RUN, INPUT);
+  pinMode(PIN_CP_UART_RX, INPUT);
+  pinMode(PIN_CP_UART_TX, INPUT);  /* Serial7 미초기화: 드라이버 명령 확정 전까지 high-Z. */
+  pinMode(PIN_VAC1_ERR, INPUT);
+  pinMode(PIN_VAC1_RUN, INPUT);
+  pinMode(PIN_VAC1_FG, INPUT);
+  pinMode(PIN_VAC2_ERR, INPUT);
+  pinMode(PIN_VAC2_RUN, INPUT);
+  pinMode(PIN_VAC2_FG, INPUT);
   pinMode(PIN_LIMIT_TOP, INPUT);
   pinMode(PIN_LIMIT_BOTTOM, INPUT);
   pinMode(PIN_ESTOP, INPUT);
-  pinMode(PIN_ENCODER_A, INPUT);
-  pinMode(PIN_ENCODER_B, INPUT);
-  pinMode(PIN_HALL_SENSOR, INPUT);
-  pinMode(PIN_VAC_MOTOR_FG, INPUT);
+  pinMode(PIN_CP_ENCODER_A, INPUT);
+  pinMode(PIN_CP_ENCODER_B, INPUT);
+  pinMode(PIN_CP_HALL, INPUT);
+  pinMode(PIN_FAN1_TACH, INPUT);
+  pinMode(PIN_FAN2_TACH, INPUT);
+  pinMode(PIN_DRIVE1_ENCODER_A, INPUT);
+  pinMode(PIN_DRIVE1_ENCODER_B, INPUT);
+  pinMode(PIN_DRIVE2_ENCODER_A, INPUT);
+  pinMode(PIN_DRIVE2_ENCODER_B, INPUT);
 
+  pinMode(PIN_TEMPERATURE_NTC, INPUT);
   pinMode(PIN_PRESSURE_SENSOR, INPUT);
-  pinMode(PIN_LOAD_CELL, INPUT);
+  pinMode(PIN_LOAD_CELL_ADC_RESERVED, INPUT);
   pinMode(PIN_LINEAR_SENSOR, INPUT);
   pinMode(PIN_CURRENT_SENSOR, INPUT);
   pinMode(PIN_MAX30102_SDA, INPUT);
   pinMode(PIN_MAX30102_SCL, INPUT);
-  pinMode(PIN_DS18B20, INPUT);
 
   analogReadResolution(12);
   Serial.begin(115200);          /* Teensy 4.1 네이티브 USB 는 이 값을 무시함 */
-  tempReader().begin();
   ppgReader().begin();
   g_lastRx = millis();
   sendEvt("BOOT");
