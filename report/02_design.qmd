@@ -19,4 +19,4 @@
 
 @fig-loadpath 는 하중 경로와 경계조건 개요다.
 
-![하중 경로 및 경계조건](../saver_load_path_and_boundary_conditions.svg){#fig-loadpath}
+![하중 경로 및 경계조건](figures/saver_load_path_and_boundary_conditions.png){#fig-loadpath}

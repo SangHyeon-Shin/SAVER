@@ -50,5 +50,6 @@ jetson/config.local.json
 # 변환 산출물
 release/_build/
 report/.quarto/
+report/_build/
 *.docx
 !report/templates/*.docx

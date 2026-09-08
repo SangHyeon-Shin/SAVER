@@ -10,8 +10,20 @@ mkdir -p "$OUT"
 QMDS=(index.qmd 01_intro.qmd 02_design.qmd 03_verification.qmd 04_conclusion.qmd 90_appendix.qmd)
 
 if command -v quarto >/dev/null 2>&1; then
-  echo "[render] quarto 렌더링"
-  (cd "$HERE" && quarto render)
+  if [ -f "$HERE/templates/ksme-reference.docx" ]; then
+    echo "[render] quarto 렌더링 (KSME 양식 적용: templates/ksme-reference.docx)"
+    (cd "$HERE" && quarto render --metadata reference-doc=templates/ksme-reference.docx)
+  else
+    echo "[render] quarto 렌더링 (기본 양식 — templates/ksme-reference.docx 없음)"
+    (cd "$HERE" && quarto render)
+  fi
+  # quarto는 프로젝트 디렉터리 밖으로 출력할 때 정리를 거부하므로 report/_build 에
+  # 렌더링한 뒤 배포 위치(release/_build)로 복사한다.
+  rm -rf "$OUT"
+  mkdir -p "$OUT"
+  cp -R "$HERE/_build/." "$OUT/"
+  echo "[render] 배포 위치로 복사 완료: $OUT"
+  ls "$OUT"/*.docx 2>/dev/null | while IFS= read -r d; do echo "[render] docx: $d"; done
   exit 0
 fi
 

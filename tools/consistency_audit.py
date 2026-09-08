@@ -20,7 +20,7 @@ STATE = os.path.join(ROOT, "docs", "PROJECT_STATE.md")
 
 SKIP_DIRS = {".git", "node_modules", "dist", "dist-single", "__pycache__",
              ".venv", "docs/specs", "sources/original", "data/raw"}
-TEXT_EXT = {".md",".qmd",".txt",".py",".js",".jsx",".json",".h",".cpp",".ino",".csv",".bib"}
+TEXT_EXT = {".md",".qmd",".txt",".py",".js",".jsx",".json",".h",".cpp",".ino",".csv",".bib",".svg"}
 
 # (이름, 정답값, 단위, 이 값을 나타내는 것으로 보이는 숫자를 찾는 정규식)
 def load_canonical():
