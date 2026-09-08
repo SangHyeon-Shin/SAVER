@@ -13,9 +13,10 @@
  *   - 실제 모터 PID/PWM, 엔코더 환산, 로드셀·변위·전류 센서 보정
  *
  * 이전 작업 참고:  teensy/reference/
- *   음압 모터 드라이버 신호(ERR/RUN/EN/VSP/FG), 압력센서 변환식,
+ *   음압 모터 드라이버 신호(ERR/RUN/EN/VSP), 압력센서 변환식,
  *   목표 음압 후보값, PCB 회로도가 거기 정리돼 있습니다.
  *   ※ 그 코드는 ESP32-S3 기준이라 핀 번호와 ADC 분해능이 다릅니다.
+ *   ※ 2026-09-08: 음압 FG는 미사용. 32/37번은 예비이며 RPM을 취득하지 않습니다.
  *
  * 통신 계층과 제어 계층을 섞지 마세요. 제어 루프는 아래 controlTick() 안에서만
  * 돌리고, 통신은 이 파일이 알아서 합니다. 그래야 통신이 막혀도 제어가 안 멈춥니다.
@@ -538,10 +539,8 @@ void setup() {
   pinMode(PIN_CP_UART_TX, INPUT);  /* Serial7 미초기화: 드라이버 명령 확정 전까지 high-Z. */
   pinMode(PIN_VAC1_ERR, INPUT);
   pinMode(PIN_VAC1_RUN, INPUT);
-  pinMode(PIN_VAC1_FG, INPUT);
   pinMode(PIN_VAC2_ERR, INPUT);
   pinMode(PIN_VAC2_RUN, INPUT);
-  pinMode(PIN_VAC2_FG, INPUT);
   pinMode(PIN_LIMIT_TOP, INPUT);
   pinMode(PIN_LIMIT_BOTTOM, INPUT);
   pinMode(PIN_ESTOP, INPUT);

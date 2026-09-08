@@ -4,7 +4,7 @@
 #include <Arduino.h>
 
 /*
- * SAVER Teensy 4.1 pin assignment (2026-09-06)
+ * SAVER Teensy 4.1 pin assignment (2026-09-08, vacuum FG removed)
  *
  * This map uses only the outer 0..41 through-hole pins.  The underside
  * 42..54 pads are intentionally unused, so no QSPI-pad lead soldering is
@@ -16,7 +16,7 @@
  *
  * Consequence of the dense outer-pin map:
  *   Serial1..6, Serial8, Wire1, Wire2 and the canonical SPI CS pin 10 are
- *   consumed as GPIO.  Pins 11/12/13 remain physically free, but a complete
+ *   consumed as GPIO.  Pins 11/12/13/32/37 remain physically free, but a complete
  *   default SPI allocation is not reserved.
  *
  * PWM frequency groups (Teensyduino 1.62.0 cores/teensy4/pwm.c):
@@ -39,19 +39,20 @@ constexpr uint8_t PIN_CP_ENCODER_A = 30; // Interrupt-capable outer pin adjacent
 constexpr uint8_t PIN_CP_ENCODER_B = 31; // Interrupt-capable outer pin adjacent to encoder A.
 constexpr uint8_t PIN_CP_HALL      = 39; // Remaining outer interrupt input, separated from both encoder pairs.
 
-/* Vacuum motor 1.  RUN/ERR/FG are motor-to-Teensy status signals. */
+/* Vacuum motor 1. RUN/ERR are motor-to-Teensy status signals.
+ * Both vacuum FG outputs are intentionally disconnected: no RPM acquisition.
+ * The supplied motor sheet labels FG as 5 V pulses and +5 V as a panel-power
+ * OUTPUT. Insulate both unused leads; do not connect +5 V to Teensy VIN/3.3 V. */
 constexpr uint8_t PIN_VAC1_VSP = 24; // FlexPWM1_2_X gives vacuum 1 its own PWM-frequency group.
 constexpr uint8_t PIN_VAC1_RUN = 25; // Status input beside VSP for a compact vacuum-1 harness.
 constexpr uint8_t PIN_VAC1_EN  = 26; // Dedicated output lets vacuum 1 be disabled independently.
 constexpr uint8_t PIN_VAC1_ERR = 27; // Error input beside EN; external circuitry must limit it to 3.3 V.
-constexpr uint8_t PIN_VAC1_FG  = 32; // Interrupt-capable pulse input outside the active UART and I2C buses.
 
 /* Vacuum motor 2. */
 constexpr uint8_t PIN_VAC2_VSP = 33; // FlexPWM2_0_B is independent of vacuum 1 and both fan PWM groups.
 constexpr uint8_t PIN_VAC2_RUN = 34; // Status input next to the other vacuum-2 control signals.
 constexpr uint8_t PIN_VAC2_EN  = 35; // Dedicated output lets vacuum 2 be disabled independently.
 constexpr uint8_t PIN_VAC2_ERR = 36; // Error input next to EN; external circuitry must limit it to 3.3 V.
-constexpr uint8_t PIN_VAC2_FG  = 37; // Interrupt-capable speed-pulse input beside the vacuum-2 harness.
 
 /* Two independent 4-wire cooling fans. */
 constexpr uint8_t PIN_FAN1_PWM  = 5;  // FlexPWM2_1_A gives fan 1 an independent PWM-frequency group.
@@ -89,7 +90,10 @@ constexpr uint8_t PIN_DRIVE2_EN        = 10; // Separate enable permits module 2
 constexpr uint8_t PIN_DRIVE2_ENCODER_A = 20; // Interrupt-capable outer pin adjacent to drive-2 encoder B.
 constexpr uint8_t PIN_DRIVE2_ENCODER_B = 21; // Interrupt-capable outer pin adjacent to drive-2 encoder A.
 
-/* Pins 11, 12 and 13 remain unassigned.  BTS7960 R_IS/L_IS are not connected. */
+/* Pins 11, 12, 13, 32 and 37 remain unassigned.
+ * Pin 32: freed from vacuum-1 FG; no setup/read/interrupt registration.
+ * Pin 37: freed from vacuum-2 FG; no setup/read/interrupt registration.
+ * BTS7960 R_IS/L_IS are not connected. */
 
 static_assert(A0 == 14 && A8 == 22 && A9 == 23 && A16 == 40 && A17 == 41,
               "pinmap.h requires the Teensy 4.1 analog pin mapping");
