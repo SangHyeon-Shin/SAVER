@@ -1,0 +1,38 @@
+project:
+  type: book
+  output-dir: ../release/_build
+
+book:
+  title: "강성 매핑 기반 압박점 자동 탐색과 음압 지면 고정을 적용한 심폐소생 보조장치(SAVER)의 설계 및 검증"
+  author: "신상현, 서정준, 한건민, 한성윤 (지도교수 양다솜)"
+  date: "2026-09-16"
+  chapters:
+    - index.qmd
+    - 01_intro.qmd
+    - 02_design.qmd
+    - 03_verification.qmd
+    - 04_conclusion.qmd
+  appendices:
+    - 90_appendix.qmd
+
+bibliography: refs.bib
+lang: ko
+
+format:
+  docx:
+    reference-doc: templates/ksme-reference.docx
+    number-sections: true
+    toc: false
+    fig-align: center
+  html:
+    theme: cosmo
+    number-sections: true
+
+crossref:
+  fig-title: "그림"
+  tbl-title: "표"
+  fig-prefix: "그림"
+  tbl-prefix: "표"
+  eq-prefix: "식"
+  labels: arabic
+  subref-labels: alpha a

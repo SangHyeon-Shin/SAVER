@@ -1,0 +1,7 @@
+claim_id,claim,source,level,verified_date,note
+C1,진공 목표압력 -22.5 kPa 유지 가능,firmware 소스 + T1 시험,tested,2026-09-07,장비 완비
+C2,최대 압박력 555.1 N,정역학 해석 (analysis/),simulated,2026-09-07,실측 아님. 하중셀 재선정 근거로만 사용
+C3,진공 유지력 상한 290 N,CFD (cfd/),simulated,2026-09-07,dead-head 가정. 보고서에 설계 한계로 명시할 것
+C4,강성 급감 지점 = 검상돌기 판정 절차,W9_한성윤_알고리즘_설계서.pdf,assumed,2026-09-07,문헌·설계 가정. 본 과제에서 임상 검증 안 함. 2026-08-03 공개됨
+C5,EAPD 산출식으로 목표 깊이 계산,W11_한성윤_마네킹_기반_시험_프로토콜_v1.pdf,planned,2026-09-07,마네킹 시험 결과 대기 (09-09 이후)
+C6,Jetson Nano 자동화 시험 40/40 통과,jetson/ 실기 로그,tested,2026-09-07,SW 단독 검증. 전체 시스템 통합시험 아님

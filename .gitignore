@@ -33,3 +33,22 @@ jetson/config.local.json
 .vscode/
 .idea/
 *.swp
+
+# ---- SAVER HQ 보정 (2026-09-07) ----
+# 기존 규칙의 `*.csv` 전역 무시 때문에 docs/*.csv 가 커밋되지 않는다.
+# 관리용 CSV는 반드시 추적한다.
+!docs/requirements.csv
+!docs/evidence.csv
+!docs/file-index.csv
+!cfd/runs.csv
+!data/processed/*.csv
+
+# 실험 원본은 추적한다. 용량이 큰 것만 개별 제외한다.
+!data/raw/
+!data/raw/**
+
+# 변환 산출물
+release/_build/
+report/.quarto/
+*.docx
+!report/templates/*.docx
