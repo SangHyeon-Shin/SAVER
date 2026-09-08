@@ -53,3 +53,8 @@ report/.quarto/
 report/_build/
 *.docx
 !report/templates/*.docx
+
+# 추출 평문은 추적하지 않는다. 원본이 이미 공개되었더라도 평문화하면
+# 검색·색인 가능해져 노출 수준이 달라진다. private SAVER-docs 에서는 이 줄을 지운다.
+sources/extracted/*
+!sources/extracted/.gitkeep
