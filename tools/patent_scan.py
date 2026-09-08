@@ -32,16 +32,17 @@ WARN = [r"강성\s*매핑", r"stiffness\s*map", r"EAPD", r"검상\s*돌기", r"x
 
 SKIP_DIRS = {".git", "node_modules", "dist", "dist-single", "__pycache__", ".venv"}
 
-# 이 파일들은 검사 대상에서 제외한다. 스캐너 자신과 관리 문서는
-# 정의상 키워드를 포함하므로 검사하면 항상 걸린다.
+# 스캐너 자신만 제외한다. 패턴 목록을 담고 있어 검사하면 항상 걸린다.
+#
+# 내용 문서는 여기 넣지 않는다. 예전에 PROJECT_STATE.md·document_index.md·
+# DECISIONS.md·AGENTS.md 가 들어 있었고, 그 탓에 PROJECT_STATE.md 의 출원
+# 일정과 document_index.md 의 명세 문서 목록이 public 저장소에 올라간 채
+# 한 번도 걸리지 않았다. 문서가 키워드를 정말 써야 한다면 SELF_EXEMPT 가
+# 아니라 아래 ALLOW_MARKER 를 파일 안에 남긴다 — 그래야 왜 예외인지가
+# 파일 자체에 보인다.
 SELF_EXEMPT = {
     "tools/patent_scan.py",
     "tools/patent_scan.cfg",
-    "docs/PROJECT_STATE.md",
-    "docs/document_index.md",
-    "docs/DECISIONS.md",
-    "AGENTS.md",
-    "CLAUDE.md",
     ".git/hooks/pre-commit",
 }
 # 파일 어디에든 이 문자열이 있으면 그 파일은 검사에서 제외된다.
