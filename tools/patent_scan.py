@@ -50,9 +50,24 @@ TEXT_EXT = {".md",".txt",".py",".js",".jsx",".mjs",".cjs",".json",".yml",".yaml"
             ".qmd",".bib",".csv",".h",".cpp",".ino",".sh",".cfg",".toml"}
 
 def is_private():
+    """tools/patent_scan.cfg 에 PRIVATE=1 이 있으면 검사를 건너뛴다.
+
+    PowerShell 의 `>` 는 파일을 UTF-16LE 로 쓴다. 설정 파일 하나 때문에
+    커밋 훅 전체가 죽지 않도록 인코딩을 관대하게 처리한다.
+    """
     cfg = os.path.join(HERE, "patent_scan.cfg")
-    if os.path.exists(cfg):
-        return "PRIVATE=1" in open(cfg, encoding="utf8").read()
+    if not os.path.exists(cfg):
+        return False
+    try:
+        raw = open(cfg, "rb").read()
+    except (IOError, OSError):
+        return False
+    for enc in ("utf-8-sig", "utf-16", "utf-8", "cp949", "latin-1"):
+        try:
+            if "PRIVATE=1" in raw.decode(enc):
+                return True
+        except (UnicodeDecodeError, UnicodeError):
+            continue
     return False
 
 def files_to_check(all_files):
