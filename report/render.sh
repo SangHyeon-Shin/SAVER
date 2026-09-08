@@ -31,7 +31,17 @@ if command -v pandoc >/dev/null 2>&1; then
   echo "[render] quarto 없음 -> pandoc 대체 변환 (교차참조 자동 번호화 안 됨)"
   : > "$OUT/_merged.md"
   for f in "${QMDS[@]}"; do cat "$HERE/$f" >> "$OUT/_merged.md"; echo "" >> "$OUT/_merged.md"; done
-  pandoc "$OUT/_merged.md" --from=markdown --to=docx -o "$OUT/report.docx"
+  # _merged.md 는 release/_build 에 있으므로 figures/ 상대경로가 report/ 기준으로
+  # 풀리도록 --resource-path 를 넘긴다. 없으면 그림이 조용히 누락된다.
+  REF=()
+  if [ -f "$HERE/templates/ksme-reference.docx" ]; then
+    REF=(--reference-doc="$HERE/templates/ksme-reference.docx")
+  fi
+  pandoc "$OUT/_merged.md" --from=markdown --to=docx \
+    --resource-path="$HERE" \
+    --bibliography="$HERE/refs.bib" --citeproc \
+    --number-sections "${REF[@]}" \
+    -o "$OUT/report.docx"
   echo "[render] 완료: $OUT/report.docx (pandoc)"
   exit 0
 fi
