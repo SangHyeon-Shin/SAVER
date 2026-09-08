@@ -49,8 +49,8 @@ constexpr uint8_t PWM_MAX = 255;
  * 예: 10% -> 20%로 바꾸려면 DEFAULT_DUTY_PERCENT = 20;
  * 기본 작동시간도 필요하면 DEFAULT_RUN_MS를 밀리초 단위로 수정할 수 있습니다.
  * ======================================================================== */
-constexpr uint8_t DEFAULT_DUTY_PERCENT = 10;  // <<< 기본 PWM 듀티비: 여기 수정
-constexpr uint32_t DEFAULT_RUN_MS = 5000;     // <<< 기본 작동시간: 5000 ms = 5초
+constexpr uint8_t DEFAULT_DUTY_PERCENT = 6;  // <<< 기본 PWM 듀티비: 여기 수정
+constexpr uint32_t DEFAULT_RUN_MS = 15000;     // <<< 기본 작동시간: 5000 ms = 5초
 
 constexpr uint32_t MIN_RUN_MS = 100;
 constexpr uint32_t MAX_RUN_MS = 30000;

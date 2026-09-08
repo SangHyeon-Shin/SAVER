@@ -49,9 +49,10 @@ const float RATE_TARGET_CPM = 110.0f; /* 확정됨: BPM 110 */
 /* 센서 데이터시트/reference에 근거한 취득 설정. 의료 판단 임계값이 아니다. */
 const uint16_t ADC_MAX_12BIT          = 4095;
 const float ADC_REFERENCE_V          = 3.3f;
-const float PRESSURE_MIN_PA          = 2500.0f;
-const float PRESSURE_MAX_PA          = 700000.0f;
-const uint8_t PRESSURE_VALID_SAMPLES = 2;
+const float PRESSURE_R_TOP_OHM       = 4700.0f;  /* 센서 OUT -> A8 */
+const float PRESSURE_R_BOTTOM_OHM    = 10000.0f; /* A8 -> GND */
+const float PRESSURE_DIVIDER_RATIO   =
+    PRESSURE_R_BOTTOM_OHM / (PRESSURE_R_TOP_OHM + PRESSURE_R_BOTTOM_OHM);
 const uint32_t MAX30102_POLL_MS      = 10;
 const uint32_t MAX30102_STALE_MS     = 1000;
 
@@ -452,35 +453,24 @@ void commWatchdog() {
 
 /* ──────────────────── 8. 실시간 제어 (한건민 영역) ──────────────────── */
 void readPressureSensor(Sensors& sensors) {
-  static uint8_t consecutiveValid = 0;
   sensors.vac_ok = false;  /* 실패 시 마지막 수치 자체는 덮어쓰지 않는다. */
 
   uint16_t adcValue = (uint16_t)analogRead(PIN_PRESSURE_SENSOR);
   if (adcValue == 0 || adcValue >= ADC_MAX_12BIT) {
-    consecutiveValid = 0;
     return;
   }
 
-  /* reference/Pressure_logic_esp32.ino의 식을 12-bit Teensy ADC에 그대로 적용. */
-  float voltage = (float)adcValue * (ADC_REFERENCE_V / (float)ADC_MAX_12BIT);
-  if (voltage < 0.5f) {
-    consecutiveValid = 0;
-    return;  /* 센서 명시 출력 하한보다 낮으면 미연결/실패 취급. */
-  }
+  const float adcVoltage =
+      (float)adcValue * (ADC_REFERENCE_V / (float)ADC_MAX_12BIT);
+  const float sensorVoltage = adcVoltage / PRESSURE_DIVIDER_RATIO;
+  (void)sensorVoltage;
 
-  float pressurePa = PRESSURE_MIN_PA
-      + (voltage - 0.5f) * (PRESSURE_MAX_PA - PRESSURE_MIN_PA) / 4.0f;
-  float vacKPa = -pressurePa / 1000.0f;  /* 명세 §6: 음압 게이지압은 음수. */
-  if (vacKPa < -80.0f || vacKPa > 0.0f) {
-    consecutiveValid = 0;
-    return;
-  }
-
-  if (consecutiveValid < PRESSURE_VALID_SAMPLES) ++consecutiveValid;
-  if (consecutiveValid < PRESSURE_VALID_SAMPLES) return;
-
-  sensors.vac_kPa = vacKPa;
-  sensors.vac_ok = true;
+  /*
+   * [구현] 센서 전체 품번을 확인한 뒤 해당 XGZP6847A 모델의 게이지압
+   * 변환식을 적용한다. KPG/KPGN/KPGPN, 압력 범위, 끝의 33 유무에 따라
+   * 영점 전압과 V/kPa가 달라진다. 확정 전에는 vac_kPa를 쓰거나 vac_ok를
+   * true로 만들지 않는다. 측정 불가 필드는 telemetry에서 자동 생략된다.
+   */
 }
 
 void controlTick() {

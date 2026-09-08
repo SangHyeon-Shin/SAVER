@@ -61,12 +61,11 @@ constexpr float PRESSURE_R_BOTTOM_OHM = 10000.0f; // A8 to GND.
 constexpr float PRESSURE_DIVIDER_RATIO =
     PRESSURE_R_BOTTOM_OHM / (PRESSURE_R_TOP_OHM + PRESSURE_R_BOTTOM_OHM);
 
-/* Candidate transfer function copied from teensy/reference/Pressure_logic_esp32.ino.
- * Its absolute/gauge-pressure meaning still requires a real-sensor check. */
-constexpr float PRESSURE_SENSOR_MIN_V = 0.5f;
-constexpr float PRESSURE_SENSOR_MAX_V = 4.5f;
-constexpr float PRESSURE_MIN_PA = 2500.0f;
-constexpr float PRESSURE_MAX_PA = 700000.0f;
+/*
+ * Pressure conversion is intentionally disabled until the complete XGZP6847A
+ * part number is confirmed.  The suffix selects pressure direction, span, and
+ * supply/output range, so a family-wide kPa equation would be unsafe.
+ */
 constexpr uint32_t TELEMETRY_PERIOD_MS = 100;
 constexpr uint32_t MIN_RUN_MS = 100;
 constexpr uint32_t MAX_RUN_MS = 30000;
@@ -143,16 +142,7 @@ void printPressureAndStatus() {
   const uint16_t raw = (uint16_t)analogRead(PIN_PRESSURE);
   const float adcVoltage = (float)raw * ADC_REFERENCE_V / (float)ADC_MAX;
   const float sensorVoltage = adcVoltage / PRESSURE_DIVIDER_RATIO;
-  const float referencePressurePa = PRESSURE_MIN_PA +
-      (sensorVoltage - PRESSURE_SENSOR_MIN_V) *
-      (PRESSURE_MAX_PA - PRESSURE_MIN_PA) /
-      (PRESSURE_SENSOR_MAX_V - PRESSURE_SENSOR_MIN_V);
-  const float referencePressureKPa = referencePressurePa / 1000.0f;
-  const float vacuumKPaCandidate = -referencePressureKPa;
   const bool atAdcRail = (raw <= 1U || raw >= ADC_MAX - 1U);
-  const bool inCandidateSensorRange =
-      (sensorVoltage >= PRESSURE_SENSOR_MIN_V &&
-       sensorVoltage <= PRESSURE_SENSOR_MAX_V);
 
   Serial.print("DATA,ms=");
   Serial.print(millis());
@@ -162,12 +152,6 @@ void printPressureAndStatus() {
   Serial.print(adcVoltage, 4);
   Serial.print(",sensor_V=");
   Serial.print(sensorVoltage, 4);
-  Serial.print(",pressure_kPa_ref=");
-  Serial.print(referencePressureKPa, 2);
-  Serial.print(",vac_kPa_candidate=");
-  Serial.print(vacuumKPaCandidate, 2);
-  Serial.print(",candidate_range_ok=");
-  Serial.print(inCandidateSensorRange ? 1 : 0);
   Serial.print(",adc_rail=");
   Serial.print(atAdcRail ? 1 : 0);
   Serial.print(",armed=");
@@ -408,11 +392,13 @@ void setup() {
   stopAll();
   Serial.println("SAVER_VACUUM_PRESSURE_BENCH_TEST_READY");
   Serial.println("SAFETY,motors_off=1,armed=0,no_automatic_start=1");
-  Serial.println("PRESSURE_DIVIDER,sensor_out--4k7--A8--10k--GND,ratio=0.680272");
-  Serial.println("WARNING,A8_IS_0_TO_3V3_ONLY,kPa_values_use_unverified_reference_curve");
+  Serial.print("PRESSURE_DIVIDER,sensor_out--4k7--A8--10k--GND,ratio=");
+  Serial.println(PRESSURE_DIVIDER_RATIO, 6);
+  Serial.println("WARNING,A8_IS_0_TO_3V3_ONLY");
+  Serial.println("WARNING,pressure_kPa_disabled_full_XGZP6847A_part_number_required");
   Serial.println("WARNING,RUN_ERR_RAW_LEVELS_ARE_UNVERIFIED");
   printHelp();
-  Serial.println("DATA_HEADER,ms,adc_raw,adc_V,sensor_V,pressure_kPa_ref,vac_kPa_candidate,candidate_range_ok,adc_rail,armed,m1_pct,m2_pct,m1_run_raw,m1_err_raw,m2_run_raw,m2_err_raw");
+  Serial.println("DATA_HEADER,ms,adc_raw,adc_V,sensor_V,adc_rail,armed,m1_pct,m2_pct,m1_run_raw,m1_err_raw,m2_run_raw,m2_err_raw");
 }
 
 void loop() {
