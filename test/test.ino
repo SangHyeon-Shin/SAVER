@@ -1,414 +1,330 @@
 /*
- * SAVER vacuum-motor and pressure-sensor bench test for Teensy 4.1.
+ * SAVER vacuum + pressure bench experiment, Teensy 4.1 only.
+ * Research / secured bench fixture ONLY. Not CPR firmware and not for human use.
+ * STOP/fault/USB loss turns vacuum OFF. Never support a load by suction with this
+ * sketch: no production vacuum retention, E-stop input, current limiting, pressure
+ * regulation, or hardware watchdog is implemented. A physical stop is required.
  *
- * This sketch is deliberately independent of the production firmware.
- * It never starts a motor at boot, and every RUN command has a time limit.
+ * References: vacuum_motor_stage4_fg (now NO FG) and pressure_sensor_test.
+ * M1: VSP24, EN26, ERR27 (LOW=fault), RUN25 (LOW=running indication).
+ * M2: VSP33, EN35, ERR36, RUN34. FG and motor +5V OUTPUT unused/insulated.
+ * Sensor: XGZP6847A100KPGN, regulated 5 V supply, common signal GND.
+ * Sensor OUT -> 4.7k ohm -> A8/22 -> 10k ohm -> GND. A8 must stay <=3.3 V.
+ * Do not supply the sensor from 3.3 V or tie the motor's +5V output to Teensy VIN.
+ * ERR/RUN need verified 0..3.3 V levels and defined external bias, no internal pullup.
+ * Motor current must bypass the breadboard and Teensy.
  *
- * Serial Monitor settings:
- *   - 115200 baud (the value is conventional for Teensy native USB)
- *   - Newline or Both NL & CR
- *
- * Commands:
- *   HELP
- *   ARM
- *   RUN1 <duty_pct> <duration_ms>
- *   RUN2 <duty_pct> <duration_ms>
- *   RUNBOTH <motor1_pct> <motor2_pct> <duration_ms>
- *   STOP1
- *   STOP2
- *   STOP
- *   DISARM
- *   READ
- *   STATUS
- *
- * Example: run vacuum motor 1 at 10 percent for 3000 ms
- *   ARM
- *   RUN1 10 3000
- *
- * Electrical limits:
- *   - Every Teensy GPIO and ADC input must remain between 0 V and 3.3 V.
- *   - Pressure divider wiring used by this sketch:
- *       sensor OUT -- 4.7 kOhm -- A8 -- 10 kOhm -- GND
- *     Do not connect the candidate 0.5 V to 4.5 V output directly to A8.
- *   - RUN/ERR are printed only as raw logic levels. Their voltage, output
- *     type, and active polarity have not been verified on the real driver.
+ * USB 115200, newline. ARM then RUN1 10 15000 is a bench command example, not
+ * a verified safe current/load setting. Duty percent is NOT current in amperes.
+ * RUN/RUN1 [pct] [ms], RUN2 [pct] [ms], RUNBOTH pct1 pct2 ms (wire both first).
+ * SET/SET1 pct, SET2 pct do not extend the original deadline. SET 0 stops.
+ * STOP/STOP1/STOP2, DISARM, CLEAR_ERR/CLEAR_ERR1/CLEAR_ERR2, STATUS, READ, HELP.
+ * CLEAR_ERR aliases motor 1; ERR HIGH must remain stable for 250 ms; no auto restart.
+ * PLOT = Arduino Serial Plotter; TEXT = detailed DATA/events (default).
+ * Open plotter BEFORE ARM/RUN. Changing USB clients stops and disarms motors.
+ * Invalid pressure stops/disarms and exits PLOT; pressure_Pa is omitted, never zero.
+ * See README.md for wiring, formula, graph usage and unverified assumptions.
  */
-
 #include <Arduino.h>
 #include <ctype.h>
-#include <stdlib.h>
+#include <stdarg.h>
+#include <stdio.h>
 #include <string.h>
+#include "bench_logic.h"
+#include "pressure_conversion.h"
 
-/* Copied from teensy/pinmap.h at commit 5c84ce7. Do not use ESP32 pin numbers. */
-constexpr uint8_t PIN_VAC1_VSP = 24;
-constexpr uint8_t PIN_VAC1_RUN = 25;
-constexpr uint8_t PIN_VAC1_EN  = 26;
-constexpr uint8_t PIN_VAC1_ERR = 27;
+#if !defined(ARDUINO_TEENSY41)
+#error "Select Teensy 4.1 for this bench sketch"
+#endif
 
-constexpr uint8_t PIN_VAC2_VSP = 33;
-constexpr uint8_t PIN_VAC2_RUN = 34;
-constexpr uint8_t PIN_VAC2_EN  = 35;
-constexpr uint8_t PIN_VAC2_ERR = 36;
+namespace {
+using namespace saver_vacuum_bench;
+using namespace saver_pressure_bench;
 
-constexpr uint8_t PIN_PRESSURE = A8;  // Teensy 4.1 physical pin 22.
-
+// ===== 기본 듀티/시간 수정 위치: 수정 후 재업로드 (자동 시작하지 않음) =====
+constexpr uint8_t DEFAULT_DUTY_PERCENT = 6; // PWM 6%이며 6 A가 아님.
+constexpr uint32_t DEFAULT_RUN_MS = 15000; // 15초; RUN1 10 5000처럼 명령으로 변경 가능.
+// =======================================================================
+constexpr uint8_t PIN_VAC1_VSP = 24; // FlexPWM1_2: motor 2와 다른 주파수 그룹.
+constexpr uint8_t PIN_VAC1_EN = 26;  // motor 1 LOW disable; Stage4와 동일.
+constexpr uint8_t PIN_VAC1_ERR = 27; // motor 1 active-LOW 오류 입력.
+constexpr uint8_t PIN_VAC1_RUN = 25; // motor 1 active-LOW 상태 입력, 출력으로 쓰지 않음.
+constexpr uint8_t PIN_VAC2_VSP = 33; // FlexPWM2_0: motor 1과 다른 그룹.
+constexpr uint8_t PIN_VAC2_EN = 35;  // motor 2 독립 LOW disable.
+constexpr uint8_t PIN_VAC2_ERR = 36; // motor 2 active-LOW 오류 입력.
+constexpr uint8_t PIN_VAC2_RUN = 34; // motor 2 active-LOW 상태 입력.
+constexpr uint8_t PIN_PRESSURE = A8; // pressure_sensor_test와 같은 물리 핀 22.
+constexpr uint8_t VSP_PINS[2] = {PIN_VAC1_VSP, PIN_VAC2_VSP};
+constexpr uint8_t EN_PINS[2] = {PIN_VAC1_EN, PIN_VAC2_EN};
+constexpr uint8_t ERR_PINS[2] = {PIN_VAC1_ERR, PIN_VAC2_ERR};
+constexpr uint8_t RUN_PINS[2] = {PIN_VAC1_RUN, PIN_VAC2_RUN};
+// Existing setting retained: supplied sheets disagree (10 vs 30..150 kHz).
+// Confirm the actual driver version before considering this a verified frequency.
 constexpr float PWM_FREQUENCY_HZ = 10000.0f;
-constexpr uint8_t PWM_MAX = 255;
-constexpr uint16_t ADC_MAX = 4095;
-constexpr float ADC_REFERENCE_V = 3.3f;
-constexpr float PRESSURE_R_TOP_OHM = 4700.0f;     // Sensor OUT to A8.
-constexpr float PRESSURE_R_BOTTOM_OHM = 10000.0f; // A8 to GND.
-constexpr float PRESSURE_DIVIDER_RATIO =
-    PRESSURE_R_BOTTOM_OHM / (PRESSURE_R_TOP_OHM + PRESSURE_R_BOTTOM_OHM);
+constexpr uint32_t SAMPLE_PERIOD_MS = 100; // 10 Hz, no interpolated/fabricated samples.
+constexpr uint8_t SERIAL_BUDGET = 32;
+static_assert(A8 == 22, "Teensy 4.1 A8 mapping required");
+static_assert(DEFAULT_DUTY_PERCENT >= 1 && DEFAULT_DUTY_PERCENT <= 100, "Invalid default duty");
+static_assert(DEFAULT_RUN_MS >= MIN_RUN_MS && DEFAULT_RUN_MS <= MAX_RUN_MS, "Invalid default duration");
 
-/*
- * Pressure conversion is intentionally disabled until the complete XGZP6847A
- * part number is confirmed.  The suffix selects pressure direction, span, and
- * supply/output range, so a family-wide kPa equation would be unsafe.
- */
-constexpr uint32_t TELEMETRY_PERIOD_MS = 100;
-constexpr uint32_t MIN_RUN_MS = 100;
-constexpr uint32_t MAX_RUN_MS = 30000;
-constexpr size_t COMMAND_BUFFER_SIZE = 96;
+class VacuumPressureBench {
+ public:
+  void begin() {
+    // Fast write clears the actual output latch BEFORE OUTPUT on Teensy 4.x.
+    for (unsigned i = 0; i < 2; ++i) {
+      digitalWriteFast(EN_PINS[i], LOW); pinMode(EN_PINS[i], OUTPUT);
+      digitalWriteFast(VSP_PINS[i], LOW); pinMode(VSP_PINS[i], OUTPUT);
+    }
+    analogWriteResolution(8);
+    for (unsigned i = 0; i < 2; ++i) {
+      analogWriteFrequency(VSP_PINS[i], PWM_FREQUENCY_HZ);
+      pinMode(ERR_PINS[i], INPUT); pinMode(RUN_PINS[i], INPUT);
+    }
+    stopOutputs(3);
+    pinMode(PIN_PRESSURE, INPUT);
+    analogReadResolution(12);
+    analogReadAveraging(16);
+    Serial.begin(115200);
+    const uint32_t started = millis();
+    while (!Serial && (uint32_t)(millis() - started) < 2000U) {}
+    usbReady_ = (bool)Serial;
+    samplePressure();
+    emit("SAVER_VACUUM_PRESSURE_BENCH_TEST_READY,build=no_fg_pa_v1");
+    emit("PINS,M1_VSP=24,M1_EN=26,M1_ERR=27,M1_RUN=25,M2_VSP=33,M2_EN=35,M2_ERR=36,M2_RUN=34,A8=22,FG=UNUSED");
+    emit("SAFETY,motors_off_commanded=1,armed=0,usb_disconnect_stops=1,max_run_ms=30000");
+    help();
+    checkSafety();
+  }
 
-struct VacuumMotor {
-  uint8_t vspPin;
-  uint8_t enPin;
-  uint8_t dutyPct;
-  uint32_t startedAtMs;
-  uint32_t durationMs;
-  bool running;
+  void tick() {
+    checkSafety();
+    if (synchronizeUsb()) pollCommands();
+    checkSafety();
+    if ((uint32_t)(millis() - sampledAt_) >= SAMPLE_PERIOD_MS) {
+      samplePressure();
+      checkSafety();
+      printMeasurement();
+    }
+  }
+
+ private:
+  void emit(const char* text) {
+    const size_t length = strlen(text);
+    if (!Serial || Serial.availableForWrite() < (int)(length + 1U)) { ++droppedLogs_; return; }
+    Serial.write((const uint8_t*)text, length);
+    Serial.write((uint8_t)'\n');
+  }
+  void emitf(const char* format, ...) {
+    char text[512];
+    va_list args; va_start(args, format);
+    const int n = vsnprintf(text, sizeof text, format, args);
+    va_end(args);
+    if (n < 0 || (size_t)n >= sizeof text) { ++droppedLogs_; return; }
+    emit(text);
+  }
+  void stopOutputs(uint8_t mask) {
+    for (unsigned i = 0; i < 2; ++i) if (mask & (1U << i)) {
+      analogWrite(VSP_PINS[i], 0);
+      digitalWriteFast(EN_PINS[i], LOW);
+      digitalWriteFast(VSP_PINS[i], LOW);
+      pinMode(VSP_PINS[i], OUTPUT); // STOP leaves static LOW, not PWM mux.
+    }
+  }
+  void stop(uint8_t mask = 3, bool disarm = false) {
+    stopOutputs(mask);
+    control_.stop(mask, disarm);
+  }
+  void reject(const char* reason) {
+    stop(3, true); // Outputs BEFORE logs even if the log cannot be sent.
+    plot_ = false; // No fake plot zero; return to readable diagnosis.
+    emitf("ERROR,%s,motors_off=1,armed=0,mode=TEXT", reason);
+  }
+  void checkSafety() {
+    const SafetyEvent event = control_.observe(digitalRead(PIN_VAC1_ERR) == LOW,
+                                               digitalRead(PIN_VAC2_ERR) == LOW, millis());
+    stopOutputs(event.stopMask);
+    if (event.faultMask) {
+      plot_ = false;
+      emitf("FAULT,ERR_LOW,motor_mask=%u,latched=1,mode=TEXT", (unsigned)event.faultMask);
+    }
+    if (event.timeoutMask && !plot_)
+      emitf("EVENT,RUN_TIMEOUT_MOTOR_OFF,motor_mask=%u", (unsigned)event.timeoutMask);
+  }
+  void samplePressure() {
+    pressure_ = convertPressure(analogRead(PIN_PRESSURE));
+    sampledAt_ = millis();
+    if (!pressure_.ok && (control_.armed() || control_.runningMask() || plot_))
+      reject(pressure_.reason);
+  }
+  bool synchronizeUsb() {
+    if (!Serial) {
+      if (usbReady_ || control_.runningMask() || control_.armed()) {
+        stop(3, true); ++usbDisconnects_;
+      }
+      usbReady_ = false; line_.reset(); plot_ = false;
+      return false;
+    }
+    if (!usbReady_) {
+      for (uint8_t i = 0; i < SERIAL_BUDGET && Serial.available(); ++i) Serial.read();
+      if (Serial.available()) return false;
+      stop(3, true); line_.reset(); usbReady_ = true; plot_ = false;
+      emit("EVENT,USB_CONNECTED,motors_off=1,armed=0,send_fresh_command=1");
+      help();
+      return false;
+    }
+    return true;
+  }
+  void printMeasurement() {
+    if (plot_) {
+      if (!pressure_.ok) { reject(pressure_.reason); return; }
+      // Fixed labeled columns: no ms/ADC/volts to spoil the Pa scale.
+      emitf("pressure_Pa:%.1f,pressure_ok:1,armed:%u,m1_commanded:%u,m2_commanded:%u,m1_fault:%u,m2_fault:%u",
+            (double)pressure_.pressurePa, control_.armed() ? 1U : 0U,
+            control_.motor(0).running() ? 1U : 0U, control_.motor(1).running() ? 1U : 0U,
+            control_.motor(0).fault() ? 1U : 0U, control_.motor(1).fault() ? 1U : 0U);
+      return;
+    }
+    char value[48] = "";
+    if (pressure_.ok) snprintf(value, sizeof value, ",pressure_Pa=%.1f", (double)pressure_.pressurePa);
+    if (!pressure_.adcOk) {
+      emitf("DATA,ms=%lu,pressure_ok=0,reason=%s", (unsigned long)sampledAt_, pressure_.reason);
+      return;
+    }
+    emitf("DATA,ms=%lu,adc_raw=%d,adc_V=%.4f,sensor_V=%.4f,adc_rail=%u,"
+          "pressure_ok=%u,pressure_in_nominal_range=%u,reason=%s%s,armed=%u,m1_pct=%u,m2_pct=%u",
+          (unsigned long)sampledAt_, pressure_.raw, (double)pressure_.adcV, (double)pressure_.sensorV,
+          pressure_.rail ? 1U : 0U, pressure_.ok ? 1U : 0U, pressure_.inNominalRange ? 1U : 0U,
+          pressure_.reason, value, control_.armed() ? 1U : 0U,
+          (unsigned)control_.motor(0).duty(), (unsigned)control_.motor(1).duty());
+  }
+  void printStatus() {
+    emitf("STATUS,armed=%u,mode=%s,pressure_ok=%u,usb_disconnects=%lu,dropped_logs=%lu",
+          control_.armed() ? 1U : 0U, plot_ ? "PLOT" : "TEXT", pressure_.ok ? 1U : 0U,
+          (unsigned long)usbDisconnects_, (unsigned long)droppedLogs_);
+    for (unsigned i = 0; i < 2; ++i) {
+      const RunState& motor = control_.motor(i);
+      emitf("MOTOR,id=%u,commanded_running=%u,pwm_pct=%u,pwm_raw=%u,remaining_ms=%lu,"
+            "en_pin_raw=%u,err_raw=%u,err_fault_latched=%u,run_raw=%u",
+            i + 1U, motor.running() ? 1U : 0U, (unsigned)motor.duty(), (unsigned)dutyToPwm(motor.duty()),
+            (unsigned long)motor.remaining(millis()), (unsigned)digitalRead(EN_PINS[i]),
+            (unsigned)digitalRead(ERR_PINS[i]), motor.fault() ? 1U : 0U, (unsigned)digitalRead(RUN_PINS[i]));
+    }
+  }
+  void help() {
+    emit("COMMANDS,ARM|RUN/RUN1 [pct] [ms]|RUN2 [pct] [ms]|RUNBOTH pct1 pct2 ms|SET/SET1 pct|SET2 pct");
+    emit("COMMANDS,STOP|STOP1|STOP2|DISARM|CLEAR_ERR/CLEAR_ERR1|CLEAR_ERR2|READ|STATUS|HELP|PLOT|TEXT");
+    emitf("DEFAULTS,pwm_pct=%u,duration_ms=%lu,PWM_HZ=10000", (unsigned)DEFAULT_DUTY_PERCENT,
+          (unsigned long)DEFAULT_RUN_MS);
+    emit("LIMITS,pct=1..100,duration_ms=100..30000,partial_command_timeout_ms=1000");
+    emit("PRESSURE,XGZP6847A100KPGN_5V,unit=Pa_gauge,divider=4k7_top_10k_bottom,nominal_ADC_V=3.3");
+    emit("NOTE,PLOT_is_10Hz,uncheck_other_traces_for_pressure_only,TEXT_for_diagnosis");
+    emit("WARNING,ERR_RUN_require_0_to_3V3,FG_and_motor_5V_output_unused,pwm_pct_is_not_current_A");
+    emit("WARNING,secured_bench_only,no_vacuum_retention,no_pressure_regulation,no_hardware_stop_replacement");
+  }
+  bool noMore(char*& context) { return strtok_r(nullptr, " \t", &context) == nullptr; }
+  void runCommand(uint8_t mask, char*& context) {
+    uint32_t duty1 = DEFAULT_DUTY_PERCENT, duty2 = DEFAULT_DUTY_PERCENT, duration = DEFAULT_RUN_MS;
+    const char* first = strtok_r(nullptr, " \t", &context);
+    const char* second = strtok_r(nullptr, " \t", &context);
+    if (mask == 3) {
+      if (!parseUnsigned(first, duty1) || !parseUnsigned(second, duty2) ||
+          !parseUnsigned(strtok_r(nullptr, " \t", &context), duration)) { reject("BAD_RUN_ARGUMENTS"); return; }
+    } else {
+      if ((first && !parseUnsigned(first, duty1)) || (second && !parseUnsigned(second, duration))) {
+        reject("BAD_RUN_ARGUMENTS"); return;
+      }
+      duty2 = duty1;
+    }
+    if (!noMore(context)) { reject("BAD_RUN_ARGUMENTS"); return; }
+    samplePressure(); // Never start from stale cached ADC data.
+    checkSafety();
+    const char* error = control_.start(mask, duty1, duty2, duration, millis(), pressure_.ok);
+    if (error) { reject(error); return; }
+    stopOutputs(3);
+    for (unsigned i = 0; i < 2; ++i) if (mask & (1U << i)) {
+      digitalWriteFast(EN_PINS[i], HIGH);
+      analogWrite(VSP_PINS[i], dutyToPwm(control_.motor(i).duty()));
+    }
+    if (!plot_) emitf("OK,RUNNING,motor_mask=%u,m1_pct=%u,m2_pct=%u,duration_ms=%lu",
+                     (unsigned)mask, (unsigned)control_.motor(0).duty(),
+                     (unsigned)control_.motor(1).duty(), (unsigned long)duration);
+    printMeasurement();
+  }
+  void setCommand(unsigned index, char*& context) {
+    uint32_t duty = 0;
+    if (!parseUnsigned(strtok_r(nullptr, " \t", &context), duty) || !noMore(context)) {
+      reject("BAD_SET_ARGUMENTS"); return;
+    }
+    checkSafety();
+    const char* error = control_.set(index, duty);
+    if (error) { reject(error); return; }
+    if (!control_.motor(index).running()) stopOutputs((uint8_t)(1U << index));
+    else analogWrite(VSP_PINS[index], dutyToPwm(control_.motor(index).duty()));
+    if (!plot_) emitf("OK,DUTY_CHANGED,motor=%u,pwm_pct=%lu", index + 1U, (unsigned long)duty);
+    printMeasurement();
+  }
+  void handleCommand(char* text) {
+    char* context = nullptr;
+    char* cmd = strtok_r(text, " \t", &context);
+    if (!cmd) return;
+    for (char* p = cmd; *p; ++p) *p = (char)toupper((unsigned char)*p);
+    if (!strcmp(cmd, "RUN") || !strcmp(cmd, "RUN1")) { runCommand(1, context); return; }
+    if (!strcmp(cmd, "RUN2")) { runCommand(2, context); return; }
+    if (!strcmp(cmd, "RUNBOTH")) { runCommand(3, context); return; }
+    if (!strcmp(cmd, "SET") || !strcmp(cmd, "SET1")) { setCommand(0, context); return; }
+    if (!strcmp(cmd, "SET2")) { setCommand(1, context); return; }
+    if (!noMore(context)) { reject("UNEXPECTED_ARGUMENTS"); return; }
+    if (!strcmp(cmd, "ARM")) {
+      stop(3, true); samplePressure(); checkSafety();
+      const char* error = control_.arm(pressure_.ok);
+      if (error) { reject(error); return; }
+      if (!plot_) emit("OK,ARMED,motors_off=1");
+      printMeasurement();
+    } else if (!strcmp(cmd, "STOP") || !strcmp(cmd, "STOP1") || !strcmp(cmd, "STOP2") || !strcmp(cmd, "DISARM")) {
+      const uint8_t mask = !strcmp(cmd, "STOP1") ? 1 : (!strcmp(cmd, "STOP2") ? 2 : 3);
+      stop(mask, !strcmp(cmd, "DISARM"));
+      if (!plot_) emitf("OK,MOTOR_OFF,motor_mask=%u", (unsigned)mask);
+      printMeasurement();
+    } else if (!strcmp(cmd, "CLEAR_ERR") || !strcmp(cmd, "CLEAR_ERR1") || !strcmp(cmd, "CLEAR_ERR2")) {
+      checkSafety();
+      const uint8_t mask = !strcmp(cmd, "CLEAR_ERR2") ? 2 : 1;
+      const char* error = control_.clear(mask, millis());
+      if (error) reject(error);
+      else { stopOutputs(mask); if (!plot_) emitf("OK,ERR_CLEARED,motor_mask=%u", (unsigned)mask); }
+    } else if (!strcmp(cmd, "PLOT")) {
+      samplePressure();
+      if (!pressure_.ok) { reject(pressure_.reason); return; }
+      plot_ = true; printMeasurement();
+    } else if (!strcmp(cmd, "TEXT")) {
+      plot_ = false; emit("OK,MODE_TEXT"); printStatus();
+    } else if (!strcmp(cmd, "READ")) { samplePressure(); printMeasurement(); }
+    else if (!strcmp(cmd, "STATUS")) { plot_ = false; printStatus(); }
+    else if (!strcmp(cmd, "HELP")) { plot_ = false; help(); }
+    else reject("UNKNOWN_OR_MALFORMED_COMMAND");
+  }
+  void pollCommands() {
+    if (line_.expire(millis())) reject("COMMAND_TIMEOUT");
+    for (uint8_t i = 0; i < SERIAL_BUDGET && Serial.available(); ++i) {
+      const LineResult result = line_.push((char)Serial.read(), millis());
+      if (result == LineResult::Invalid) { reject("INVALID_OR_TOO_LONG_COMMAND"); return; }
+      if (result == LineResult::Ready) {
+        handleCommand(line_.data()); line_.reset(); return;
+      }
+    }
+  }
+
+  CombinedState control_;
+  CommandLine line_;
+  PressureSample pressure_;
+  bool usbReady_ = false, plot_ = false;
+  uint32_t sampledAt_ = 0, usbDisconnects_ = 0, droppedLogs_ = 0;
 };
 
-VacuumMotor g_motor1 = {PIN_VAC1_VSP, PIN_VAC1_EN, 0, 0, 0, false};
-VacuumMotor g_motor2 = {PIN_VAC2_VSP, PIN_VAC2_EN, 0, 0, 0, false};
-
-bool g_armed = false;
-char g_commandBuffer[COMMAND_BUFFER_SIZE];
-size_t g_commandLength = 0;
-bool g_commandOverflow = false;
-uint32_t g_lastTelemetryMs = 0;
-
-uint8_t dutyToPwm(uint8_t dutyPct) {
-  return (uint8_t)(((uint16_t)dutyPct * PWM_MAX + 50U) / 100U);
+VacuumPressureBench& bench() {
+  static VacuumPressureBench instance;
+  return instance;
 }
+} // namespace
 
-void stopMotor(VacuumMotor& motor) {
-  /* VSP zero first, then disable/brake with EN LOW. */
-  analogWrite(motor.vspPin, 0);
-  digitalWrite(motor.enPin, LOW);
-  motor.dutyPct = 0;
-  motor.startedAtMs = 0;
-  motor.durationMs = 0;
-  motor.running = false;
-}
-
-void stopAll() {
-  stopMotor(g_motor1);
-  stopMotor(g_motor2);
-}
-
-void startMotor(VacuumMotor& motor, uint8_t dutyPct, uint32_t durationMs) {
-  /* Keep VSP at zero while enabling, then apply the requested PWM duty. */
-  analogWrite(motor.vspPin, 0);
-  digitalWrite(motor.enPin, HIGH);
-  analogWrite(motor.vspPin, dutyToPwm(dutyPct));
-  motor.dutyPct = dutyPct;
-  motor.startedAtMs = millis();
-  motor.durationMs = durationMs;
-  motor.running = true;
-}
-
-void printHelp() {
-  Serial.println("COMMANDS,HELP|ARM|RUN1 pct ms|RUN2 pct ms|RUNBOTH pct1 pct2 ms");
-  Serial.println("COMMANDS,STOP1|STOP2|STOP|DISARM|READ|STATUS");
-  Serial.println("LIMITS,duty_pct=1..100,duration_ms=100..30000");
-}
-
-void printStatus() {
-  Serial.print("STATUS,armed=");
-  Serial.print(g_armed ? 1 : 0);
-  Serial.print(",m1_running=");
-  Serial.print(g_motor1.running ? 1 : 0);
-  Serial.print(",m1_pct=");
-  Serial.print(g_motor1.dutyPct);
-  Serial.print(",m2_running=");
-  Serial.print(g_motor2.running ? 1 : 0);
-  Serial.print(",m2_pct=");
-  Serial.println(g_motor2.dutyPct);
-}
-
-void printPressureAndStatus() {
-  const uint16_t raw = (uint16_t)analogRead(PIN_PRESSURE);
-  const float adcVoltage = (float)raw * ADC_REFERENCE_V / (float)ADC_MAX;
-  const float sensorVoltage = adcVoltage / PRESSURE_DIVIDER_RATIO;
-  const bool atAdcRail = (raw <= 1U || raw >= ADC_MAX - 1U);
-
-  Serial.print("DATA,ms=");
-  Serial.print(millis());
-  Serial.print(",adc_raw=");
-  Serial.print(raw);
-  Serial.print(",adc_V=");
-  Serial.print(adcVoltage, 4);
-  Serial.print(",sensor_V=");
-  Serial.print(sensorVoltage, 4);
-  Serial.print(",adc_rail=");
-  Serial.print(atAdcRail ? 1 : 0);
-  Serial.print(",armed=");
-  Serial.print(g_armed ? 1 : 0);
-  Serial.print(",m1_pct=");
-  Serial.print(g_motor1.dutyPct);
-  Serial.print(",m2_pct=");
-  Serial.print(g_motor2.dutyPct);
-  Serial.print(",m1_run_raw=");
-  Serial.print(digitalRead(PIN_VAC1_RUN));
-  Serial.print(",m1_err_raw=");
-  Serial.print(digitalRead(PIN_VAC1_ERR));
-  Serial.print(",m2_run_raw=");
-  Serial.print(digitalRead(PIN_VAC2_RUN));
-  Serial.print(",m2_err_raw=");
-  Serial.println(digitalRead(PIN_VAC2_ERR));
-}
-
-bool parseUnsigned(const char* text, uint32_t& value) {
-  if (text == nullptr || *text == '\0' || *text == '-') return false;
-  char* end = nullptr;
-  const unsigned long parsed = strtoul(text, &end, 10);
-  if (end == text || *end != '\0') return false;
-  value = (uint32_t)parsed;
-  return true;
-}
-
-bool noMoreTokens(char*& context) {
-  return strtok_r(nullptr, " \t", &context) == nullptr;
-}
-
-void failClosed(const char* reason) {
-  stopAll();
-  g_armed = false;
-  Serial.print("ERROR,");
-  Serial.print(reason);
-  Serial.println(",motors_off=1,armed=0");
-}
-
-bool parseRunArguments(char*& context, uint8_t& dutyPct, uint32_t& durationMs) {
-  const char* dutyText = strtok_r(nullptr, " \t", &context);
-  const char* durationText = strtok_r(nullptr, " \t", &context);
-  uint32_t duty = 0;
-  uint32_t duration = 0;
-
-  if (!parseUnsigned(dutyText, duty) ||
-      !parseUnsigned(durationText, duration) ||
-      !noMoreTokens(context) ||
-      duty < 1U || duty > 100U ||
-      duration < MIN_RUN_MS || duration > MAX_RUN_MS) {
-    return false;
-  }
-
-  dutyPct = (uint8_t)duty;
-  durationMs = duration;
-  return true;
-}
-
-void handleCommand(char* line) {
-  char* context = nullptr;
-  char* command = strtok_r(line, " \t", &context);
-  if (command == nullptr) return;
-
-  for (char* p = command; *p != '\0'; ++p) {
-    *p = (char)toupper((unsigned char)*p);
-  }
-
-  if (strcmp(command, "HELP") == 0 && noMoreTokens(context)) {
-    printHelp();
-    return;
-  }
-  if (strcmp(command, "READ") == 0 && noMoreTokens(context)) {
-    printPressureAndStatus();
-    return;
-  }
-  if (strcmp(command, "STATUS") == 0 && noMoreTokens(context)) {
-    printStatus();
-    return;
-  }
-  if (strcmp(command, "ARM") == 0 && noMoreTokens(context)) {
-    stopAll();
-    g_armed = true;
-    Serial.println("OK,ARMED,motors_off=1");
-    return;
-  }
-  if (strcmp(command, "STOP") == 0 && noMoreTokens(context)) {
-    stopAll();
-    Serial.println("OK,ALL_MOTORS_OFF");
-    return;
-  }
-  if (strcmp(command, "STOP1") == 0 && noMoreTokens(context)) {
-    stopMotor(g_motor1);
-    Serial.println("OK,MOTOR1_OFF");
-    return;
-  }
-  if (strcmp(command, "STOP2") == 0 && noMoreTokens(context)) {
-    stopMotor(g_motor2);
-    Serial.println("OK,MOTOR2_OFF");
-    return;
-  }
-  if (strcmp(command, "DISARM") == 0 && noMoreTokens(context)) {
-    stopAll();
-    g_armed = false;
-    Serial.println("OK,DISARMED,motors_off=1");
-    return;
-  }
-
-  if (!g_armed) {
-    failClosed("NOT_ARMED");
-    return;
-  }
-
-  if (strcmp(command, "RUN1") == 0) {
-    uint8_t dutyPct = 0;
-    uint32_t durationMs = 0;
-    if (!parseRunArguments(context, dutyPct, durationMs)) {
-      failClosed("BAD_RUN1_ARGUMENTS");
-      return;
-    }
-    stopAll();
-    startMotor(g_motor1, dutyPct, durationMs);
-    Serial.println("OK,MOTOR1_RUNNING");
-    return;
-  }
-
-  if (strcmp(command, "RUN2") == 0) {
-    uint8_t dutyPct = 0;
-    uint32_t durationMs = 0;
-    if (!parseRunArguments(context, dutyPct, durationMs)) {
-      failClosed("BAD_RUN2_ARGUMENTS");
-      return;
-    }
-    stopAll();
-    startMotor(g_motor2, dutyPct, durationMs);
-    Serial.println("OK,MOTOR2_RUNNING");
-    return;
-  }
-
-  if (strcmp(command, "RUNBOTH") == 0) {
-    const char* duty1Text = strtok_r(nullptr, " \t", &context);
-    const char* duty2Text = strtok_r(nullptr, " \t", &context);
-    const char* durationText = strtok_r(nullptr, " \t", &context);
-    uint32_t duty1 = 0;
-    uint32_t duty2 = 0;
-    uint32_t duration = 0;
-    if (!parseUnsigned(duty1Text, duty1) ||
-        !parseUnsigned(duty2Text, duty2) ||
-        !parseUnsigned(durationText, duration) ||
-        !noMoreTokens(context) ||
-        duty1 < 1U || duty1 > 100U ||
-        duty2 < 1U || duty2 > 100U ||
-        duration < MIN_RUN_MS || duration > MAX_RUN_MS) {
-      failClosed("BAD_RUNBOTH_ARGUMENTS");
-      return;
-    }
-    stopAll();
-    startMotor(g_motor1, (uint8_t)duty1, duration);
-    startMotor(g_motor2, (uint8_t)duty2, duration);
-    Serial.println("OK,BOTH_MOTORS_RUNNING");
-    return;
-  }
-
-  failClosed("UNKNOWN_OR_MALFORMED_COMMAND");
-}
-
-void pollSerial() {
-  while (Serial.available() > 0) {
-    const char c = (char)Serial.read();
-    if (c == '\r') continue;
-
-    if (c == '\n') {
-      if (g_commandOverflow) {
-        failClosed("COMMAND_TOO_LONG");
-      } else if (g_commandLength > 0) {
-        g_commandBuffer[g_commandLength] = '\0';
-        handleCommand(g_commandBuffer);
-      }
-      g_commandLength = 0;
-      g_commandOverflow = false;
-      continue;
-    }
-
-    if (g_commandLength < COMMAND_BUFFER_SIZE - 1U) {
-      g_commandBuffer[g_commandLength++] = c;
-    } else {
-      g_commandOverflow = true;
-    }
-  }
-}
-
-void enforceRunTimeouts(uint32_t nowMs) {
-  if (g_motor1.running &&
-      (uint32_t)(nowMs - g_motor1.startedAtMs) >= g_motor1.durationMs) {
-    stopMotor(g_motor1);
-    Serial.println("EVENT,MOTOR1_TIMEOUT_OFF");
-  }
-  if (g_motor2.running &&
-      (uint32_t)(nowMs - g_motor2.startedAtMs) >= g_motor2.durationMs) {
-    stopMotor(g_motor2);
-    Serial.println("EVENT,MOTOR2_TIMEOUT_OFF");
-  }
-}
-
-void setup() {
-  /* Set output latches LOW before changing the pins to output mode. */
-  digitalWrite(PIN_VAC1_VSP, LOW);
-  digitalWrite(PIN_VAC1_EN, LOW);
-  digitalWrite(PIN_VAC2_VSP, LOW);
-  digitalWrite(PIN_VAC2_EN, LOW);
-
-  pinMode(PIN_VAC1_VSP, OUTPUT);
-  pinMode(PIN_VAC1_EN, OUTPUT);
-  pinMode(PIN_VAC2_VSP, OUTPUT);
-  pinMode(PIN_VAC2_EN, OUTPUT);
-
-  /* No internal pull-up: the real driver output type is not yet verified. */
-  pinMode(PIN_VAC1_RUN, INPUT);
-  pinMode(PIN_VAC1_ERR, INPUT);
-  pinMode(PIN_VAC2_RUN, INPUT);
-  pinMode(PIN_VAC2_ERR, INPUT);
-  pinMode(PIN_PRESSURE, INPUT);
-
-  analogWriteResolution(8);
-  analogWriteFrequency(PIN_VAC1_VSP, PWM_FREQUENCY_HZ);
-  analogWriteFrequency(PIN_VAC2_VSP, PWM_FREQUENCY_HZ);
-  analogWrite(PIN_VAC1_VSP, 0);
-  analogWrite(PIN_VAC2_VSP, 0);
-
-  analogReadResolution(12);
-  analogReadAveraging(16);
-
-  Serial.begin(115200);
-  const uint32_t waitStartedMs = millis();
-  while (!Serial && (uint32_t)(millis() - waitStartedMs) < 2000U) {
-    /* Motors remain disabled while waiting briefly for Serial Monitor. */
-  }
-
-  stopAll();
-  Serial.println("SAVER_VACUUM_PRESSURE_BENCH_TEST_READY");
-  Serial.println("SAFETY,motors_off=1,armed=0,no_automatic_start=1");
-  Serial.print("PRESSURE_DIVIDER,sensor_out--4k7--A8--10k--GND,ratio=");
-  Serial.println(PRESSURE_DIVIDER_RATIO, 6);
-  Serial.println("WARNING,A8_IS_0_TO_3V3_ONLY");
-  Serial.println("WARNING,pressure_kPa_disabled_full_XGZP6847A_part_number_required");
-  Serial.println("WARNING,RUN_ERR_RAW_LEVELS_ARE_UNVERIFIED");
-  printHelp();
-  Serial.println("DATA_HEADER,ms,adc_raw,adc_V,sensor_V,adc_rail,armed,m1_pct,m2_pct,m1_run_raw,m1_err_raw,m2_run_raw,m2_err_raw");
-}
-
-void loop() {
-  pollSerial();
-
-  const uint32_t nowMs = millis();
-  enforceRunTimeouts(nowMs);
-
-  if ((uint32_t)(nowMs - g_lastTelemetryMs) >= TELEMETRY_PERIOD_MS) {
-    g_lastTelemetryMs = nowMs;
-    printPressureAndStatus();
-  }
-}
+void setup() { bench().begin(); }
+void loop() { bench().tick(); }
