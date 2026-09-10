@@ -16,7 +16,7 @@ R14,control,자발순환 회복 연속 추정 (알고리즘 상세는 private SA
 R15,mobility,바퀴 안전핀 상태 전환 (모듈 시험),mechanical/,T4,planned,안전핀 제거·재장착 전환 10회 반복 — 보고서 범위 (1:1 출력 후). 통합 주행 시연은 10-24
 R16,vacuum,요구 최소 음압 −6.2 kPa (555.1 N × 안전율 2 / 명목 0.18 m²),docs/DECISIONS.md D-26,T1,simulated,A_eff 확정 전 예비값. 이전 −5.6 kPa 는 500 N 기준
 R17,vacuum,블로워 BL6561-P dead-head ≈27.3 kPa · 최소 연속 유량 400 L/min → 간헐(히스테리시스) 운전,firmware/vac_control,T1,assumed,데이터시트 원문 확인 전 (D-27)
-R18,vacuum,바닥 갭 0.05~0.30 mm 에서 운전 음압 −27.0~−17.6 kPa (보정 전 CFD),cfd/SAVER_CFD_results_final.csv,T1,simulated,24 V 팬 커브 교점. 목표 −22.5 kPa 는 갭 약 0.19 mm 까지
+R18,vacuum,바닥 갭 0.05~0.30 mm 에서 운전 음압 −27.0~−17.6 kPa (8셀 CFD · 축대칭 원형 패드 모델),cfd/SAVER_CFD_results_final.csv,T1,simulated,24 V 팬 커브 교점. 실제 300×300 패드는 더 낮을 수 있음 (재해석 항목)
 R19,structure,시제품 축척 1:1,mechanical/,-,implemented,2026-09-08 1:2 폐기 (D-25)
 R20,compression,압박 운동 프로파일 — 설계 기준 사인파 (0.288 m/s · 2592 rpm),docs/DECISIONS.md D-29,T2,planned,제어 해석·힘 상한 산정은 삼각파 조건 명시
 R21,compression,벤치 시험 설정값 깊이 50 mm · 힘 상한 600 N,docs/DECISIONS.md D-30,T2,planned,임상 적용값 아님
