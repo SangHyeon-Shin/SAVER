@@ -3,6 +3,7 @@ import { C, SCREEN_W, SCREEN_H } from './tokens'
 import { EV, NODES, INITIAL, transition } from './stateMachine'
 import { useWaves, useVitals } from './vitals'
 import { useBridge } from './bridge'
+import { useMr60Bha2 } from './mr60bha2'
 import { Btn } from './ui'
 import * as A from './screens/SectionA'
 import * as B from './screens/SectionB'
@@ -33,7 +34,10 @@ function useStageScale() {
 }
 
 export default function App() {
-  const [ctx, setCtx] = useState(INITIAL)
+  const [ctx, setCtx] = useState(() => {
+    const requested = new URLSearchParams(location.search).get('screen')
+    return requested && NODES[requested] ? { ...INITIAL, node: requested } : INITIAL
+  })
   const [demo, setDemo] = useState({ positionError: false, vacuumError: false, clothesStuck: false })
   const [devOpen, setDevOpen] = useState(() => new URLSearchParams(location.search).has('dev'))
   const scale = useStageScale()
@@ -58,6 +62,7 @@ export default function App() {
   }, [])
 
   const bridge = useBridge({ onState: applyState })
+  const mr60 = useMr60Bha2()
 
   /* ---------- 이벤트 발생 (모든 화면의 공통 진입점) ----------
      연결 시  : intent 만 보내고 화면은 브리지가 돌려준 state 로 바뀐다
@@ -98,7 +103,7 @@ export default function App() {
   const holdEnd = () => clearTimeout(holdRef.current)
 
   const Screen = SCREEN[ctx.node]
-  const props = { fire, ctx, demo, vitals, waves }
+  const props = { fire, ctx, demo, vitals, waves, mr60 }
 
   return (
     <div style={{ position: 'fixed', inset: 0, background: '#0a0d12', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>

@@ -1,0 +1,464 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>MR60BHA2 생체신호 모니터</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #061018;
+      --panel: rgba(12, 29, 41, .88);
+      --line: rgba(167, 208, 226, .14);
+      --text: #edf9ff;
+      --muted: #8ca9b8;
+      --heart: #ff5c77;
+      --breath: #45d6c7;
+      --ok: #78e6aa;
+      --warn: #ffc76a;
+      --danger: #ff6b78;
+    }
+
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      color: var(--text);
+      font-family: Inter, Pretendard, "Noto Sans KR", system-ui, sans-serif;
+      background:
+        radial-gradient(circle at 15% 0%, rgba(31, 132, 149, .18), transparent 34rem),
+        radial-gradient(circle at 100% 15%, rgba(255, 92, 119, .10), transparent 30rem),
+        var(--bg);
+    }
+
+    .shell { width: min(1440px, 100%); margin: auto; padding: 28px; }
+    header { display: flex; align-items: center; justify-content: space-between; gap: 18px; margin-bottom: 22px; }
+    .eyebrow { color: #58c8d7; font-weight: 800; letter-spacing: .16em; font-size: 12px; }
+    h1 { margin: 4px 0 0; font-size: clamp(25px, 3vw, 38px); letter-spacing: -.04em; }
+    .controls { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; justify-content: flex-end; }
+    button, select {
+      border: 1px solid var(--line); border-radius: 12px; color: var(--text);
+      background: #102534; padding: 11px 15px; font: inherit;
+    }
+    button { cursor: pointer; font-weight: 800; }
+    button.primary { color: #031216; background: #5ee0d5; border-color: transparent; }
+    button.danger { color: #ffdce1; background: #371924; }
+    button:disabled { opacity: .45; cursor: not-allowed; }
+
+    .statusbar {
+      display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 12px;
+      min-height: 48px; padding: 10px 15px; margin-bottom: 18px;
+      background: rgba(7, 20, 29, .72); border: 1px solid var(--line); border-radius: 14px;
+    }
+    .dot { width: 10px; height: 10px; border-radius: 50%; background: #516573; box-shadow: 0 0 0 5px rgba(81,101,115,.12); }
+    .dot.live { background: var(--ok); box-shadow: 0 0 0 5px rgba(120,230,170,.12), 0 0 18px var(--ok); }
+    #statusText { font-weight: 750; }
+    #sampleTime { color: var(--muted); font-variant-numeric: tabular-nums; }
+
+    .metrics { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-bottom: 14px; }
+    .card, .chart-card, .console-card {
+      border: 1px solid var(--line); border-radius: 18px; background: var(--panel);
+      box-shadow: 0 18px 60px rgba(0, 0, 0, .18); backdrop-filter: blur(14px);
+    }
+    .card { padding: 19px 20px; min-height: 134px; position: relative; overflow: hidden; }
+    .card::after { content: ""; position: absolute; inset: auto -30px -55px auto; width: 120px; height: 120px; border-radius: 50%; background: var(--accent); opacity: .08; }
+    .label { color: var(--muted); font-size: 13px; font-weight: 700; }
+    .metric { margin-top: 10px; font-size: clamp(31px, 4vw, 48px); font-weight: 850; letter-spacing: -.055em; font-variant-numeric: tabular-nums; }
+    .metric small { margin-left: 6px; color: var(--muted); font-size: 14px; letter-spacing: 0; }
+    .sub { margin-top: 8px; color: var(--muted); font-size: 12px; }
+    .pill { display: inline-flex; padding: 3px 8px; border-radius: 999px; font-size: 11px; font-weight: 800; color: var(--ok); background: rgba(120,230,170,.10); }
+    .pill.warn { color: var(--warn); background: rgba(255,199,106,.10); }
+
+    .charts { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+    .chart-card { padding: 18px 18px 12px; min-width: 0; }
+    .chart-head { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 12px; }
+    .chart-title { font-weight: 850; }
+    .stats { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+    canvas { width: 100%; height: 270px; display: block; }
+
+    .console-card { margin-top: 14px; padding: 16px 18px; }
+    .console-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+    details summary { cursor: pointer; font-weight: 800; }
+    pre { max-height: 140px; overflow: auto; margin: 10px 0 0; color: #9fc1cf; font: 12px/1.55 Consolas, monospace; white-space: pre-wrap; }
+    .notice { color: var(--muted); font-size: 12px; line-height: 1.55; }
+
+    @media (max-width: 900px) {
+      .metrics { grid-template-columns: 1fr 1fr; }
+      .charts { grid-template-columns: 1fr; }
+      header { align-items: flex-start; flex-direction: column; }
+      .controls { justify-content: flex-start; }
+    }
+    @media (max-width: 520px) {
+      .shell { padding: 16px; }
+      .metrics { grid-template-columns: 1fr; }
+      .statusbar { grid-template-columns: auto 1fr; }
+      #sampleTime { grid-column: 2; }
+    }
+  </style>
+</head>
+<body>
+  <main class="shell">
+    <header>
+      <div>
+        <div class="eyebrow">60 GHz mmWAVE · LIVE</div>
+        <h1>MR60BHA2 생체신호 모니터</h1>
+      </div>
+      <div class="controls">
+        <label>표시 구간
+          <select id="windowSelect" aria-label="그래프 표시 구간">
+            <option value="30">30초</option>
+            <option value="60" selected>60초</option>
+            <option value="120">120초</option>
+          </select>
+        </label>
+        <button id="downloadBtn" disabled>CSV 저장</button>
+        <button id="clearBtn">초기화</button>
+        <button id="connectBtn" class="primary">센서 연결</button>
+      </div>
+    </header>
+
+    <section class="statusbar" aria-live="polite">
+      <span id="statusDot" class="dot"></span>
+      <span id="statusText">연결 대기 — “센서 연결”을 누르고 COM4 장치를 선택하세요.</span>
+      <time id="sampleTime">수신 기록 없음</time>
+    </section>
+
+    <section class="metrics">
+      <article class="card" style="--accent: var(--heart)">
+        <div class="label">심박수</div>
+        <div class="metric" id="heartValue">--<small>BPM</small></div>
+        <div class="sub"><span id="heartStatus" class="pill warn">NO DATA</span></div>
+      </article>
+      <article class="card" style="--accent: var(--breath)">
+        <div class="label">호흡수</div>
+        <div class="metric" id="breathValue">--<small>회/분</small></div>
+        <div class="sub"><span id="breathStatus" class="pill warn">NO DATA</span></div>
+      </article>
+      <article class="card" style="--accent: #64a8ff">
+        <div class="label">호흡 주기</div>
+        <div class="metric" id="periodValue">--<small>초</small></div>
+        <div class="sub">센서가 계산한 1회 호흡 간격</div>
+      </article>
+      <article class="card" style="--accent: #c39aff">
+        <div class="label">감지 거리</div>
+        <div class="metric" id="distanceValue">--<small>cm</small></div>
+        <div class="sub">레이더와 감지 대상 사이 거리</div>
+      </article>
+    </section>
+
+    <section class="charts">
+      <article class="chart-card">
+        <div class="chart-head">
+          <span class="chart-title" style="color: var(--heart)">심박수 추이</span>
+          <span class="stats" id="heartStats">최소 -- · 평균 -- · 최대 --</span>
+        </div>
+        <canvas id="heartChart" aria-label="실시간 심박수 그래프"></canvas>
+      </article>
+      <article class="chart-card">
+        <div class="chart-head">
+          <span class="chart-title" style="color: var(--breath)">호흡수 추이</span>
+          <span class="stats" id="breathStats">최소 -- · 평균 -- · 최대 --</span>
+        </div>
+        <canvas id="breathChart" aria-label="실시간 호흡수 그래프"></canvas>
+      </article>
+    </section>
+
+    <section class="console-card">
+      <details>
+        <summary>센서 원문 보기</summary>
+        <pre id="rawLog">아직 수신한 데이터가 없습니다.</pre>
+      </details>
+      <p class="notice">이 화면은 개발·관찰용이며 의료 진단이나 치료 판단에 사용하지 않습니다. 브라우저 밖으로 측정값을 전송하지 않으며 CSV 저장도 사용자가 버튼을 누를 때만 실행됩니다.</p>
+    </section>
+  </main>
+
+  <script>
+    'use strict'
+
+    const els = Object.fromEntries([
+      'connectBtn', 'downloadBtn', 'clearBtn', 'windowSelect', 'statusDot',
+      'statusText', 'sampleTime', 'heartValue', 'breathValue', 'periodValue',
+      'distanceValue', 'heartStatus', 'breathStatus', 'heartStats',
+      'breathStats', 'heartChart', 'breathChart', 'rawLog'
+    ].map(id => [id, document.getElementById(id)]))
+
+    const state = {
+      port: null,
+      reader: null,
+      reading: false,
+      samples: [],
+      rawLines: [],
+      lastSampleAt: 0,
+      renderTimer: null,
+    }
+
+    function finite(value) {
+      if (!value || value.trim().toUpperCase() === 'NO_DATA') return null
+      const n = Number(value)
+      return Number.isFinite(n) ? n : null
+    }
+
+    function parseSensorLine(line, at = Date.now()) {
+      const text = line.trim()
+      if (!text || text.startsWith('heart_rate_bpm')) return null
+      const parts = text.split(',').map(v => v.trim())
+      if (parts.length !== 6) return null
+      const heart = finite(parts[0])
+      const breath = finite(parts[1])
+      const period = finite(parts[2])
+      const distance = finite(parts[5])
+      if (heart === null && breath === null && period === null && distance === null) return null
+      return {
+        at,
+        iso: new Date(at).toISOString(),
+        heart,
+        breath,
+        period,
+        heartStatus: parts[3] || 'NO_DATA',
+        breathStatus: parts[4] || 'NO_DATA',
+        distance,
+      }
+    }
+
+    function appendRaw(line) {
+      if (!line.trim()) return
+      state.rawLines.push(line.trim())
+      if (state.rawLines.length > 80) state.rawLines.shift()
+      els.rawLog.textContent = state.rawLines.join('\n')
+      els.rawLog.scrollTop = els.rawLog.scrollHeight
+    }
+
+    function statusPill(el, value) {
+      const text = (value || 'NO_DATA').toUpperCase()
+      el.textContent = text.replace('_', ' ')
+      el.classList.toggle('warn', text !== 'NORMAL')
+    }
+
+    function formatValue(value, digits = 0) {
+      return value == null ? '--' : value.toFixed(digits)
+    }
+
+    function receive(line) {
+      appendRaw(line)
+      const sample = parseSensorLine(line)
+      if (!sample) return
+      state.samples.push(sample)
+      if (state.samples.length > 7200) state.samples.splice(0, state.samples.length - 7200)
+      state.lastSampleAt = sample.at
+      els.downloadBtn.disabled = false
+      renderMetrics(sample)
+    }
+
+    function renderMetrics(sample) {
+      els.heartValue.innerHTML = `${formatValue(sample.heart)}<small>BPM</small>`
+      els.breathValue.innerHTML = `${formatValue(sample.breath)}<small>회/분</small>`
+      els.periodValue.innerHTML = `${formatValue(sample.period, 2)}<small>초</small>`
+      els.distanceValue.innerHTML = `${formatValue(sample.distance, 1)}<small>cm</small>`
+      statusPill(els.heartStatus, sample.heartStatus)
+      statusPill(els.breathStatus, sample.breathStatus)
+      els.sampleTime.textContent = `마지막 수신 ${new Date(sample.at).toLocaleTimeString('ko-KR')}`
+    }
+
+    function setConnectionStatus(mode, text) {
+      els.statusText.textContent = text
+      els.statusDot.classList.toggle('live', mode === 'live')
+    }
+
+    async function connect() {
+      if (!('serial' in navigator)) {
+        setConnectionStatus('error', 'Web Serial을 지원하는 최신 Chrome 또는 Edge에서 열어주세요.')
+        return
+      }
+      try {
+        state.port = await navigator.serial.requestPort({ filters: [{ usbVendorId: 0x303A }] })
+        await state.port.open({ baudRate: 115200, bufferSize: 4096 })
+        state.reading = true
+        els.connectBtn.textContent = '연결 해제'
+        els.connectBtn.classList.remove('primary')
+        els.connectBtn.classList.add('danger')
+        setConnectionStatus('live', 'COM 센서 연결됨 · 데이터 수신 중')
+        readLoop()
+      } catch (error) {
+        if (error.name !== 'NotFoundError') {
+          setConnectionStatus('error', `연결 실패: ${error.message}`)
+          appendRaw(`[연결 오류] ${error.message}`)
+        }
+      }
+    }
+
+    async function disconnect(message = '연결이 해제되었습니다.') {
+      state.reading = false
+      if (state.reader) {
+        try { await state.reader.cancel() } catch (_) {}
+      }
+      if (state.port) {
+        try { await state.port.close() } catch (_) {}
+      }
+      state.reader = null
+      state.port = null
+      els.connectBtn.textContent = '센서 연결'
+      els.connectBtn.classList.add('primary')
+      els.connectBtn.classList.remove('danger')
+      setConnectionStatus('idle', message)
+    }
+
+    async function readLoop() {
+      const decoder = new TextDecoder()
+      let pending = ''
+      try {
+        while (state.reading && state.port && state.port.readable) {
+          state.reader = state.port.readable.getReader()
+          try {
+            while (state.reading) {
+              const { value, done } = await state.reader.read()
+              if (done) break
+              pending += decoder.decode(value, { stream: true })
+              const lines = pending.split(/\r?\n/)
+              pending = lines.pop() || ''
+              lines.forEach(receive)
+            }
+          } finally {
+            state.reader.releaseLock()
+            state.reader = null
+          }
+        }
+      } catch (error) {
+        if (state.reading) appendRaw(`[읽기 오류] ${error.message}`)
+      } finally {
+        if (state.reading) await disconnect('센서 연결이 끊어졌습니다. USB 케이블을 확인하세요.')
+      }
+    }
+
+    function visibleSamples(key) {
+      const windowMs = Number(els.windowSelect.value) * 1000
+      const cutoff = Date.now() - windowMs
+      return state.samples.filter(s => s.at >= cutoff && s[key] != null)
+    }
+
+    function drawChart(canvas, key, color, baseMin, baseMax) {
+      const rect = canvas.getBoundingClientRect()
+      const dpr = Math.max(1, window.devicePixelRatio || 1)
+      const width = Math.max(320, Math.round(rect.width))
+      const height = Math.max(220, Math.round(rect.height))
+      if (canvas.width !== width * dpr || canvas.height !== height * dpr) {
+        canvas.width = width * dpr
+        canvas.height = height * dpr
+      }
+      const ctx = canvas.getContext('2d')
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
+      ctx.clearRect(0, 0, width, height)
+
+      const pad = { left: 46, right: 14, top: 12, bottom: 28 }
+      const plotW = width - pad.left - pad.right
+      const plotH = height - pad.top - pad.bottom
+      const seconds = Number(els.windowSelect.value)
+      const now = Date.now()
+      const samples = visibleSamples(key)
+      const values = samples.map(s => s[key])
+      let min = values.length ? Math.min(baseMin, ...values) : baseMin
+      let max = values.length ? Math.max(baseMax, ...values) : baseMax
+      min = Math.floor(min / 10) * 10
+      max = Math.ceil(max / 10) * 10
+      if (max === min) max = min + 10
+
+      ctx.font = '11px system-ui'
+      ctx.textBaseline = 'middle'
+      for (let i = 0; i <= 4; i++) {
+        const y = pad.top + plotH * i / 4
+        const value = max - (max - min) * i / 4
+        ctx.strokeStyle = 'rgba(167, 208, 226, .12)'
+        ctx.lineWidth = 1
+        ctx.beginPath(); ctx.moveTo(pad.left, y); ctx.lineTo(width - pad.right, y); ctx.stroke()
+        ctx.fillStyle = '#7393a3'; ctx.textAlign = 'right'; ctx.fillText(value.toFixed(0), pad.left - 8, y)
+      }
+      for (let i = 0; i <= 3; i++) {
+        const x = pad.left + plotW * i / 3
+        ctx.fillStyle = '#7393a3'; ctx.textAlign = i === 0 ? 'left' : i === 3 ? 'right' : 'center'
+        ctx.fillText(`${Math.round(-seconds + seconds * i / 3)}초`, x, height - 10)
+      }
+
+      if (!samples.length) {
+        ctx.fillStyle = '#668391'; ctx.textAlign = 'center'; ctx.font = '14px system-ui'
+        ctx.fillText('측정값 대기 중', pad.left + plotW / 2, pad.top + plotH / 2)
+        return
+      }
+
+      ctx.strokeStyle = color
+      ctx.lineWidth = 2.5
+      ctx.lineJoin = 'round'
+      ctx.lineCap = 'round'
+      ctx.shadowBlur = 12
+      ctx.shadowColor = color
+      ctx.beginPath()
+      samples.forEach((s, index) => {
+        const x = pad.left + ((s.at - (now - seconds * 1000)) / (seconds * 1000)) * plotW
+        const y = pad.top + (max - s[key]) / (max - min) * plotH
+        if (index === 0 || s.at - samples[index - 1].at > 3000) ctx.moveTo(x, y)
+        else ctx.lineTo(x, y)
+      })
+      ctx.stroke()
+      ctx.shadowBlur = 0
+
+      const last = samples[samples.length - 1]
+      const x = pad.left + ((last.at - (now - seconds * 1000)) / (seconds * 1000)) * plotW
+      const y = pad.top + (max - last[key]) / (max - min) * plotH
+      ctx.fillStyle = color; ctx.beginPath(); ctx.arc(x, y, 4.5, 0, Math.PI * 2); ctx.fill()
+    }
+
+    function renderStats(key, el, unit) {
+      const values = visibleSamples(key).map(s => s[key])
+      if (!values.length) { el.textContent = '최소 -- · 평균 -- · 최대 --'; return }
+      const avg = values.reduce((a, b) => a + b, 0) / values.length
+      el.textContent = `최소 ${Math.min(...values).toFixed(0)} · 평균 ${avg.toFixed(1)} · 최대 ${Math.max(...values).toFixed(0)} ${unit}`
+    }
+
+    function render() {
+      drawChart(els.heartChart, 'heart', '#ff5c77', 40, 180)
+      drawChart(els.breathChart, 'breath', '#45d6c7', 0, 40)
+      renderStats('heart', els.heartStats, 'BPM')
+      renderStats('breath', els.breathStats, '회/분')
+      if (state.reading && state.lastSampleAt && Date.now() - state.lastSampleAt > 3500) {
+        setConnectionStatus('stale', 'USB는 연결됐지만 3초 이상 새 측정값이 없습니다.')
+      } else if (state.reading) {
+        setConnectionStatus('live', 'COM 센서 연결됨 · 데이터 수신 중')
+      }
+    }
+
+    function clearData() {
+      state.samples = []
+      state.rawLines = []
+      state.lastSampleAt = 0
+      els.rawLog.textContent = '아직 수신한 데이터가 없습니다.'
+      els.downloadBtn.disabled = true
+      renderMetrics({ heart: null, breath: null, period: null, distance: null, heartStatus: 'NO_DATA', breathStatus: 'NO_DATA', at: Date.now() })
+      els.sampleTime.textContent = '수신 기록 없음'
+      render()
+    }
+
+    function csvCell(value) { return value == null ? '' : String(value) }
+    function downloadCsv() {
+      const header = ['timestamp_utc','heart_rate_bpm','breath_rate_brpm','breath_period_sec','heart_status','breath_status','distance_cm']
+      const rows = state.samples.map(s => [s.iso, s.heart, s.breath, s.period, s.heartStatus, s.breathStatus, s.distance].map(csvCell).join(','))
+      const blob = new Blob(['\uFEFF' + [header.join(','), ...rows].join('\r\n')], { type: 'text/csv;charset=utf-8' })
+      const a = document.createElement('a')
+      a.href = URL.createObjectURL(blob)
+      a.download = `mr60bha2_${new Date().toISOString().replace(/[:.]/g, '-')}.csv`
+      a.click()
+      setTimeout(() => URL.revokeObjectURL(a.href), 1000)
+    }
+
+    els.connectBtn.addEventListener('click', () => state.reading ? disconnect() : connect())
+    els.clearBtn.addEventListener('click', clearData)
+    els.downloadBtn.addEventListener('click', downloadCsv)
+    els.windowSelect.addEventListener('change', render)
+    window.addEventListener('resize', render)
+    if ('serial' in navigator) {
+      navigator.serial.addEventListener('disconnect', event => {
+        if (event.target === state.port) disconnect('USB 센서가 분리되었습니다.')
+      })
+    }
+    state.renderTimer = setInterval(render, 500)
+    render()
+  </script>
+</body>
+</html>
