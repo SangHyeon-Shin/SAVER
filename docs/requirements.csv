@@ -11,8 +11,8 @@ R9,safety,T_comm 지속시간,firmware/,-,planned,의학적 근거 대기
 R10,sensing,ADC NAU7802 320 SPS 3.3V I2C,teensy/,T3,implemented,HX711(80 SPS) 대체
 R11,sensing,흉골 강성 급감 지점을 검상돌기로 판정,algorithm/xiphoid_detect,-,simulated,W9 설계서 기준. 2026-08-03 공개됨
 R12,sensing,EAPD 정의식 기반 목표 깊이 산출,algorithm/eapd,-,simulated,W9·W11 근거. 2026-08-03 공개됨
-R13,control,환자 적응형 압박 제어 (제어 구조·명칭은 private SAVER-docs 참조),algorithm/adaptive_ctrl,-,planned,V3.0 미공개 항목. 공개 저장소에 명칭·제어식을 적지 않는다
-R14,control,자발순환 회복 연속 추정 (알고리즘 상세는 private SAVER-docs 참조),algorithm/rosc_estimate,-,planned,V3.0 미공개 항목. 공개 저장소에 상세를 적지 않는다
+R13,control,환자 적응형 압박 제어 (상세는 비공개 문서 참조),algorithm/adaptive_ctrl,-,planned,상세는 비공개 문서에서 관리한다
+R14,control,자발순환 회복 연속 추정 (상세는 비공개 문서 참조),algorithm/rosc_estimate,-,planned,상세는 비공개 문서에서 관리한다
 R15,mobility,바퀴 안전핀 상태 전환 (모듈 시험),mechanical/,T4,planned,안전핀 제거·재장착 전환 10회 반복 — 보고서 범위 (1:1 출력 후). 통합 주행 시연은 10-24
 R16,vacuum,요구 최소 음압 −6.2 kPa (555.1 N × 안전율 2 / 명목 0.18 m²),docs/DECISIONS.md D-26,T1,simulated,A_eff 확정 전 예비값. 이전 −5.6 kPa 는 500 N 기준
 R17,vacuum,블로워 BL6561-P dead-head ≈27.3 kPa · 최소 연속 유량 400 L/min → 간헐(히스테리시스) 운전,firmware/vac_control,T1,assumed,데이터시트 원문 확인 전 (D-27)
