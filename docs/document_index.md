@@ -66,7 +66,6 @@
 | `cfd/` `mechanical/` `analysis/` | 구조해석 결과·그림, 캐드·배선, Simulink |
 | `data/raw/interview/` `bench/` | 119 인터뷰, 센서·모터 작동확인 |
 | `docs/admin/` | W1~W12 주간보고, 활동보고, 구매요청 |
-| `patent/` | 접근 제한 |
 
 **파일 단위 색인은 여기 두지 않습니다.** `SAVER-docs` 의 `docs/conversion_log.csv`
 가 원본명 ↔ 파일명 ↔ 처리 내역의 단일 출처입니다. 목록을 두 곳에 적어 두면
@@ -93,7 +92,7 @@
 
 ```
 W07_신상현_젯슨_적용_범위.pdf      주차는 두 자리 (W7 아님)
-S2_03_출원서.pdf                   단계_순번_주제
+S2_03_설계서.pdf                   단계_순번_주제
 REF_ILCOR_2020_가이드라인.pdf      외부 참고자료는 REF_ 접두어
 ```
 

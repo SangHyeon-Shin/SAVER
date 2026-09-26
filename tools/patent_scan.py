@@ -19,14 +19,28 @@ for _stream in (sys.stdout, sys.stderr):
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
 
-# V3.0 신규성 관련. 1건이라도 걸리면 커밋을 멈추고 사람이 판단한다.
-BLOCK = [
-    r"CPD", r"이중\s*루프", r"dual[- ]loop",
-    r"적응\s*주파수", r"adaptive\s+frequency",
-    r"발명설명서", r"특허명세서", r"청구항", r"claim\s*\d+\s*\.",
-    r"10-2026-0050317", r"우선권",
-    r"공지예외", r"신규성\s*상실",
+# V3.0 신규성 관련 차단 용어는 공개 저장소에 두지 않는다. 용어 자체가 미공개 정보이기 때문이다.
+# 아래 순서로 처음 찾은 파일을 읽는다. 한 줄에 정규식 하나, 빈 줄과 # 주석은 무시한다.
+#   1) 환경변수 SAVER_PATENT_TERMS 가 가리키는 파일
+#   2) tools/patent_scan_terms.txt  (.gitignore 로 제외, 팀장에게 받아 둔다)
+#   3) 이웃한 private 저장소의 SAVER-docs/tools/patent_scan_terms.txt
+TERMS_FILES = [
+    os.environ.get("SAVER_PATENT_TERMS", ""),
+    os.path.join(HERE, "patent_scan_terms.txt"),
+    os.path.join(os.path.dirname(ROOT), "SAVER-docs", "tools", "patent_scan_terms.txt"),
 ]
+
+def load_block():
+    for path in TERMS_FILES:
+        if path and os.path.exists(path):
+            try:
+                lines = open(path, encoding="utf-8").read().split("\n")
+            except (IOError, OSError, UnicodeDecodeError):
+                continue
+            return [ln.strip() for ln in lines if ln.strip() and not ln.strip().startswith("#")], path
+    return [], None
+
+BLOCK, TERMS_PATH = load_block()
 # 이미 2026-08-03 에 공개된 항목. 차단하지 않고 경고만 한다.
 WARN = [r"강성\s*매핑", r"stiffness\s*map", r"EAPD", r"검상\s*돌기", r"xiphoid"]
 
@@ -43,6 +57,7 @@ SKIP_DIRS = {".git", "node_modules", "dist", "dist-single", "__pycache__", ".ven
 SELF_EXEMPT = {
     "tools/patent_scan.py",
     "tools/patent_scan.cfg",
+    "tools/patent_scan_terms.txt",
     ".git/hooks/pre-commit",
 }
 # 파일 어디에든 이 문자열이 있으면 그 파일은 검사에서 제외된다.
@@ -109,6 +124,9 @@ def main():
     if is_private() and not report_only:
         print("patent_scan: 저장소가 private로 표시됨. 검사를 건너뜁니다.")
         return 0
+    if not BLOCK:
+        print("patent_scan: 비공개 차단 용어 목록이 없습니다 (tools/patent_scan_terms.txt).")
+        print("             차단 검사는 건너뛰고 경고 검사만 합니다. 목록은 팀장에게 받으십시오.")
     blocked, warned = [], []
     for p in files_to_check(all_files):
         b, w = scan(p)

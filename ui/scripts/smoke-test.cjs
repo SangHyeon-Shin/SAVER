@@ -1,5 +1,5 @@
 /* 브라우저 없이 UI가 실제로 렌더링되고 터치 흐름이 도는지 확인합니다.
-   사지방 PC처럼 화면을 띄울 수 없는 환경에서 코드 수정 후 검증용.
+   화면을 띄울 수 없는 환경(원격 PC, CI 등)에서 코드 수정 후 검증용.
 
    사용:  npm run build:single && npm run smoke                            */
 const { readFileSync, existsSync } = require('fs')

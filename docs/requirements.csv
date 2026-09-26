@@ -1,16 +1,23 @@
 id,category,requirement,implementation_ref,test_ref,level,note
 R1,vacuum,진공 목표 압력 -22.5 kPa (±2.5) 유지,firmware/vac_control,T1,implemented,VAC_TARGET_KPA
-R2,vacuum,진공 유지력 상한 약 290 N (dead-head) 설계 한계로 명시,cfd/,-,simulated,CFD 해석값. 실측 아님
+R2,vacuum,진공 유지력 F=ΔP·A: 명목 3600 N (−20 kPa × 0.18 m²). 290 N 폐기,docs/DECISIONS.md D-24,T1,simulated,1:1 명목 면적. A_eff 확정 전
 R3,compression,압박 속도 110 BPM 고정,firmware/cpr_cycle,T2,implemented,-
 R4,compression,볼스크류 리드 10 mm / 감속비 1.5,mechanical/,T2,implemented,-
-R5,compression,최대 압박력 555.1 N (계산),analysis/force_calc,-,simulated,하중셀 100 kgf 재선정 근거
-R6,compression,목표 압박 깊이 target_depth_mm,firmware/depth_ctrl,-,planned,의학적 근거 대기 — 임의 확정 금지
+R5,compression,최대 압박력 555.1 N (계산),W9 알고리즘 설계서 p.6 계산식,-,simulated,하중셀 100 kgf 재선정 근거. 입력값(강성·깊이·점성)은 문헌 가정
+R6,compression,목표 압박 깊이 target_depth_mm,firmware/depth_ctrl,-,planned,의학적 근거 대기 — 임의 확정 금지. 벤치 시험 설정 50 mm(D-30)는 별개
 R7,safety,전류 제한 12.0 A (초회 구동 6.0 A),firmware/motor_safety,-,implemented,I_LIMIT_A
 R8,safety,과열 정지 70.0 C,firmware/motor_safety,-,implemented,TEMP_STOP_C
 R9,safety,T_comm 지속시간,firmware/,-,planned,의학적 근거 대기
 R10,sensing,ADC NAU7802 320 SPS 3.3V I2C,teensy/,T3,implemented,HX711(80 SPS) 대체
 R11,sensing,흉골 강성 급감 지점을 검상돌기로 판정,algorithm/xiphoid_detect,-,simulated,W9 설계서 기준. 2026-08-03 공개됨
 R12,sensing,EAPD 정의식 기반 목표 깊이 산출,algorithm/eapd,-,simulated,W9·W11 근거. 2026-08-03 공개됨
-R13,control,환자 적응형 압박 제어 (제어 구조·명칭은 private SAVER-docs 참조),algorithm/adaptive_ctrl,-,planned,V3.0 미공개 항목. 공개 저장소에 명칭·제어식을 적지 않는다
-R14,control,자발순환 회복 연속 추정 (알고리즘 상세는 private SAVER-docs 참조),algorithm/rosc_estimate,-,planned,V3.0 미공개 항목. 공개 저장소에 상세를 적지 않는다
-R15,mobility,구동부 휠·안전핀,mechanical/,T4,planned,10-24 로 시험 연기
+R13,control,환자 적응형 압박 제어 (상세는 비공개 문서 참조),algorithm/adaptive_ctrl,-,planned,상세는 비공개 문서에서 관리한다
+R14,control,자발순환 회복 연속 추정 (상세는 비공개 문서 참조),algorithm/rosc_estimate,-,planned,상세는 비공개 문서에서 관리한다
+R15,mobility,바퀴 안전핀 상태 전환 (모듈 시험),mechanical/,T4,planned,안전핀 제거·재장착 전환 10회 반복 — 보고서 범위 (1:1 출력 후). 통합 주행 시연은 10-24
+R16,vacuum,요구 최소 음압 −6.2 kPa (555.1 N × 안전율 2 / 명목 0.18 m²),docs/DECISIONS.md D-26,T1,simulated,A_eff 확정 전 예비값. 이전 −5.6 kPa 는 500 N 기준
+R17,vacuum,블로워 BL6561-P dead-head ≈27.3 kPa · 최소 연속 유량 400 L/min → 간헐(히스테리시스) 운전,firmware/vac_control,T1,assumed,데이터시트 원문 확인 전 (D-27)
+R18,vacuum,바닥 갭 0.05~0.30 mm 에서 운전 음압 −27.0~−17.6 kPa (8셀 CFD · 축대칭 원형 패드 모델),cfd/SAVER_CFD_results_final.csv,T1,simulated,24 V 팬 커브 교점. 실제 300×300 패드는 더 낮을 수 있음 (재해석 항목)
+R19,structure,시제품 축척 1:1,mechanical/,-,implemented,2026-09-08 1:2 폐기 (D-25)
+R20,compression,압박 운동 프로파일 — 설계 기준 사인파 (0.288 m/s · 2592 rpm),docs/DECISIONS.md D-29,T2,planned,제어 해석·힘 상한 산정은 삼각파 조건 명시
+R21,compression,벤치 시험 설정값 깊이 50 mm · 힘 상한 600 N,docs/DECISIONS.md D-30,T2,planned,임상 적용값 아님
+R22,power,주전원 6S Li-Po 22.2 V (19.8~25.2 V) ×2 병렬,중간보고서 전원 분배 설계,-,implemented,PCB 회로도 4S 표기와 정합 필요. 블로워 팬 커브 24 V 와 불일치
