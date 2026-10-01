@@ -8,6 +8,24 @@
 
 ---
 
+## 저장소 구성
+
+문서와 코드는 2026-09-08부터 저장소를 나눠 관리합니다.
+
+| 저장소 | 공개 | 내용 |
+|---|---|---|
+| **`SAVER`** (여기) | public | `ui/` `jetson/` `teensy/` `protocol/` 코드와 이미 공개된 `docs/specs/` |
+| **`SAVER-docs`** | private | 보고서 본문, 원자료, 해석 결과, 실험 데이터, 행정 문서 |
+
+**새 문서·보고서·실험 자료는 이 저장소에 올리지 마십시오.** `SAVER-docs`로 갑니다.
+`tools/patent_scan.py`가 pre-commit 훅으로 걸려 있어 미공개 항목이 섞이면 커밋이 중단됩니다.
+분리 배경과 절차는 `SPLIT_PLAN.md`에 있습니다.
+
+이 저장소의 `analysis/` `cfd/` `data/` `mechanical/` `presentation/` `sources/`는
+구조만 남은 빈 디렉터리입니다. 실제 내용은 `SAVER-docs`의 같은 경로에 있습니다.
+
+---
+
 ## 구조
 
 ```
@@ -32,13 +50,24 @@ SAVER/
 │   └── reference/           Git 이력에서 복원한 이전 작업 (ESP32-S3 기준)
 │
 ├── ui/                신상현 · 7인치 터치 UI (React + Vite)
-└── docs/
-    ├── PROJECT.md     프로젝트 개요 · 팀 · 일정 · 환경
-    ├── DECISIONS.md   ★ 기술 결정과 그 근거. 설계에 의문이 들면 여기부터
-    ├── hardware_mapping.md
-    ├── document_index.md   프로젝트 문서 85건 색인
-    └── specs/         개발에 직접 필요한 명세 원본 15건
+│
+├── docs/
+│   ├── PROJECT_STATE.md   ★ "지금 무엇이 사실인가"의 단일 출처. 확정값·마감·검증 상태
+│   ├── PROJECT.md         프로젝트 개요 · 팀 · 환경
+│   ├── DECISIONS.md       ★ 기술 결정과 그 근거. 설계에 의문이 들면 여기부터
+│   ├── hardware_mapping.md
+│   ├── document_index.md  프로젝트 문서 색인
+│   └── specs/             개발에 직접 필요한 명세 원본 15건 (수정·삭제 금지)
+│
+├── report/            Quarto 보고서 골격 (본문은 SAVER-docs)
+├── tools/             patent_scan · consistency_audit · extract_sources · fix_extensions
+└── release/           변환 산출물 (git 미추적)
 ```
+
+`docs/specs/`는 2026-08-03 공개 시점의 기록이라 삭제·이력 변경을 금지합니다.
+2026-09-08에 확장자를 실제 형식에 맞게 교정했으므로(`.pdf` → `.zip` 11건,
+`.docx` → `.txt` 3건) `.zip`을 열면 페이지 이미지와 추출 텍스트가 들어 있습니다.
+자세한 내용은 `docs/specs/README.md`를 보십시오.
 
 ---
 
@@ -46,13 +75,14 @@ SAVER/
 
 | 영역 | 담당 | 도구 |
 |---|---|---|
-| `jetson/` `ui/` | 신상현 | Claude Code |
+| `jetson/` `ui/` | 신상현 | Claude Code, Codex |
 | `teensy/` | 한건민 | Codex |
 | `protocol/` | 공동 | 합의 후 변경 |
 
 두 도구가 `AGENTS.md` 를 함께 읽습니다. Claude Code 는 `CLAUDE.md` 를 통해 참조합니다.
 
-처음 합류했다면 `docs/PROJECT.md` → `AGENTS.md` → 자기 담당 디렉터리의 README 순으로 읽으세요.
+처음 합류했다면 `docs/PROJECT_STATE.md` → `docs/PROJECT.md` → `AGENTS.md` →
+자기 담당 디렉터리의 README 순으로 읽으세요.
 
 ---
 
@@ -118,36 +148,38 @@ cd ~/SAVER/jetson
 python3 -m saver.bridge --serial /dev/ttyACM0 --serve ../dist --http-port 8080
 ```
 
+### 제출 전 필수 점검
+
+```bash
+py -3 tools/consistency_audit.py            # 확정값이 문서 전반에 어긋나지 않는지
+py -3 tools/patent_scan.py --all --report   # 미공개 항목 혼입 여부
+```
+
+과거 보고서에서 계수 오류 하나가 4개소로 전파된 이력이 있습니다. 건너뛰지 마십시오.
+
 ---
 
 ## 현재 상태
 
+**확정값·마감·검증 상태는 `docs/PROJECT_STATE.md`가 단일 출처입니다.**
+이 README를 포함해 다른 문서의 값이 어긋나면 `PROJECT_STATE.md`가 우선합니다.
+값을 여기로 옮겨 적지 마십시오 — 그렇게 해서 어긋난 이력이 있습니다.
+
 | 항목 | 상태 |
 |---|---|
-| USB 프로토콜 v1.0a | 초안. **7/31 한건민 검토 후 확정** |
 | 상태머신 S1~S13 | 구현 완료 (JSON 단일 기준) |
-| Jetson 브리지 | 구현 완료 · 젯슨 실기 40/40 통과 |
+| Jetson 브리지 | 구현 완료 · 젯슨 실기 자동시험 40/40 통과 |
 | 가짜 Teensy | 구현 완료 (고장 주입 7종) |
-| Teensy 펌웨어 | 통신 골격만. `[구현]` 부분 대기 |
-| 제어 보드 | **Teensy 4.1 확정** (2026-08-03, PCB 미발주) |
 | 7인치 UI | 20화면 구현 완료 |
-| 레이더 · 카메라 | 미착수 (8/5 예정) |
+| Teensy 펌웨어 | 통신 골격만. `[구현]` 부분 대기 |
+| 제어 보드 | Teensy 4.1 확정 (2026-08-03, PCB 미발주) |
 
-### 확정이 필요한 값
-
-`protocol/teensy_usb_protocol_v1.md` §11 참조. **추측으로 채우지 않습니다.**
-
-| 값 | 담당 | 비고 |
-|---|---|---|
-| 목표 압박 깊이·속도 | 한성윤 | 가이드라인 근거 필요 |
-| 통신 두절 시 압박 지속 시간 `T_comm` | 한성윤 | 의학 판단 |
-| 과전류 임계 | 한건민 | 정격 16 A |
-| 목표 음압 · 누설 판정 | 서정준 + 한건민 | 이전 코드에 **-30 kPa ±0.5** 존재. 확정값인지 확인 |
-| 구동계(바퀴) 명령 필요 여부 | 신상현 + 한건민 | 프로토콜에 명령 없음 |
-| 냉각팬 제어 주체 | 한건민 | Teensy 자율 vs Jetson 명령 |
-| PCB 회로도 | 한건민 | Teensy 4.1 기준 재작성 (이력 회로도는 ESP32) |
-
+미확정 항목은 `docs/PROJECT_STATE.md` §3에 있습니다. **추측으로 채우지 않습니다.**
 값이 비어 있으면 Teensy 가 `START_CPR` 을 거부합니다. **정상 동작입니다.**
+
+주장 수준(`implemented` / `tested` / `simulated` / `assumed` / `planned`)을
+보고서·발표·커밋 메시지에서 반드시 구별합니다. 정의는 `PROJECT_STATE.md` §5,
+항목별 값은 `docs/evidence.csv` 의 `level` 열입니다.
 
 ---
 

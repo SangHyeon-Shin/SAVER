@@ -1,0 +1,4 @@
+# 부록 {.unnumbered}
+
+확정값 전체 목록은 `docs/PROJECT_STATE.md`, 요구사항 추적은
+`docs/requirements.csv`, 근거 수준은 `docs/evidence.csv`를 참조한다.

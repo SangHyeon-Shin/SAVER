@@ -9,7 +9,8 @@ venv/
 dist/
 dist-single/
 docs/build/
-ui/src/generated/          # protocol/ 에서 자동 복사됨. 편집 금지
+# protocol/ 에서 자동 복사됨. 편집 금지 (주석을 같은 줄에 두면 규칙이 무효가 된다)
+ui/src/generated/
 
 # 실행 산출물
 logs/
@@ -25,6 +26,8 @@ build/
 
 # 설정 (확정값은 커밋하되 개인 환경 설정은 제외)
 jetson/config.local.json
+# patent_scan 차단 용어 목록. 미공개 정보라 저장소에 올리지 않는다
+tools/patent_scan_terms.txt
 .env
 .env.local
 
@@ -33,3 +36,28 @@ jetson/config.local.json
 .vscode/
 .idea/
 *.swp
+
+# ---- SAVER HQ 보정 (2026-09-07) ----
+# 기존 규칙의 `*.csv` 전역 무시 때문에 docs/*.csv 가 커밋되지 않는다.
+# 관리용 CSV는 반드시 추적한다.
+!docs/requirements.csv
+!docs/evidence.csv
+!docs/file-index.csv
+!cfd/runs.csv
+!data/processed/*.csv
+
+# 실험 원본은 추적한다. 용량이 큰 것만 개별 제외한다.
+!data/raw/
+!data/raw/**
+
+# 변환 산출물
+release/_build/
+report/.quarto/
+report/_build/
+*.docx
+!report/templates/*.docx
+
+# 추출 평문은 추적하지 않는다. 원본이 이미 공개되었더라도 평문화하면
+# 검색·색인 가능해져 노출 수준이 달라진다. private SAVER-docs 에서는 이 줄을 지운다.
+sources/extracted/*
+!sources/extracted/.gitkeep

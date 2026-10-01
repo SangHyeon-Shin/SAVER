@@ -174,3 +174,27 @@ cd ui && npm run build:single && npm run smoke
 ```
 
 `protocol/` 을 건드린 커밋은 반드시 상대에게 알린다.
+
+---
+
+## 문서·보고서 작업 규칙 (2026-09-07 추가)
+
+- **`docs/PROJECT_STATE.md`가 확정값의 단일 출처다.** 이 저장소 어디에서든 수치를
+  인용하기 전에 먼저 이 파일을 읽는다. 오래된 문서·초안의 확정 표현보다 이 파일이
+  우선한다.
+- **주장 수준을 구분하지 않고 서술 금지.** `implemented` / `tested` / `simulated` /
+  `assumed` / `planned` 5단계를 반드시 명시한다 (`docs/evidence.csv`의 `level` 열
+  참조). 특히 `simulated`(해석)와 `tested`(실측)를 혼동하지 않는다.
+- **수치를 보고서·발표자료·커밋 메시지에 옮겨 적을 때는 `tools/consistency_audit.py`를
+  실행해 확정값과 어긋나지 않는지 확인한다.** EAPD 계수 오류가 과거 4개소로 전파된
+  전례가 있다.
+- **커밋 전 `tools/patent_scan.py`가 pre-commit 훅으로 실행된다.** 비공개 차단
+  용어 목록(`tools/patent_scan_terms.txt`, 저장소에 올리지 않음)에 걸리는 파일은 차단된다.
+  목록은 팀장에게 받아 같은 위치에 둔다.
+  의도된 예외는 훅을 건너뛰지 말고 `patent-scan: allow` 마커를 파일에 남기거나
+  사람이 직접 검토한 뒤 커밋한다.
+- **`docs/specs/`는 원본 보존 영역이다.** 2026-08-03에 공개되었으므로 수정·삭제
+  금지. 확장자 불일치는 이 폴더를 직접 고치지 말고 `tools/fix_extensions.py`로
+  진단 후 처리한다.
+- 새 문서·보고서 초안은 `report/`, 원자료는 `sources/`, 실험 원본은 `data/raw/`에
+  둔다. 저장소 분리 원칙은 `SPLIT_PLAN.md`를 따른다.
