@@ -1,4 +1,4 @@
-// Bench-only copy of Stage4 no-FG command/run logic; no production dependency.
+// Bench-only Stage4 parser/baseline plus manual-run logic; no production dependency.
 #ifndef SAVER_COMBINED_BENCH_LOGIC_H
 #define SAVER_COMBINED_BENCH_LOGIC_H
 
@@ -124,14 +124,80 @@ class CommandLine {
   bool discard_ = false;
 };
 
+// Manual-run state: only this model drives the combined sketch. The Stage4
+// baseline above stays unchanged for its existing tests and timed sketches.
+class ManualRunState {
+ public:
+  constexpr void stop() { running_ = false; duty_ = 0; }
+  constexpr bool observeErr(bool active, uint32_t now) {
+    if (active) {
+      const bool newlyLatched = !fault_;
+      fault_ = true;
+      inactiveTracking_ = false;
+      stop();
+      return newlyLatched;
+    }
+    if (!inactiveTracking_) { inactiveTracking_ = true; inactiveSince_ = now; }
+    return false;
+  }
+  constexpr const char* start(uint32_t duty) {
+    if (fault_) { stop(); return "ERR_FAULT_USE_CLEAR_ERR"; }
+    if (running_) { stop(); return "ALREADY_RUNNING_USE_SET"; }
+    if (duty < 1 || duty > 100) { stop(); return "RUN_OUT_OF_RANGE"; }
+    duty_ = (uint8_t)duty; running_ = true;
+    return nullptr;
+  }
+  constexpr const char* set(uint32_t duty) {
+    if (duty > 100) { stop(); return "BAD_SET_DUTY"; }
+    if (duty == 0) { stop(); return nullptr; } // Always permit a stop request.
+    if (fault_) { stop(); return "ERR_FAULT_USE_CLEAR_ERR"; }
+    if (!running_) return "NOT_RUNNING_USE_RUN";
+    duty_ = (uint8_t)duty;
+    return nullptr;
+  }
+  constexpr const char* clearErr(uint32_t now) {
+    if (running_) { stop(); return "CLEAR_ERR_REQUIRES_STOP"; }
+    if (!inactiveTracking_ || (uint32_t)(now - inactiveSince_) < ERR_CLEAR_STABLE_MS)
+      return "ERR_NOT_INACTIVE_FOR_250MS";
+    fault_ = false;
+    return nullptr; // Clearing an error never starts a motor.
+  }
+  constexpr bool running() const { return running_; }
+  constexpr bool fault() const { return fault_; }
+  constexpr uint8_t duty() const { return duty_; }
+ private:
+  bool running_ = false, fault_ = false, inactiveTracking_ = false;
+  uint8_t duty_ = 0;
+  uint32_t inactiveSince_ = 0; // Only the ERR-clear interval needs a clock.
+};
+
+// RUN/RUN1/RUN2 [pct]; RUNBOTH pct1 pct2. Never reinterpret an old timed
+// command as an unlimited run. Commit parsed duties only after full validation.
+constexpr const char* parseRunDuties(uint8_t mask, const char* first, const char* second,
+                                    const char* extra, uint32_t defaultDuty,
+                                    uint32_t& duty1, uint32_t& duty2) {
+  if (mask < 1 || mask > 3) return "BAD_MOTOR_SELECTION";
+  if (extra || (mask != 3 && second)) return "RUN_TIME_ARGUMENT_REMOVED";
+  uint32_t next1 = defaultDuty, next2 = defaultDuty;
+  if (mask == 3) {
+    if (!parseUnsigned(first, next1) || !parseUnsigned(second, next2))
+      return "BAD_RUN_ARGUMENTS";
+  } else {
+    if (first && !parseUnsigned(first, next1)) return "BAD_RUN_ARGUMENTS";
+    next2 = next1;
+  }
+  duty1 = next1; duty2 = next2;
+  return nullptr;
+}
+
 struct SafetyEvent {
-  uint8_t faultMask = 0, timeoutMask = 0, stopMask = 0;
+  uint8_t faultMask = 0, stopMask = 0;
 };
 
 // Validate both channels before any GPIO output; idle channel faults remain local.
 class CombinedState {
  public:
-  constexpr const RunState& motor(unsigned i) const { return motors_[i]; }
+  constexpr const ManualRunState& motor(unsigned i) const { return motors_[i]; }
   constexpr bool armed() const { return armed_; }
   constexpr uint8_t runningMask() const {
     return (motors_[0].running() ? 1 : 0) | (motors_[1].running() ? 2 : 0);
@@ -152,21 +218,18 @@ class CombinedState {
     const uint8_t running = runningMask();
     if (motors_[0].observeErr(err1, now)) result.faultMask |= 1;
     if (motors_[1].observeErr(err2, now)) result.faultMask |= 2;
-    if (motors_[0].expire(now)) result.timeoutMask |= 1;
-    if (motors_[1].expire(now)) result.timeoutMask |= 2;
-    result.stopMask = result.faultMask | result.timeoutMask;
+    result.stopMask = result.faultMask;
     if (result.faultMask & running) { stop(3, true); result.stopMask = 3; }
     return result;
   }
-  constexpr const char* start(uint8_t mask, uint32_t duty1, uint32_t duty2,
-                              uint32_t duration, uint32_t now, bool pressureOk) {
+  constexpr const char* start(uint8_t mask, uint32_t duty1, uint32_t duty2, bool pressureOk) {
     if (!armed_) return fail("NOT_ARMED");
     if (!pressureOk) return fail("PRESSURE_UNAVAILABLE");
     if (runningMask()) return fail("ALREADY_RUNNING_USE_SET");
     if (mask < 1 || mask > 3) return fail("BAD_MOTOR_SELECTION");
-    RunState next[2] = {motors_[0], motors_[1]};
+    ManualRunState next[2] = {motors_[0], motors_[1]};
     for (unsigned i = 0; i < 2; ++i) if (mask & (1U << i)) {
-      const char* error = next[i].start(i == 0 ? duty1 : duty2, duration, now);
+      const char* error = next[i].start(i == 0 ? duty1 : duty2);
       if (error) return fail(error);
     }
     motors_[0] = next[0]; motors_[1] = next[1];
@@ -180,7 +243,7 @@ class CombinedState {
   constexpr const char* clear(uint8_t mask, uint32_t now) {
     if (runningMask()) return fail("CLEAR_ERR_REQUIRES_STOP");
     if (mask < 1 || mask > 3) return fail("BAD_MOTOR_SELECTION");
-    RunState next[2] = {motors_[0], motors_[1]};
+    ManualRunState next[2] = {motors_[0], motors_[1]};
     for (unsigned i = 0; i < 2; ++i) if (mask & (1U << i)) {
       const char* error = next[i].clearErr(now);
       if (error) return fail(error);
@@ -189,7 +252,7 @@ class CombinedState {
     return nullptr;
   }
  private:
-  RunState motors_[2];
+  ManualRunState motors_[2];
   bool armed_ = false;
 };
 

@@ -1,5 +1,32 @@
 # 한건민 전달 — Teensy 4.1 ↔ Jetson Nano 통신
 
+## 리니어 영구 보정 추가 (2026-09-30)
+
+**설치 전에는 먼저 리니어 센서를 ZERO/CAL로 보정하고, 설치 후에는 영점·실측 거리·방향을 다시
+확인하세요.** 고정 위치/기구 연결/기준점이 바뀌면 재보정합니다. 설치 후 하강이 양수인지도 확인해야 합니다.
+
+- `test/linear_sensor_test/linear_sensor_test.ino`의 `build=calibration_eeprom_v3`에서 보정하면
+  성공한 CAL 값을 EEPROM 4096~4135에 자동 저장합니다. `saved=1` 응답을 기다립니다.
+- 메인 `saver_teensy.ino`는 부팅 시 같은 형식/CRC/범위를 검사해 **읽기만** 합니다. EEPROM 쓰기,
+  새 JSON 명령/이벤트/필드, 모터 구동 기능을 추가하지 않았습니다.
+- 현재 위치는 `g_s.linear_position_mm`, 유효 여부는 `linear_position_ok`, 두 보정점 사이 여부는
+  `linear_within_cal_span`에 취득합니다. 없거나 손상된 저장값/잘못된 ADC/rail이면 유효 플래그를
+  false로 하고 마지막 숫자는 덮어쓰지 않습니다. 부팅 위치를 자동 영점으로 삼지 않습니다.
+- **`cp_depth_mm`는 명세 §6의 직전 사이클 최대 압박 깊이입니다.** 현재 위치를 이 필드로
+  대신 송신하지 않으며 사이클 경계/원점/최대 깊이 산출이 구현되기 전에는 생략합니다.
+  새 실시간 위치 필드가 필요하면 신상현과 프로토콜 합의가 선행되어야 합니다.
+- ADC 12bit/평균 16회와 A16 입력 설정을 보정 스케치와 맞췄습니다. 평균 설정은 다른 ADC
+  입력에도 적용되므로 전체 제어 루프의 실측 시간은 재검증해야 합니다.
+- 공유 원본은 `src/saver_linear/`입니다. 메인 스케치 업로드용 폴더에도 `src/` 전체를 포함합니다.
+  시험 스케치의 배포 복사본과 동일한지 자동검사합니다. EEPROM 지우기/복구/다른 스케치 덮어쓰기는
+  보정을 없앨 수 있습니다. 다른 Teensy로 교체해도 다시 보정해야 합니다.
+- 사용법·재부팅 확인·실패 처리는 [리니어 시험 안내](../test/linear_sensor_test/README.md)를 봅니다.
+  기존 `test/compression_linear_pid_test`에는 이번 변경을 적용하지 않았습니다.
+
+검사: 저장소 루트에서 `powershell.exe -NoProfile -ExecutionPolicy Bypass -File
+test/linear_sensor_test/tests/check_linear.ps1`. 저장·손상·쓰기 실패·메인 복원 경로를 모의/컴파일타임에
+검사합니다. 실물 EEPROM 보존, ADC 정확도, 단선 검출, 제어 주기는 별도 실측 대상입니다.
+
 ## 들어있는 것
 
 ```
@@ -37,7 +64,7 @@ g++ -std=c++11 -Wall -o test test_saver_proto.cpp && ./test
 
 **2. Teensy에 골격 올리기**
 
-`saver_teensy.ino`, `saver_proto.h`, `pinmap.h`를 같은 폴더에 두고 업로드하세요.
+`saver_teensy.ino`, `saver_proto.h`, `pinmap.h`, `src/`를 같은 스케치 폴더에 두고 업로드하세요.
 핀에 의존하지 않는 USB 통신은 실제 모터 제어가 없어도 시험할 수 있습니다.
 
 센서 취득 코드까지 컴파일할 때는 Arduino Library Manager에서

@@ -10,6 +10,11 @@ $policyTests = Join-Path $PSScriptRoot 'test_optical_window.cpp'
 if ($LASTEXITCODE -ne 0) { throw 'Compile-time policy tests failed.' }
 $assertionCount = @(Select-String -LiteralPath $policyTests -Pattern '^static_assert').Count
 Write-Output "PASS: $assertionCount compile-time policy assertions (no hardware or executable run)."
+$diagnosticTests = Join-Path $PSScriptRoot 'test_diagnostics.cpp'
+& $Compiler -std=c++14 -Wall -Wextra -Werror -fsyntax-only $diagnosticTests
+if ($LASTEXITCODE -ne 0) { throw 'Compile-time diagnostic tests failed.' }
+$diagnosticCount = @(Select-String -LiteralPath $diagnosticTests -Pattern '^static_assert').Count
+Write-Output "PASS: $diagnosticCount compile-time diagnostic assertions (no hardware or executable run)."
 if (-not $LogPath) { exit 0 }
 
 # Replay only observed raw summaries through the actual C++ contact/window policy.

@@ -14,10 +14,11 @@
  * ERR/RUN need verified 0..3.3 V levels and defined external bias, no internal pullup.
  * Motor current must bypass the breadboard and Teensy.
  *
- * USB 115200, newline. ARM then RUN1 10 15000 is a bench command example, not
+ * USB 115200, newline. ARM then RUN1 10 is a bench command example, not
  * a verified safe current/load setting. Duty percent is NOT current in amperes.
- * RUN/RUN1 [pct] [ms], RUN2 [pct] [ms], RUNBOTH pct1 pct2 ms (wire both first).
- * SET/SET1 pct, SET2 pct do not extend the original deadline. SET 0 stops.
+ * RUN/RUN1 [pct], RUN2 [pct], RUNBOTH pct1 pct2 (wire both first).
+ * Runs have NO duration/deadline: use STOP; do not leave a running bench unattended.
+ * SET/SET1 pct, SET2 pct change duty. SET 0 stops the selected motor.
  * STOP/STOP1/STOP2, DISARM, CLEAR_ERR/CLEAR_ERR1/CLEAR_ERR2, STATUS, READ, HELP.
  * CLEAR_ERR aliases motor 1; ERR HIGH must remain stable for 250 ms; no auto restart.
  * PLOT = Arduino Serial Plotter; TEXT = detailed DATA/events (default).
@@ -41,9 +42,9 @@ namespace {
 using namespace saver_vacuum_bench;
 using namespace saver_pressure_bench;
 
-// ===== 기본 듀티/시간 수정 위치: 수정 후 재업로드 (자동 시작하지 않음) =====
+// ===== 기본 듀티 수정 위치: 수정 후 재업로드 (자동 시작하지 않음) =====
 constexpr uint8_t DEFAULT_DUTY_PERCENT = 6; // PWM 6%이며 6 A가 아님.
-constexpr uint32_t DEFAULT_RUN_MS = 15000; // 15초; RUN1 10 5000처럼 명령으로 변경 가능.
+// 작동시간 설정 없음: RUN 후 STOP/오류/USB 단절/압력 이상 전까지 계속 구동.
 // =======================================================================
 constexpr uint8_t PIN_VAC1_VSP = 24; // FlexPWM1_2: motor 2와 다른 주파수 그룹.
 constexpr uint8_t PIN_VAC1_EN = 26;  // motor 1 LOW disable; Stage4와 동일.
@@ -65,7 +66,6 @@ constexpr uint32_t SAMPLE_PERIOD_MS = 100; // 10 Hz, no interpolated/fabricated 
 constexpr uint8_t SERIAL_BUDGET = 32;
 static_assert(A8 == 22, "Teensy 4.1 A8 mapping required");
 static_assert(DEFAULT_DUTY_PERCENT >= 1 && DEFAULT_DUTY_PERCENT <= 100, "Invalid default duty");
-static_assert(DEFAULT_RUN_MS >= MIN_RUN_MS && DEFAULT_RUN_MS <= MAX_RUN_MS, "Invalid default duration");
 
 class VacuumPressureBench {
  public:
@@ -89,9 +89,9 @@ class VacuumPressureBench {
     while (!Serial && (uint32_t)(millis() - started) < 2000U) {}
     usbReady_ = (bool)Serial;
     samplePressure();
-    emit("SAVER_VACUUM_PRESSURE_BENCH_TEST_READY,build=no_fg_pa_v1");
+    emit("SAVER_VACUUM_PRESSURE_BENCH_TEST_READY,build=no_fg_pa_manual_v2");
     emit("PINS,M1_VSP=24,M1_EN=26,M1_ERR=27,M1_RUN=25,M2_VSP=33,M2_EN=35,M2_ERR=36,M2_RUN=34,A8=22,FG=UNUSED");
-    emit("SAFETY,motors_off_commanded=1,armed=0,usb_disconnect_stops=1,max_run_ms=30000");
+    emit("SAFETY,motors_off_commanded=1,armed=0,usb_disconnect_stops=1,run_mode=MANUAL_STOP");
     help();
     checkSafety();
   }
@@ -147,8 +147,6 @@ class VacuumPressureBench {
       plot_ = false;
       emitf("FAULT,ERR_LOW,motor_mask=%u,latched=1,mode=TEXT", (unsigned)event.faultMask);
     }
-    if (event.timeoutMask && !plot_)
-      emitf("EVENT,RUN_TIMEOUT_MOTOR_OFF,motor_mask=%u", (unsigned)event.timeoutMask);
   }
   void samplePressure() {
     pressure_ = convertPressure(analogRead(PIN_PRESSURE));
@@ -202,20 +200,20 @@ class VacuumPressureBench {
           control_.armed() ? 1U : 0U, plot_ ? "PLOT" : "TEXT", pressure_.ok ? 1U : 0U,
           (unsigned long)usbDisconnects_, (unsigned long)droppedLogs_);
     for (unsigned i = 0; i < 2; ++i) {
-      const RunState& motor = control_.motor(i);
-      emitf("MOTOR,id=%u,commanded_running=%u,pwm_pct=%u,pwm_raw=%u,remaining_ms=%lu,"
+      const ManualRunState& motor = control_.motor(i);
+      emitf("MOTOR,id=%u,commanded_running=%u,pwm_pct=%u,pwm_raw=%u,run_mode=MANUAL_STOP,"
             "en_pin_raw=%u,err_raw=%u,err_fault_latched=%u,run_raw=%u",
             i + 1U, motor.running() ? 1U : 0U, (unsigned)motor.duty(), (unsigned)dutyToPwm(motor.duty()),
-            (unsigned long)motor.remaining(millis()), (unsigned)digitalRead(EN_PINS[i]),
+            (unsigned)digitalRead(EN_PINS[i]),
             (unsigned)digitalRead(ERR_PINS[i]), motor.fault() ? 1U : 0U, (unsigned)digitalRead(RUN_PINS[i]));
     }
   }
   void help() {
-    emit("COMMANDS,ARM|RUN/RUN1 [pct] [ms]|RUN2 [pct] [ms]|RUNBOTH pct1 pct2 ms|SET/SET1 pct|SET2 pct");
+    emit("COMMANDS,ARM|RUN/RUN1 [pct]|RUN2 [pct]|RUNBOTH pct1 pct2|SET/SET1 pct|SET2 pct");
     emit("COMMANDS,STOP|STOP1|STOP2|DISARM|CLEAR_ERR/CLEAR_ERR1|CLEAR_ERR2|READ|STATUS|HELP|PLOT|TEXT");
-    emitf("DEFAULTS,pwm_pct=%u,duration_ms=%lu,PWM_HZ=10000", (unsigned)DEFAULT_DUTY_PERCENT,
-          (unsigned long)DEFAULT_RUN_MS);
-    emit("LIMITS,pct=1..100,duration_ms=100..30000,partial_command_timeout_ms=1000");
+    emitf("DEFAULTS,pwm_pct=%u,run_mode=MANUAL_STOP,PWM_HZ=10000", (unsigned)DEFAULT_DUTY_PERCENT);
+    emit("LIMITS,pct=1..100,partial_command_timeout_ms=1000");
+    emit("NOTE,no_run_timer,use_STOP,legacy_RUN_duration_argument_is_rejected");
     emit("PRESSURE,XGZP6847A100KPGN_5V,unit=Pa_gauge,divider=4k7_top_10k_bottom,nominal_ADC_V=3.3");
     emit("NOTE,PLOT_is_10Hz,uncheck_other_traces_for_pressure_only,TEXT_for_diagnosis");
     emit("WARNING,ERR_RUN_require_0_to_3V3,FG_and_motor_5V_output_unused,pwm_pct_is_not_current_A");
@@ -223,31 +221,24 @@ class VacuumPressureBench {
   }
   bool noMore(char*& context) { return strtok_r(nullptr, " \t", &context) == nullptr; }
   void runCommand(uint8_t mask, char*& context) {
-    uint32_t duty1 = DEFAULT_DUTY_PERCENT, duty2 = DEFAULT_DUTY_PERCENT, duration = DEFAULT_RUN_MS;
+    uint32_t duty1 = DEFAULT_DUTY_PERCENT, duty2 = DEFAULT_DUTY_PERCENT;
     const char* first = strtok_r(nullptr, " \t", &context);
     const char* second = strtok_r(nullptr, " \t", &context);
-    if (mask == 3) {
-      if (!parseUnsigned(first, duty1) || !parseUnsigned(second, duty2) ||
-          !parseUnsigned(strtok_r(nullptr, " \t", &context), duration)) { reject("BAD_RUN_ARGUMENTS"); return; }
-    } else {
-      if ((first && !parseUnsigned(first, duty1)) || (second && !parseUnsigned(second, duration))) {
-        reject("BAD_RUN_ARGUMENTS"); return;
-      }
-      duty2 = duty1;
-    }
-    if (!noMore(context)) { reject("BAD_RUN_ARGUMENTS"); return; }
+    const char* extra = strtok_r(nullptr, " \t", &context);
+    const char* parseError = parseRunDuties(mask, first, second, extra, DEFAULT_DUTY_PERCENT, duty1, duty2);
+    if (parseError) { reject(parseError); return; }
     samplePressure(); // Never start from stale cached ADC data.
     checkSafety();
-    const char* error = control_.start(mask, duty1, duty2, duration, millis(), pressure_.ok);
+    const char* error = control_.start(mask, duty1, duty2, pressure_.ok);
     if (error) { reject(error); return; }
     stopOutputs(3);
     for (unsigned i = 0; i < 2; ++i) if (mask & (1U << i)) {
       digitalWriteFast(EN_PINS[i], HIGH);
       analogWrite(VSP_PINS[i], dutyToPwm(control_.motor(i).duty()));
     }
-    if (!plot_) emitf("OK,RUNNING,motor_mask=%u,m1_pct=%u,m2_pct=%u,duration_ms=%lu",
+    if (!plot_) emitf("OK,RUNNING,motor_mask=%u,m1_pct=%u,m2_pct=%u,run_mode=MANUAL_STOP",
                      (unsigned)mask, (unsigned)control_.motor(0).duty(),
-                     (unsigned)control_.motor(1).duty(), (unsigned long)duration);
+                     (unsigned)control_.motor(1).duty());
     printMeasurement();
   }
   void setCommand(unsigned index, char*& context) {

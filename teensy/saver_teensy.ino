@@ -10,7 +10,9 @@
  *   - Teensy 내부 상태 관리
  *
  * 이 파일이 하지 않는 일  →  [구현] 표시된 곳을 채워 주세요
- *   - 실제 모터 PID/PWM, 엔코더 환산, 로드셀·변위·전류 센서 보정
+ *   - 실제 모터 PID/PWM, 엔코더 환산, 로드셀·전류 센서 보정, 사이클 깊이 산출
+ *   - 리니어 보정은 test/linear_sensor_test에서 수행하고 EEPROM 저장값만 읽는다.
+ *   ※ 설치 전 ZERO/CAL 보정, 설치 후 영점·실측 거리·하강 양수 방향 재확인 필요.
  *
  * 이전 작업 참고:  teensy/reference/
  *   음압 모터 드라이버 신호(ERR/RUN/EN/VSP), 압력센서 변환식,
@@ -22,11 +24,18 @@
  * 돌리고, 통신은 이 파일이 알아서 합니다. 그래야 통신이 막혀도 제어가 안 멈춥니다.
  * ==========================================================================*/
 #include <Wire.h>
+#include <EEPROM.h>
 #include <MAX30105.h>       /* SparkFun MAX3010x library 1.1.2 */
 #include <spo2_algorithm.h>
 
 #include "saver_proto.h"
 #include "pinmap.h"
+#include "src/saver_linear/linear_sensor_reader.h"
+
+static_assert(PIN_LINEAR_SENSOR == saver_linear::storage::PIN,
+              "Linear EEPROM calibration requires A16 / physical pin 40");
+static_assert(E2END + 1 >= saver_linear::storage::ADDRESS + saver_linear::storage::SIZE,
+              "Linear EEPROM calibration slot does not fit");
 
 /* ──────────────────────────── 1. 설정값 ────────────────────────────
  * ⚠ 아래 TODO 값은 명세 §11의 미확정 항목입니다.
@@ -92,7 +101,15 @@ struct Sensors {
   bool  rate_ok, depth_ok, force_ok, motor_i_ok, vac_ok;
   bool  ppg_hr_ok, spo2_ok, ppg_sqi_ok, temp_ok, fan_ok;
   bool  estop, limit_top, limit_bottom, vac_leak;
+  /* 보정 ZERO 기준의 현재 센서 위치. 직전 사이클 최대 깊이와 다른 내부 측정값이다. */
+  float linear_position_mm;
+  bool linear_position_ok, linear_within_cal_span;
 } g_s;
+
+saver_linear::PersistedLinearSensor& linearSensor() {
+  static saver_linear::PersistedLinearSensor sensor;
+  return sensor;
+}
 
 /* SparkFun Example8의 MAX30102 호환 설정과 Maxim 알고리즘을 비차단 수집으로 옮겼다.
  * 유효 플래그가 나온 HR/SpO2만 공개하며, 저장소에 정의가 없는 SQI는 공개하지 않는다. */
@@ -474,6 +491,19 @@ void readPressureSensor(Sensors& sensors) {
    */
 }
 
+void readLinearSensor(Sensors &sensors) {
+  sensors.linear_position_ok = false;
+  sensors.linear_within_cal_span = false;
+  float positionMm;
+  if (!linearSensor().position(analogRead(PIN_LINEAR_SENSOR), positionMm))
+    return;
+  sensors.linear_position_mm = positionMm;
+  sensors.linear_position_ok = true;
+  sensors.linear_within_cal_span = linearSensor().within(positionMm);
+  // Stable raw ADC does not prove sensor presence or rule out a stuck voltage.
+  // Keep the saved manual ZERO; never use the boot position as an automatic zero.
+}
+
 void controlTick() {
   /* [구현] 500 Hz 제어 루프
      - 엔코더/변위/로드셀/전류 읽기 → g_s 갱신
@@ -488,10 +518,13 @@ void controlTick() {
   g_s.limit_bottom = (digitalRead(PIN_LIMIT_BOTTOM) == HIGH);
 
   readPressureSensor(g_s);
+  readLinearSensor(g_s);
   ppgReader().tick(g_s, millis());
 
-  /* 저장소에 N/mm/A 환산 보정값과 엔코더 PPR·기구비가 없다.
-   * ADC raw/count를 물리 단위 필드에 넣지 않고 측정 불가로 생략한다. */
+  /* 리니어 현재 위치는 위에서 별도로 취득한다. cp_depth_mm는 명세 §6의
+   * '직전 사이클 최대 압박 깊이'이므로 현재 위치로 대체하지 않는다.
+   * [구현] 설치 후 영점·하강 양수 검증 및 사이클 경계/최대 깊이 산출.
+   * N/A 환산 보정값과 엔코더 PPR도 미확정이므로 해당 필드는 생략한다. */
   g_s.rate_ok = false;
   g_s.depth_ok = false;
   g_s.force_ok = false;
@@ -557,12 +590,14 @@ void setup() {
   pinMode(PIN_TEMPERATURE_NTC, INPUT);
   pinMode(PIN_PRESSURE_SENSOR, INPUT);
   pinMode(PIN_LOAD_CELL_ADC_RESERVED, INPUT);
-  pinMode(PIN_LINEAR_SENSOR, INPUT);
+  pinMode(PIN_LINEAR_SENSOR, INPUT_DISABLE); /* 보정 스케치와 동일, 디지털 입력/바이어스 없음 */
   pinMode(PIN_CURRENT_SENSOR, INPUT);
   pinMode(PIN_MAX30102_SDA, INPUT);
   pinMode(PIN_MAX30102_SCL, INPUT);
 
   analogReadResolution(12);
+  analogReadAveraging(16); /* 보정 스케치의 ADC 설정과 일치, 다른 ADC 입력에도 적용됨 */
+  linearSensor().begin(EEPROM); /* 부팅 시 1회 검증/복원. EEPROM 쓰기·Serial 출력 없음. */
   Serial.begin(115200);          /* Teensy 4.1 네이티브 USB 는 이 값을 무시함 */
   ppgReader().begin();
   g_lastRx = millis();
