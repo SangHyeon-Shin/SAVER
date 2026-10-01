@@ -1,28 +1,45 @@
-# 프로토콜 v1.1 초안: 주행 탐색 명령 (검토용)
+# 프로토콜 v1.1 초안: 주행 탐색 명령 (검토용, 2차)
 
 | 항목 | 내용 |
 |---|---|
 | 상태 | **초안, 합의 전.** `protocol/`은 공동 영역이라 이 문서에서 먼저 합의한다 |
-| 작성 | 신상현 (2026-10-01), 한건민 10/1 회신 반영 |
-| 검토 | 한건민 |
+| 작성 | 신상현 (2026-10-01 1차, 2026-10-01 2차) |
+| 검토 | 한건민 (10/1 1차 회신, 10/1 2차 회신 반영. §0.2) |
 | 범위 | 탐색 후 고정 순서(제출 보고서 6.2~6.3)에 필요한 명령, 이벤트, 텔레메트리, 오류 코드 |
 | 반영 | 합의 후 `protocol/teensy_usb_protocol_v1.md`를 v1.1로 고치고 `jetson/tests/test_all.py`, `teensy/test_saver_proto.cpp`를 함께 고친다 |
-| 와이어 버전 | `v:1` 유지. 명령·필드 추가만 하므로 프레이밍은 그대로다. v1.0 펌웨어는 새 명령을 `1-CM-005 UNKNOWN_COMMAND`로 거부한다 |
+| 와이어 버전 | `v:1` 유지. 펌웨어 기능은 `GET_INFO`로 확인한다(§2.4). v1.0 펌웨어는 `GET_INFO`를 포함한 새 명령을 `1-CM-005 UNKNOWN_COMMAND`로 거부하고, Jetson은 그때 탐색 기능을 끈다 |
 
 > 연구용 시제품의 마네킹·모사체 벤치 시험 범위다. 아래 설정값은 비어 있으면 해당 명령을 거부한다.
-> 값을 임의로 채우지 않는다.
+> 값을 임의로 채우지 않는다. 이 문서의 어떤 항목도 실물에서 검증된 것이 아니다.
 
 ---
 
-## 0. 10/1 합의된 것
+## 0. 합의 상태
 
-1. 새 명령은 `DRIVE_STEP(dist_mm)`, `DRIVE_STOP`, `HEAD_HOLD(press_mm)` 3개다.
+### 0.1 합의된 것 (10/1)
+
+1. 새 명령은 `DRIVE_STEP(dist_mm)`, `DRIVE_STOP`, `HEAD_HOLD(press_mm)` 3개다. 2차에서 조회 명령 `GET_INFO`를 추가로 제안한다(§2.4).
 2. 말단 판정, 압박점 위치 계산, EAPD 계산은 **Jetson**이 한다. Teensy는 요청을 실행하고 인터록으로 거부·정지한다.
 3. 압박점 이동 거리는 제출 보고서 6.2 식 그대로 Jetson이 계산한다.
-   `D = 89.7 mm × EAPD / 205.8 mm`, 상한 95 mm. (10/1 합의안의 "85 mm 상수"는 제출본과 달라 정정한다.)
+   `D = 89.7 mm × EAPD / 205.8 mm`, 상한 95 mm.
+   **EAPD가 없을 때 대체 상수(예: 85 mm)를 쓰지 않는다.** Teensy도 넣지 않는다. Jetson은 이동을 거부하고 재측정을 안내한다(§7.2).
 4. 목표 깊이도 Jetson이 계산해 기존 `SET_TARGET(depth_mm)`으로 보낸다. 깊이 규칙은 한성윤 확정값을 따른다.
 5. 새 내부 상태는 만들지 않는다. 대신 동작 표시 필드를 둔다(§3).
 6. 오류 유닛 `TU`(운반 유닛)를 추가한다(§6).
+7. `DRIVE_STOP`을 모든 상태에서 허용하는 것, 기준점을 구분하는 것(§5), 측정할 수 없는 반력은 생략하는 것에는 한건민도 동의했다.
+
+### 0.2 2차 회신 반영
+
+| # | 한건민 지적 | 반영 |
+|---|---|---|
+| 1 | 완료 이벤트 유실. 중복 기록은 최근 8개뿐이라 밀려난 명령이 재실행될 수 있음 | §2.5 동작 명령 기록을 일반 중복 기록과 분리, `STALE_SEQ` 거부, `boot_id`로 재부팅 감지, 중단 시 원래 seq 유지, `HEAD_HELD` 재요청 |
+| 2 | `drv_busy` 범위, 접촉 탐색 중 명령 중첩 | §3 `busy` 필드 하나로 통합, 결과 저장까지 유지, 동작 명령은 한 번에 하나 |
+| 3 | 정지 범위와 음압, 원인 지속, 센서 상실, `RESET_FAULT` 뒤 순서 | §6 주행·압박 축·음압 열 분리, 원인 지속 거부, 센서 상실 코드 2개, `RESET_FAULT → IDLE → ARM → HOME` |
+| 4 | 엔코더 무변화만으로 정지 판단 불가, 결과 구분 | §4.3 엔코더 유효성 조건, §4.2 `result` 6종, 엔코더 무효면 거리 생략 |
+| 5 | NAU7802는 최대 320 SPS | §4.3 500 Hz 루프와 ADC 신규 변환 구분, `force_n`은 신규 변환만 |
+| 6 | 설정값 순환 | §7 10/6 벤치 시험용 값(근거·책임) → 10/7 검증·조정 |
+| 7 | 상단 리미트 미설치, 주행 원점 초기화 시점 | §1, §5. HOME은 상단 리미트 설치·검증 뒤. 주행 원점은 새 탐색 시작에만 0 |
+| 8 | WT901C 핀, 자기장, 펌웨어 식별 | §1 Serial8, §2.4 `GET_INFO` |
 
 ---
 
@@ -30,12 +47,15 @@
 
 | 항목 | 현재 상태 (한건민 10/1) | 조치 | 기한 |
 |---|---|---|---|
-| 후륜 엔코더 | A/B 엔코더. 핀은 모터 1이 16/17, 모터 2가 20/21(기존 구동 모터 자료). 장착·배선·펄스 수·mm 환산 미검증 | `teensy/pinmap.h`와 `docs/hardware_mapping.md`에 반영. 1 m 직진 3회로 `enc_counts_per_mm` 교정 | 10/7 |
-| **후륜 비상정지** | **후륜 전원을 독립적으로 차단하는 회로 없음.** 이전 시험은 파워서플라이 스위치로 정지 | 비상정지 회로가 후륜 모터 전원도 끊도록 배선한다(불변식 3). 완료 전에는 바퀴를 띄운 벤치에서만 `DRIVE_STEP`을 돌린다 | 10/7 사전 점검 전 |
-| 제동 | 주행 PWM 0과 EN LOW로 출력만 끔. 능동 제동, 정지 거리, 정지 후 위치 유지 미검증 | 드라이버의 단락 제동 지원 여부 확인. 10/7에 정지 거리와 헤드 접촉 상태에서 바퀴 밀림(엔코더 변화)을 측정 | 10/7 |
-| 자이로 | WT901C-TTL. Teensy UART 배정, 실물 수신, 설치 방향, 자기장 영향 미확인 | 엔코더가 Serial4(16/17)와 Serial5(20/21) 핀을 쓰므로 그 밖의 UART에 배정. 모터 근처라 방향은 지자기 대신 자이로 상대값으로 보는 방식을 검토 | 10/5 |
-| 주행 부호 | 제안: `dist_mm > 0` 장치 전방, `< 0` 후방 | 동의. 전방과 모사체 머리 방향의 대응은 설치 절차(UI 안내)로 고정하고 Jetson 설정 `scan_dir_sign`으로 맞춘다 | — |
-| 설정값 | 미확정 | §7 표에 자리만 둔다. 0이면 미설정으로 보고 해당 명령을 거부한다 | 10/6 |
+| 후륜 엔코더 | A/B 엔코더. 장착·배선·펄스 수·mm 환산 미검증 | 좌·우 각각, 정·역방향으로 외부 자 실측과 비교해 환산(§7). 핀은 아래 "핀 정합" 참조 | 10/7 |
+| **후륜 비상정지** | **후륜 전원을 독립적으로 차단하는 회로 없음.** 검증 완료로 표시하지 않음 | 비상정지 회로가 후륜 모터 전원도 끊도록 배선한다(불변식 3). 물리 E-stop의 실제 차단 범위는 한건민이 확인. **확인 전에는 바닥 주행을 하지 않는다** | 10/7 사전 점검 전 |
+| 제동 | 주행 PWM 0과 EN LOW로 출력만 끔. 검증 완료로 표시하지 않음 | 드라이버 단락 제동 지원 여부 확인. 10/7에 정지 거리와 헤드 접촉 중 바퀴 밀림을 함께 측정 | 10/7 |
+| **상단 리미트** | **설치 확인 안 됨** | HOME은 상단 리미트 기준이다. 설치·검증 전에는 설정 `limit_top_ok = 0`으로 두고 HOME을 `HOME_UNAVAILABLE`로 거부한다. 그동안 `HEAD_HOLD`, `DRIVE_STEP`도 `HOMED`가 아니므로 실행되지 않는다. 헤드 단독 점검은 한건민 시험 코드로 한다 | 설치·검증 담당과 기한 확인 필요 |
+| 자이로 | WT901C-TTL. 실물 수신, 설치 방향, 자기장 영향 미확인 | **Serial8 (RX8 = 34, TX8 = 35)** 사용 제안(한건민). 조건: 음압 모터 2의 RUN을 32번, EN을 37번으로 이동. 아직 배선·코드 미반영. 방향값은 기준각을 빼는 것만으로 자기장 영향이 없어졌다고 보지 않는다. 센서 출력 모드(지자기 사용 여부, 6축 모드 지원)를 확인하고 모터 작동 중 방향 오차를 측정한다 | 핀 10/5, 오차 10/7 |
+| 로드셀 | DYMH-103 + NAU7802. 지원 속도 최대 320 SPS | 500 Hz 제어·기록 루프와 ADC 신규 변환을 구분한다(§4.3) | — |
+| **핀 정합** | 저장소 `teensy/pinmap.h`는 37번을 `PIN_HALL_SENSOR`로, 로드셀을 `A9` 아날로그 입력으로 적고 있다. 현재 실물(NAU7802, 음압 모터 2, 후륜 엔코더)과 다르다 | 37번 이동 전에 홀 센서 배선과 점유 여부를 확인하고, `teensy/pinmap.h`(한건민)와 `docs/hardware_mapping.md`를 실물 기준으로 갱신 | 10/5 |
+| 주행 부호 | `dist_mm > 0` 장치 전방, `< 0` 후방 | 합의. 전방과 모사체 머리 방향의 대응은 설치 절차(UI 안내)로 고정하고 Jetson 설정 `scan_dir_sign`으로 맞춘다 | — |
+| 설정값 | 미확정 | §7 순서대로 10/6 벤치값, 10/7 검증 | 10/6, 10/7 |
 
 ---
 
@@ -45,36 +65,99 @@
 
 | 명령 | 파라미터 | 허용 조건 | 동작 | 완료 보고 |
 |---|---|---|---|---|
-| `DRIVE_STEP` | `dist_mm`(0 아님, 절댓값 ≤ `drv_step_max_mm`), `speed_mm_s`(선택, ≤ `drv_speed_max_mm_s`, 생략 시 `drv_speed_mm_s`) | `HOMED`, `drv_busy`와 `homing` 아님, 헤드가 HOME 위치이거나 `head_hold_active`, §7 주행 설정값 모두 설정됨 | 엔코더 기준으로 주행 → 정지 → 정지 확인 → 반력 평균 | `evt DRIVE_DONE` |
-| `DRIVE_STOP` | — | **모든 상태** | 주행 중이면 즉시 출력 차단(제동 가능하면 제동). 이미 정지면 정지 유지. **FAULT·ESTOP을 해제하거나 출력을 다시 켜지 않는다.** 헤드 유지는 풀지 않는다 | ACK. 주행 중이었으면 `DRIVE_DONE result=STOPPED` |
-| `HEAD_HOLD` | `press_mm`(> 0, ≤ `head_press_max_mm`) | `HOMED`, `drv_busy`와 `homing` 아님, `scan_force_max_N`·`contact_force_N` 설정됨 | §2.3 절차로 접촉점을 찾고 `press_mm`만큼 더 내려 **리니어 센서 기준 위치 유지**. 반력은 계측과 상한 감시에만 쓴다(힘 제어 아님) | `evt HEAD_HELD` |
+| `DRIVE_STEP` | `dist_mm`(0 아님, 절댓값 ≤ `drv_step_max_mm`), `speed_mm_s`(선택, ≤ `drv_speed_max_mm_s`, 생략 시 `drv_speed_mm_s`) | `HOMED`, `busy = NONE`, 헤드가 HOME 위치이거나 `head_hold_active`, 원인이 남은 TU 오류 없음, §7 주행 설정값 모두 설정됨 | 엔코더 기준 주행 → 출력 차단 → 정지 확인 → 반력 평균(§4.3) | `evt DRIVE_DONE` |
+| `DRIVE_STOP` | — | **모든 상태** | 진행 중인 동작 명령(§2.5)을 멈춘다. 바퀴는 출력 차단(제동 가능하면 제동). 접촉 탐색이나 HOME 이동 중인 헤드는 그 자리에서 멈추고, 리니어 센서가 유효하면 위치를 유지하고 무효면 출력을 차단한다. **이미 성립한 헤드 유지는 풀지 않는다.** 압박(CPR) 동작과 음압은 바꾸지 않는다(CPR은 `STOP_CPR`). **FAULT·ESTOP을 해제하거나 출력을 다시 켜지 않는다** | 자기 ACK. 중단된 명령은 **그 명령의 원래 seq**로 완료 이벤트(`result = STOPPED`) |
+| `HEAD_HOLD` | `press_mm`(> 0, ≤ `head_press_max_mm`), `drv_zero`(선택, 기본 `false`) | `HOMED`, `busy = NONE`, 원인이 남은 TU 오류 없음, `scan_force_max_N`·`contact_force_N` 등 §7 헤드 설정값 설정됨 | §2.3 절차로 접촉점을 찾고 `press_mm`만큼 더 내려 **리니어 센서 기준 위치 유지**. 반력은 계측과 상한 감시에만 쓴다(힘 제어 아님). `drv_zero = true`이고 성공하면 주행 원점을 0으로 둔다(§5) | `evt HEAD_HELD` |
 
-**거부 사유(`ack ok:false`, `why`)**: `NOT_HOMED`, `DRIVE_BUSY`, `HOMING_BUSY`, `HEAD_NOT_READY`(헤드가 HOME도 유지도 아님), `DIST_RANGE`, `PRESS_RANGE`, `SPEED_RANGE`, `LIMIT_UNSET`(설정값 없음). 오류 코드는 기존 `2-CU-011` 체계를 쓰고, 설정값 없음은 새 코드 `2-TU-008`로 한다.
+**거부 사유(`ack ok:false`, `why`)**
 
-**중첩과 중복**
-- 주행 중 새 `DRIVE_STEP`은 `DRIVE_BUSY`로 거부한다. 큐에 쌓지 않는다.
-- 같은 `seq`를 다시 받으면 재실행하지 않고 ACK를 다시 보낸다(§4.1 기존 규칙). 그 명령이 이미 끝났으면 저장해 둔 `DRIVE_DONE`/`HEAD_HELD`도 다시 보낸다(§4.4).
+| `why` | 뜻 |
+|---|---|
+| `NOT_HOMED` | `HOMED`가 아님 |
+| `BUSY` | 다른 동작 명령 실행 중(§2.5) |
+| `HEAD_NOT_READY` | 헤드가 HOME 위치도 아니고 유지 중도 아님 |
+| `DIST_RANGE`, `PRESS_RANGE`, `SPEED_RANGE` | 파라미터 범위 밖 |
+| `LIMIT_UNSET` | 필요한 설정값 없음(`2-TU-008`) |
+| `FAULT_ACTIVE` | 원인이 남아 있는 오류가 있음(§6). `err`에 그 오류 코드 |
+| `STALE_SEQ` | 지난 동작 명령의 seq(§2.5) |
+| `HOME_UNAVAILABLE` | 상단 리미트 미설치·미검증(`limit_top_ok = 0`) |
+
+오류 코드는 기존 `2-CU-011` 체계를 쓰고, 설정값 없음은 `2-TU-008`로 한다.
 
 ### 2.2 기존 명령 변경
 
 | 명령 | v1.0 | v1.1 |
 |---|---|---|
-| `HOME` | `ARMED`에서만 | `ARMED`, `HOMED`. `HOMED`에서는 `drv_busy`가 아닐 때만. 헤드 유지 중이면 유지를 끝내고 복귀한 뒤 `head_hold_active=false`, `evt HOMING_DONE` |
-| `SET_CP_POINT` | `idx` 또는 `offset_mm` | 탐색 후 고정에서는 `VACUUM_HOLD`에서 `offset_mm=0`을 보낸다. 뜻은 "현재 위치가 압박점"이다. Teensy는 **현재 위치를 접촉점으로 간주하지 않고** §2.3 접촉 확인 절차로 헤드를 내려 **압박 접촉 영점**을 새로 잡는다. 접촉하지 못하면 `2-TU-006`. 성공하면 `evt CP_ZERO_SET` |
+| `HOME` | `ARMED`에서만 | `ARMED`, `HOMED`에서 `busy = NONE`일 때. 완료 조건은 **상단 리미트 검출**이다. `limit_top_ok = 0`이면 `HOME_UNAVAILABLE`. 헤드 유지 중이면 유지를 끝내고 복귀한다. `HOMING_DONE`에 seq와 `result`를 싣는다(§4.1) |
+| `SET_CP_POINT` | `idx` 또는 `offset_mm` | 탐색 후 고정에서는 `VACUUM_HOLD`에서 `offset_mm = 0`을 보낸다. 뜻은 "현재 위치가 압박점"이다. Teensy는 **현재 위치를 접촉점으로 간주하지 않고** §2.3 절차로 헤드를 내려 **압박 접촉 영점**을 새로 잡는다. 실패하면 `2-TU-006`. `CP_ZERO_SET`에 seq와 `result`를 싣는다 |
+| `RESET_FAULT` | 원인 해소 확인 후 `IDLE` | 변경 없음. 재시작은 **`IDLE → ARM → HOME → 새 탐색(HEAD_HOLD drv_zero:true)`**이다. 오류 전의 탐색 좌표는 버린다 |
+| `DISARM` | 어느 상태에서나 모터 차단, `IDLE` | 동작 명령 실행 중에도 허용. 진행 중인 명령은 `result = STOPPED`로 끝낸다 |
 | `STIFFNESS_SCAN` | 고정 후 탐색 | 변경 없음. 결선 C안에서는 쓰지 않는다 |
-| ESTOP 중 허용 명령 | `PING`, `GET_STATUS` | **`DRIVE_STOP` 추가**(ACK만, 출력 상태 변화 없음) |
+| ESTOP 중 허용 명령 | `PING`, `GET_STATUS` | **`GET_INFO`, `DRIVE_STOP` 추가**(`DRIVE_STOP`은 ACK만, 출력 상태 변화 없음) |
 
 ### 2.3 접촉 확인 절차 (HEAD_HOLD, SET_CP_POINT 공통)
 
 1. 헤드를 `head_search_speed_mm_s`로 내린다.
-2. `cp_force_N ≥ contact_force_N`이 `contact_confirm_ms` 동안 이어지면 접촉으로 본다. 그 위치를 `head_contact_mm`로 기록한다.
-3. `head_search_max_mm`까지 내려도 접촉이 없으면 멈추고 복귀하며 `2-TU-006`을 보낸다.
+2. 로드셀 **신규 변환 샘플**로 본 `cp_force_N ≥ contact_force_N`이 `contact_confirm_ms` 동안 이어지면 접촉으로 본다. 그 위치를 `head_contact_mm`로 기록한다.
+3. `head_search_max_mm`까지 내려도 접촉이 없으면 멈추고 `2-TU-006`을 보낸다.
+   - 복귀는 **리니어 센서가 유효하고 복귀 경로에 리미트 이탈이 없을 때만** HOME 위치로 한다.
+   - 그렇지 않으면 그 자리에서 출력을 차단하고 사용자 확인을 기다린다.
 4. `HEAD_HOLD`는 접촉점에서 `press_mm` 더 내려 위치 유지에 들어간다. `SET_CP_POINT`는 접촉점을 압박 영점으로 둔다.
-5. 이 과정 내내 `cp_force_N > scan_force_max_N`이면 `3-TU-003`.
+5. 이 과정 내내 다음을 감시한다.
+   - `cp_force_N > scan_force_max_N` → `3-TU-003`
+   - 로드셀 신규 변환이 `force_stale_ms` 넘게 없음 → `3-TU-009`
+   - 리니어 센서 상실·범위 이탈 → `3-TU-010`
 
 **`press_mm` 기준**: 최초 접촉점(`head_contact_mm`)에서 잰 추가 하강량이다. 기구 원점 기준이 아니다.
 **`press_mm = 0`**: 허용하지 않는다(`PRESS_RANGE`). 접촉만 하는 동작은 `SET_CP_POINT`가 맡는다.
-**유지 해제**: `HOME`(복귀)으로만 푼다. `DRIVE_STOP`은 바퀴만 멈춘다. FAULT·ESTOP으로 모터가 차단되면 유지도 끝나고 `head_hold_active=false`가 된다.
+**유지 해제**: `HOME`(복귀)으로만 푼다. `DRIVE_STOP`은 유지를 풀지 않는다. FAULT·ESTOP으로 압박 축 출력이 차단되면 유지도 끝나고 `head_hold_active = false`가 된다.
+
+### 2.4 `GET_INFO` (새 조회 명령)
+
+모든 상태에서 허용한다. 응답은 ACK와 `evt INFO`다.
+
+```json
+{"v":1,"t":"evt","evt":"INFO","seq":3,"fw":"1.1.0","proto":"1.1","caps":["DRIVE","HEAD_HOLD","CP_ZERO"],"boot_id":48213}
+```
+
+| 필드 | 뜻 |
+|---|---|
+| `fw` | 펌웨어 버전 문자열 |
+| `proto` | 지원 프로토콜 판. 와이어 `v`는 1로 유지하되 명령 의미의 판을 따로 알린다 |
+| `caps` | 지원 기능. `DRIVE`(DRIVE_STEP·DRIVE_STOP), `HEAD_HOLD`, `CP_ZERO`(v1.1 의미의 SET_CP_POINT·HOME) |
+| `boot_id` | 부팅마다 바뀌는 값(예: EEPROM 부팅 횟수). `tel`에도 싣는다 |
+
+**Jetson 규칙**: 연결·재연결 때마다 `GET_INFO`를 보낸다. `UNKNOWN_COMMAND`를 받거나 `caps`에 기능이 없으면 그 기능의 명령과 UI 버튼을 끈다. v1.0 의미의 `HOME`·`SET_CP_POINT`로 v1.1 절차를 진행하지 않는다.
+
+### 2.5 동작 명령 기록과 중복 처리
+
+**동작 명령**은 `HOME`, `HEAD_HOLD`, `DRIVE_STEP`, `SET_CP_POINT`다. **한 번에 하나만** 실행한다. 실행 중 다른 동작 명령은 `BUSY`로 거부하고 큐에 쌓지 않는다.
+실행 중에도 받는 명령은 `DRIVE_STOP`, `DISARM`, `PING`, `GET_STATUS`, `GET_INFO`, `SET_TEL_RATE`다.
+
+Teensy는 일반 중복 기록(최근 8개)과 **별도로** 다음을 보관한다.
+
+| 기록 | 내용 |
+|---|---|
+| 진행 기록 | 실행 중인 동작 명령의 seq와 명령명 |
+| 완료 기록 | 마지막으로 끝난 동작 명령의 seq, 원래 ACK, 완료 이벤트 전문 |
+| 마지막 동작 seq | 순서 비교용 |
+
+명령을 받으면 다음 순서로 판단한다.
+
+1. seq가 **진행 기록**과 같다 → 재실행하지 않고 ACK만 다시 보낸다.
+2. seq가 **완료 기록**과 같다 → 재실행하지 않고 원래 ACK와 저장된 완료 이벤트를 다시 보낸다.
+3. 동작 명령인데 seq가 마지막 동작 seq와 같거나 그보다 오래됐다(16비트 순환 비교) → `STALE_SEQ`로 거부한다. 8개 기록에서 밀려난 옛 명령이 다시 실행되는 것을 막는다.
+4. seq가 일반 중복 기록(8개)에 있다 → ACK만 다시 보낸다(기존 §4.1).
+5. 그 밖에는 실행한다.
+
+**`busy` 유지 범위**: 명령을 수락한 순간부터 결과(반력 평균 포함)를 **완료 기록에 저장한 순간**까지다. USB 송신 성공을 기다리지 않는다. 송신이 늦거나 실패해도 결과는 완료 기록에서 다시 받을 수 있다.
+
+**재부팅**
+- 세 기록은 RAM에 두고 부팅 때 비운다. 부팅 직후 상태는 `IDLE`이라 이전 `DRIVE_STEP`이 다시 와도 `NOT_HOMED`로 거부된다.
+- Teensy는 부팅 뒤 어떤 동작도 자동으로 재실행하지 않는다.
+- Jetson은 `boot_id`가 바뀐 것을 보면 진행 중이던 동작의 결과를 "불명"으로 처리하고 **이전 seq를 재전송하지 않는다.** 탐색은 `ARM → HOME → 새 탐색`으로 처음부터 한다.
+
+**Jetson 규칙**: 재전송은 가장 최근 동작 명령 하나에만 한다. 새 동작 명령은 이전 동작의 완료 이벤트(또는 §4.4 복구)를 확인한 뒤에만 보낸다.
 
 ---
 
@@ -82,55 +165,97 @@
 
 | 필드 | 단위 | 설명 |
 |---|---|---|
-| `drv_busy` | bool | 주행 출력 중이거나 정지 확인 중 |
-| `homing` | bool | HOME 동작 중 |
+| `busy` | string | `NONE` `DRIVE` `HOMING` `HEAD_SEARCH` `CP_ZERO`. 동작 명령 수락부터 결과 저장까지(§2.5). 접촉 탐색 중에는 `HEAD_SEARCH`라서 `head_hold_active = false`여도 다른 동작 명령은 거부된다 |
+| `busy_seq` | int | 실행 중인 동작 명령의 seq. `busy = NONE`이면 생략 |
 | `head_hold_active` | bool | 헤드 위치 유지 중 |
-| `drv_pos_mm` | mm | 주행 원점(§5) 기준 누적 위치, 엔코더 두 바퀴 평균 |
-| `drv_yaw_deg` | ° | 주행 원점에서의 방향 변화(자이로) |
+| `drv_pos_mm` | mm | 주행 원점(§5) 기준 누적 위치, 엔코더 두 바퀴 평균. **원점이 없거나 엔코더가 무효면 생략** |
+| `drv_yaw_deg` | ° | 주행 원점에서의 방향 변화. IMU 무효면 생략 |
 | `drv_pitch_deg`, `drv_roll_deg` | ° | 기울기. 신뢰할 수 없으면 생략 |
-| `head_pos_mm` | mm | 기구 HOME 원점 기준 헤드 위치, 하강이 양수 |
+| `head_pos_mm` | mm | 기구 HOME 원점 기준 헤드 위치, 하강이 양수. HOME 전이거나 리니어 센서 무효면 생략 |
 | `head_contact_mm` | mm | 마지막 접촉점(HOME 원점 기준) |
-| `drv_last_seq` | int | 마지막으로 끝난 주행 명령의 seq |
-| `drv_last_result` | string | 그 결과(`OK` `STOPPED` `SHORT` `FAULT`) |
+| `mot_last_seq` | int | 완료 기록의 seq |
+| `mot_last_cmd` | string | 완료 기록의 명령명 |
+| `mot_last_result` | string | 완료 기록의 `result`(§4) |
+| `boot_id` | int | §2.4 |
 
-**Jetson 규칙**: `state=HOMED`만 보고 정지로 판단하지 않는다. 주행 정지는 `drv_busy=false`, 헤드 상태는 `head_hold_active`와 `homing`으로 판단한다.
+1차의 `drv_busy`, `homing`, `drv_last_seq`, `drv_last_result`는 위 `busy`, `busy_seq`, `mot_last_*`로 합친다.
+
+**Jetson 규칙**: `state = HOMED`만 보고 정지로 판단하지 않는다. 동작 종료는 `busy = NONE`과 완료 이벤트로, 헤드 상태는 `head_hold_active`로 판단한다.
 
 ---
 
 ## 4. 이벤트
 
-### 4.1 `HEAD_HELD`
+모든 동작 명령의 완료 이벤트는 **원래 명령의 seq**와 `result`를 싣는다. evt에 seq를 싣는 것은 v1.1에서 새로 생기는 규칙이다.
+
+### 4.1 `HEAD_HELD`, `HOMING_DONE`, `CP_ZERO_SET`
+
 ```json
-{"v":1,"t":"evt","evt":"HEAD_HELD","seq":21,"head_contact_mm":31.20,"head_pos_mm":41.20,"cp_force_N":18.40}
+{"v":1,"t":"evt","evt":"HEAD_HELD","seq":21,"result":"OK","head_contact_mm":31.20,"head_pos_mm":41.20,"cp_force_N":18.40}
 ```
 
+| `result` | 뜻 |
+|---|---|
+| `OK` | 성공 |
+| `NO_CONTACT` | 접촉 실패(`2-TU-006`). HEAD_HELD, CP_ZERO_SET만 |
+| `STOPPED` | `DRIVE_STOP` 또는 `DISARM`으로 중단 |
+| `ABORTED` | 심각도 2 오류로 중단. `code`에 오류 코드 |
+| `FAULT` | 심각도 3 오류로 정지. `err`를 먼저 보내고 `code`에 오류 코드 |
+
+측정할 수 없는 필드(`head_contact_mm`, `head_pos_mm`, `cp_force_N`)는 생략한다.
+
 ### 4.2 `DRIVE_DONE`
+
 ```json
-{"v":1,"t":"evt","evt":"DRIVE_DONE","seq":22,"result":"OK","drive_mm":9.96,"drv_pos_mm":40.10,"drv_yaw_deg":0.60,"cp_force_N":28.40,"force_n":250}
+{"v":1,"t":"evt","evt":"DRIVE_DONE","seq":22,"result":"OK","drive_mm":9.96,"drv_pos_mm":40.10,"drv_yaw_deg":0.60,"cp_force_N":28.40,"force_n":40}
 ```
+
+| `result` | 뜻 |
+|---|---|
+| `OK` | 목표 거리 ± `drv_pos_tol_mm` 도달, 정지 확인 완료 |
+| `SETTLE_FAIL` | 출력은 껐으나 `drv_settle_max_ms` 안에 정지가 확인되지 않음(관성, 밀림) |
+| `SHORT` | 엔코더는 유효하나 `drv_timeout_ms` 안에 거리 미달(막힘, 미끄러짐). `2-TU-004` |
+| `STOPPED` | `DRIVE_STOP` 또는 `DISARM`으로 중단 |
+| `ABORTED` | 심각도 2 오류로 중단(방향 이탈, 기울기, IMU 끊김). `code`에 오류 코드 |
+| `FAULT` | 심각도 3 오류로 정지(엔코더 무효, 반력 상한, 센서 상실). `err`를 먼저 보내고 `code`에 오류 코드 |
 
 | 필드 | 뜻 |
 |---|---|
-| `seq` | 원래 `DRIVE_STEP`(또는 `DRIVE_STOP`)의 seq. **evt에 seq를 싣는 것은 v1.1에서 새로 생기는 규칙** |
-| `result` | `OK` 목표 거리 ± `drv_pos_tol_mm` 도달 / `STOPPED` `DRIVE_STOP`으로 중단 / `SHORT` 시간 제한 안에 거리 미달(`2-TU-004`와 함께) / `FAULT` 위험 오류로 정지(먼저 `err`) |
-| `drive_mm` | 이번 명령으로 실제 이동한 거리(엔코더) |
-| `drv_pos_mm` | 정지 후 누적 위치(§5 주행 원점 기준) |
-| `cp_force_N` | 정지 확인 뒤 `drv_avg_ms` 구간의 반력 평균. **유효 샘플이 `drv_avg_min_n`보다 적거나 로드셀 오류면 필드를 생략한다. 0 N으로 대신 보내지 않는다** |
-| `force_n` | 평균에 쓴 유효 샘플 수 |
+| `seq` | 원래 `DRIVE_STEP`의 seq. `DRIVE_STOP`으로 중단돼도 같다. `DRIVE_STOP` 자체는 자기 ACK만 받는다 |
+| `code` | `ABORTED`, `FAULT`일 때 오류 코드 |
+| `drive_mm` | 이번 명령으로 실제 이동한 거리. **엔코더가 유효할 때만** 싣는다 |
+| `drv_pos_mm` | 정지 후 누적 위치. 엔코더가 유효하고 주행 원점이 있을 때만 |
+| `drv_yaw_deg` | IMU가 유효할 때만 |
+| `cp_force_N` | `OK`이고 반력 평균이 유효할 때만. 신규 변환 샘플이 `drv_avg_min_n`보다 적거나 로드셀 오류면 생략한다. **0 N으로 대신 보내지 않는다.** `OK`인데 `cp_force_N`이 없으면 "거리는 도달, 반력 취득 실패"다 |
+| `force_n` | 평균에 쓴 신규 변환 샘플 수 |
 
-### 4.3 완료 조건
+### 4.3 완료 조건과 센서 유효성
+
 1. 목표 거리에 이르거나 정지 요청·오류가 생기면 주행 출력을 끈다(제동 가능하면 제동).
-2. 엔코더 변화가 `drv_settle_ms` 동안 없으면 정지로 확인한다.
-3. 이어서 `drv_avg_ms` 동안 반력을 평균한다(500 Hz 원시는 Teensy 내부 기록).
-4. 그 뒤 `DRIVE_DONE`을 보낸다. ACK는 접수만 뜻한다.
-5. `drv_timeout_ms` 안에 1~3이 끝나지 않으면 정지하고 `result=SHORT`, `2-TU-004`.
+2. **엔코더 유효성**: 출력 구간에서 좌·우 엔코더가 모두 펄스를 냈고, 좌·우 이동량 차이가 `drv_enc_diff_max_mm` 이하여야 한다.
+   - 출력 중 `drv_enc_timeout_ms` 동안 한쪽이라도 펄스가 없으면 무효로 본다. 이 시간은 **최저 속도에서의 정상 펄스 간격**을 반영해 정한다.
+   - 무효면 `3-TU-005`, `result = FAULT`이고 `drive_mm`, `drv_pos_mm`, `cp_force_N`을 생략한다.
+3. **정지 확인**: 엔코더가 유효할 때만, 출력을 끈 뒤 `drv_settle_ms` 동안 변화가 없으면 정지로 본다. 엔코더 무변화만으로 정지를 확인하지 않는다. `drv_settle_max_ms` 안에 확인되지 않으면 `SETTLE_FAIL`.
+4. **반력 평균**: 정지 확인 뒤 `drv_avg_ms` 동안 NAU7802의 **신규 변환 샘플만** 평균한다.
+   - 500 Hz 제어·기록 루프에서 같은 변환값을 다시 읽은 것은 세지 않는다. NAU7802 지원 속도는 최대 320 SPS다.
+   - `drv_avg_ms`, `drv_avg_min_n`은 실측 취득률로 정한다(§7).
+   - 신규 변환이 `force_stale_ms` 넘게 없으면 `3-TU-009`.
+5. 결과를 완료 기록에 저장하고 `busy = NONE`으로 둔 뒤 `DRIVE_DONE`을 보낸다. ACK는 접수만 뜻한다.
+6. 주행 구간이 `drv_timeout_ms` 안에 끝나지 않으면 출력을 끄고 `SHORT`, `2-TU-004`.
 
-### 4.4 완료 이벤트 유실
-- Teensy는 마지막 `DRIVE_DONE`과 `HEAD_HELD`를 한 건씩 저장한다.
-- Jetson은 `drv_timeout_ms + 1000 ms` 안에 `DRIVE_DONE`이 없으면 다음 순서를 따른다.
-  1. `GET_STATUS`로 `drv_busy`, `drv_last_seq`, `drv_last_result`를 본다.
-  2. 끝난 것이 확인되면 **같은 seq의 `DRIVE_STEP`을 다시 보낸다.** Teensy는 재실행하지 않고 ACK와 저장된 `DRIVE_DONE`을 다시 보낸다.
-  3. 아직 `drv_busy`면 `DRIVE_STOP`을 보낸다. 그래도 결과가 없으면 FAULT를 표시하고 탐색을 중단한다.
+### 4.4 완료 이벤트 유실 (DRIVE_DONE, HEAD_HELD 공통)
+
+Jetson의 대기 한도는 다음과 같다.
+- `DRIVE_STEP`: `drv_timeout_ms + drv_settle_max_ms + drv_avg_ms + 1000 ms`
+- `HEAD_HOLD`: `head_timeout_ms + 1000 ms`
+
+한도를 넘으면 다음 순서를 따른다.
+
+1. `GET_STATUS`로 `boot_id`, `busy`, `busy_seq`, `mot_last_seq`, `mot_last_result`를 본다.
+2. `boot_id`가 바뀌었으면 결과 불명으로 처리하고 재전송하지 않는다. 처음부터 다시 한다(§2.5).
+3. `mot_last_seq`가 기다리던 seq면 **같은 seq로 원래 명령을 다시 보낸다.** Teensy는 재실행하지 않고 원래 ACK와 저장된 완료 이벤트를 다시 보낸다.
+4. `busy_seq`가 기다리던 seq면 한도까지 한 번 더 기다린다. 그래도 끝나지 않으면 `DRIVE_STOP`을 보내고 `STOPPED` 완료 이벤트를 기다린다. 그것도 없으면 FAULT를 표시하고 탐색을 중단한다.
+5. 둘 다 아니면(ACK는 받았는데 진행·완료 기록에 없음) 상태 불일치로 보고 FAULT를 표시하고 탐색을 중단한다.
 
 ---
 
@@ -139,50 +264,68 @@
 | 기준 | 정의 | 바뀌는 때 | 프로토콜로 바꿀 수 있나 |
 |---|---|---|---|
 | 센서 영구 보정값 | 리니어 센서·로드셀 변환식 | 교정 작업 때만(펌웨어 설정) | **아니오.** 어떤 명령도 덮어쓰지 않는다 |
-| 기구 HOME 원점 | 상단 리미트 기준 헤드 원점 | `HOME` 완료 | `HOME` |
-| 탐색 접촉점 | 탐색 시작 때 모사체 표면 | `HEAD_HOLD` | `HEAD_HOLD` |
+| 기구 HOME 원점 | 상단 리미트 검출 위치 | `HOME` 완료. **상단 리미트 설치·검증 전에는 없음** | `HOME` |
+| 탐색 접촉점 | 모사체 표면 | `HEAD_HOLD` | `HEAD_HOLD` |
 | 압박 접촉 영점 | 흡착 고정 뒤 압박 시작 기준 | `SET_CP_POINT(offset_mm=0)` | `SET_CP_POINT` |
-| 주행 원점 | `drv_pos_mm = 0`, `drv_yaw_deg = 0` | `ARM` 완료, `HEAD_HELD` | `ARM`, `HEAD_HOLD` |
+| 주행 원점 | `drv_pos_mm = 0`, `drv_yaw_deg = 0` | **`HEAD_HOLD(drv_zero:true)` 성공 때만.** ARM이나 재부팅 뒤에는 원점이 없다(`drv_pos_mm` 생략) | `HEAD_HOLD`의 `drv_zero` |
+
+탐색 중 헤드를 다시 내리려고 `HEAD_HOLD`를 보낼 때는 `drv_zero`를 생략한다. 좌표는 유지된다.
+Jetson은 **새 탐색의 첫 `HEAD_HOLD`에만** `drv_zero:true`를 보낸다.
 
 ---
 
 ## 6. 오류 코드 (`TU` = 운반 유닛, 추가만 한다)
 
-| 코드 | 의미 | 정지 범위 | latched | 복구 |
-|---|---|---|---|---|
-| `2-TU-001` | 방향 이탈(`|drv_yaw_deg| > drv_yaw_max_deg`) | 주행 정지, 헤드 유지 | 아니오 | 재정렬 뒤 새 명령 |
-| `2-TU-002` | 기울기 초과(`> drv_tilt_max_deg`) | 주행 정지, 헤드는 `HOME` 요청을 기다림 | 아니오 | 사용자 확인 |
-| `3-TU-003` | 탐색 반력 상한 초과(`> scan_force_max_N`) | **모든 모터 먼저 차단 → 보고** | 예 | 원인 해소 뒤 `RESET_FAULT`, 이어서 `HOME` |
-| `2-TU-004` | 거리 미달·시간 초과(막힘, 미끄러짐) | 주행 정지 | 아니오 | 사용자 확인 |
-| `3-TU-005` | 주행 엔코더 신호 상실 | 모든 모터 먼저 차단 → 보고 | 예 | `RESET_FAULT` |
-| `2-TU-006` | 접촉 실패(`head_search_max_mm` 안에 접촉 없음) | 헤드 정지·복귀 | 아니오 | 위치 재정렬 |
-| `2-TU-007` | 자이로 수신 끊김(`drv_imu_timeout_ms`) | 주행 정지 | 아니오 | 사용자 확인 |
-| `2-TU-008` | 설정값 미설정으로 명령 거부 | 동작 없음 | 아니오 | 설정값 입력 |
+**음압**: 모든 TU 오류에서 음압 상태를 바꾸지 않는다. 켜져 있으면 유지하고, 꺼져 있으면 켜지 않는다. 기존 FAULT·ESTOP의 음압 유지 규칙(v1.0 §7)과 같다. 탐색은 흡착 전에 하므로 보통 꺼져 있다.
+**출력 차단 범위**: "주행"은 후륜 구동 출력, "압박 축"은 압박 모터 출력이다. 물리 E-stop 회로가 실제로 무엇을 끊는지는 한건민이 별도로 확인한다.
+
+| 코드 | 의미 | 주행 | 압박 축 | latched | 원인이 남은 동안 | 복구 |
+|---|---|---|---|---|---|---|
+| `2-TU-001` | 방향 이탈(`\|drv_yaw_deg\| > drv_yaw_max_deg`) | 출력 차단 | 현재 상태 유지 | 아니오 | `DRIVE_STEP` 거부 | 사용자 재정렬 뒤 새 탐색(`drv_zero:true`) |
+| `2-TU-002` | 기울기 초과(`> drv_tilt_max_deg`) | 출력 차단 | 리니어 센서 유효: **위치 유지**(새 하강 금지). 무효: 출력 차단 | 아니오 | `HOME` 외 동작 명령 거부 | 사용자 확인 뒤 `HOME` |
+| `3-TU-003` | 탐색 반력 상한 초과(`> scan_force_max_N`) | **출력 차단(먼저)** | **출력 차단(먼저)** | 예 | 모든 동작 명령 거부 | 원인 해소 확인 → `RESET_FAULT` → `IDLE` → `ARM` → `HOME` → 새 탐색 |
+| `2-TU-004` | 거리 미달·시간 초과(막힘, 미끄러짐) | 출력 차단 | 현재 상태 유지 | 아니오 | — | 사용자 확인 뒤 새 명령 |
+| `3-TU-005` | 주행 엔코더 무효(§4.3 조건) | **출력 차단(먼저)** | **출력 차단(먼저)** | 예 | 모든 동작 명령 거부 | 엔코더 점검 → `RESET_FAULT` → `ARM` → `HOME` → 새 탐색 |
+| `2-TU-006` | 접촉 실패 | — | 조건부 복귀(§2.3), 아니면 출력 차단 | 아니오 | — | 위치 재정렬 |
+| `2-TU-007` | 자이로 수신 끊김(`drv_imu_timeout_ms`) | 출력 차단 | 현재 상태 유지 | 아니오 | `DRIVE_STEP` 거부 | 수신 회복 뒤 사용자 확인 |
+| `2-TU-008` | 설정값 미설정으로 명령 거부 | 동작 없음 | 동작 없음 | 아니오 | 해당 명령 거부 | 설정값 입력 |
+| `3-TU-009` | 로드셀 데이터 상실·정체(신규 변환 없음 `> force_stale_ms`). 동작 명령 중이나 헤드 유지 중 | **출력 차단(먼저)** | **출력 차단(먼저)** | 예 | 모든 동작 명령 거부 | 신규 변환 확인 → `RESET_FAULT` → `ARM` → `HOME` |
+| `3-TU-010` | 리니어 센서 상실·범위 이탈. 동작 명령 중이나 헤드 유지 중 | **출력 차단(먼저)** | **출력 차단(먼저)** | 예 | 모든 동작 명령 거부 | 센서 점검 → `RESET_FAULT` → `ARM` → `HOME` |
 
 - 심각도 3은 기존 §4.5대로 **Teensy가 먼저 정지하고 나중에 보고**한다.
-- 주행 중 통신 두절은 기존 §9를 따른다. 압박 중이 아니므로 즉시 FAULT, 모터 차단, 음압 유지다.
-- 정지 범위, latched 여부, 복구 조건은 한건민 검토 후 확정한다.
+- **원인 지속 거부**: `latched = false`여도 오류 원인이 남아 `faults` 배열에 있는 동안은 위 열의 명령을 `FAULT_ACTIVE`로 거부한다.
+- `RESET_FAULT` 뒤 상태는 `IDLE`이다(현재 Teensy 코드와 같음). 바로 `HOME`이 아니라 `ARM`을 먼저 거친다.
+- 압박(CPR) 중 로드셀·리니어 센서 상실 처리는 이 초안의 범위 밖이다. 기존 규칙을 바꾸지 않고 §10 미확정으로 둔다.
+- 동작 명령 중 통신 두절은 기존 §9를 따른다. 압박 중이 아니므로 즉시 FAULT, 모터 차단, 음압 유지다.
 
 ---
 
 ## 7. 설정값 (0 = 미설정 → 관련 명령 거부)
 
-### 7.1 Teensy (한건민)
+**순서**: 10/6까지 모든 필수 항목에 **벤치 시험용 제한값**을 근거·책임자와 함께 정한다. 10/7에 그 값으로 인터록을 켠 채 검증하고 조정한다.
+10/6 값이 없는 항목은 그 명령을 구동하지 않는다. **값이 없는 상태에서 인터록을 해제하지 않는다.**
 
-| 이름 | 단위 | 쓰임 | 근거 | 기한 |
-|---|---|---|---|---|
-| `scan_force_max_N` | N | 접촉 탐색·헤드 유지·주행 중 반력 상한 | 모사체·고정구·기구의 허용 하중과 보정된 로드셀 실측. 로드셀 정격(100 kg)을 쓰지 않는다 | 10/6 |
-| `contact_force_N`, `contact_confirm_ms` | N, ms | 접촉 판정 | 무부하 로드셀 잡음 실측 | 10/6 |
-| `head_search_speed_mm_s`, `head_search_max_mm` | mm/s, mm | 접촉 탐색 속도·하강 한도 | 기구와 마네킹 치수 | 10/6 |
-| `head_press_max_mm` | mm | `press_mm` 상한 | 기구 | 10/6 |
-| `drv_speed_mm_s`, `drv_speed_max_mm_s`, `drv_accel_mm_s2` | mm/s, mm/s² | 주행 속도·가감속 | 10/7 정지 거리 측정 | 10/7 |
-| `drv_step_max_mm` | mm | 1회 이동 상한 | 탐색 구간 | 10/6 |
-| `drv_timeout_ms` | ms | 1회 이동 시간 제한 | 속도와 상한에서 산정 | 10/6 |
-| `drv_settle_ms`, `drv_avg_ms`, `drv_avg_min_n` | ms, ms, 개 | 정지 확인·반력 평균·유효 샘플 수 | 10/7 측정 | 10/7 |
-| `drv_pos_tol_mm` | mm | 도달 판정 허용 오차 | 엔코더 교정 결과 | 10/7 |
-| `drv_yaw_max_deg`, `drv_tilt_max_deg` | ° | 방향·기울기 허용치 | 10/7 측정 | 10/7 |
-| `drv_imu_timeout_ms`, `drv_enc_timeout_ms` | ms | 센서 타임아웃 | 센서 주기 | 10/6 |
-| `enc_counts_per_mm` | 개/mm | 엔코더 환산 | 1 m 직진 3회 | 10/7 |
+### 7.1 Teensy
+
+| 이름 | 단위 | 쓰임 | 10/6 벤치값 근거 | 10/7 검증 | 책임 |
+|---|---|---|---|---|---|
+| `limit_top_ok` | 0/1 | 상단 리미트 설치·검증 여부 | 설치·동작 확인 | — | 확인 필요 |
+| `enc_counts_per_mm_l`, `_r` | 개/mm | 엔코더 환산(좌·우 따로) | 엔코더 사양 × 감속비 / 바퀴 둘레 계산값 | 좌·우 각각, 정·역방향, 외부 자로 잰 실제 이동거리와 비교 | 한건민 |
+| `drv_speed_mm_s`, `drv_speed_max_mm_s`, `drv_accel_mm_s2` | mm/s, mm/s² | 주행 속도·가감속 | 바퀴를 띄운 벤치 기준 저속값 | 정지 거리와 헤드 접촉 중 밀림 측정 뒤 조정 | 한건민 |
+| `drv_step_max_mm` | mm | 1회 이동 상한 | 탐색 간격 `scan_step_mm` 이상의 작은 값 | — | 한건민, 신상현 |
+| `drv_timeout_ms` | ms | 주행 구간 시간 제한 | 상한 거리 / 속도에 여유 | 실측 | 한건민 |
+| `drv_settle_ms`, `drv_settle_max_ms` | ms | 정지 확인 | 저속 정상 펄스 간격 | 제동 시험 | 한건민 |
+| `drv_avg_ms`, `drv_avg_min_n` | ms, 개 | 반력 평균 | NAU7802 설정 SPS × 평균 시간 | **실측 취득률**로 조정 | 한건민 |
+| `force_stale_ms` | ms | 로드셀 정체 판정 | NAU7802 변환 주기의 배수 | 실측 취득률 | 한건민 |
+| `drv_pos_tol_mm` | mm | 도달 판정 허용 오차 | 엔코더 분해능 | 환산 시험 | 한건민 |
+| `drv_enc_timeout_ms` | ms | 엔코더 무효 판정 | **최저 속도의 정상 펄스 간격** 반영 | 저속 주행 | 한건민 |
+| `drv_enc_diff_max_mm` | mm | 좌·우 이동량 차 허용 | 탐색 구간 직진 허용 | 직진 시험 | 한건민 |
+| `drv_yaw_max_deg`, `drv_tilt_max_deg` | ° | 방향·기울기 상한 | **기구·시험대의 허용 범위** 기준(측정 최대값이 아님) | 확인 | 서정준(기구), 한건민 |
+| `drv_imu_timeout_ms` | ms | 자이로 끊김 판정 | WT901C 출력 주기의 배수 | 수신 확인 | 한건민 |
+| `scan_force_max_N` | N | 탐색·헤드 유지·주행 중 반력 상한 | 모사체·고정구·기구의 허용 하중. 로드셀 정격(100 kg)을 쓰지 않는다 | 보정된 로드셀로 확인 | 서정준(기구), 한건민 |
+| `contact_force_N`, `contact_confirm_ms` | N, ms | 접촉 판정 | 무부하 잡음, 영점 드리프트 | **실제 접촉, 모터 작동 중 잡음** 확인 | 한건민 |
+| `head_search_speed_mm_s`, `head_search_max_mm`, `head_timeout_ms` | mm/s, mm, ms | 접촉 탐색 | 기구와 마네킹 치수 | 확인 | 서정준(치수), 한건민 |
+| `head_press_max_mm` | mm | `press_mm` 상한 | 기구 | 확인 | 서정준, 한건민 |
 
 ### 7.2 Jetson (신상현)
 
@@ -193,30 +336,45 @@
 | 판정 기준 | 직전 이동평균 대비 30 % 감소 | 제출 보고서 6.2 |
 | `scan_step_mm`, `scan_roi_mm` | 미정 | 모사체 실측 후(선정용 반복) |
 | `scan_dir_sign` | 미정 | 설치 방향 확인 후 |
-| EAPD 미측정 시 이동 거리 | 미정 | 보고서에 규칙 없음. 합의 필요 |
+| **EAPD 미측정 시** | **이동 거부** | 대체 상수를 쓰지 않는다. 압박점 이동을 하지 않고 재측정을 안내한다. 보고서에 대체 규칙이 없으므로 값이 비어 있으면 기능을 켜지 않는다는 저장소 규칙을 따른다 |
 
 ---
 
 ## 8. 시험
 
 **기본 묶음(하드웨어 없음)**
-- Jetson `tests/test_all.py` + 모의 Teensy:
-  - 상태 불일치 거부
-  - 설정값 미설정 거부
-  - 주행 중 `DRIVE_STEP` 거부
-  - 중복 seq: 재실행하지 않고 ACK와 `DRIVE_DONE`을 다시 보냄
-  - `DRIVE_DONE` 유실 → `GET_STATUS` → 재요청
-  - FAULT·ESTOP 중 `DRIVE_STOP`이 상태를 바꾸지 않음
-  - 주행 중 통신 두절 → FAULT
-  - 반력이 무효면 필드 생략
-- Teensy `test_saver_proto.cpp`:
-  - 음수·소수 `dist_mm` 파싱
-  - 필드 생략 규칙
-  - evt의 seq
+
+Jetson `tests/test_all.py` + 모의 Teensy:
+- 상태 불일치 거부, 설정값 미설정 거부
+- `GET_INFO` 미지원(v1.0) → 탐색 기능 끔
+- 동작 명령 중첩: 주행 중·접촉 탐색 중·HOME 중 다른 동작 명령 → `BUSY`
+- 중복 seq:
+  - 진행 중 재수신 → ACK만
+  - 완료 뒤 재수신 → ACK와 저장된 완료 이벤트
+  - 8개 기록에서 밀려난 옛 동작 seq → `STALE_SEQ`
+- `DRIVE_STOP` 중단: 원래 seq로 `STOPPED`, STOP 자체는 ACK만
+- `DRIVE_DONE`·`HEAD_HELD` 유실 → `GET_STATUS` → 같은 seq 재요청
+- 재부팅(`boot_id` 변화) → 재전송하지 않음
+- FAULT·ESTOP 중 `DRIVE_STOP`이 상태를 바꾸지 않음
+- 원인이 남은 비래치 오류 중 동작 명령 → `FAULT_ACTIVE`
+- 엔코더 무효 → `FAULT`, 거리·반력 필드 없음
+- `OK`인데 반력 무효 → `cp_force_N` 생략
+- 주행 중 통신 두절 → FAULT
+- `RESET_FAULT` 뒤 `IDLE`, `HOME` 거부, `ARM` 뒤 `HOME`
+
+Teensy `test_saver_proto.cpp`(한건민):
+- 음수·소수 `dist_mm` 파싱, 필드 생략 규칙, evt의 seq
+- 16비트 순환 seq 비교
+- 중복 요청, 재부팅, 센서 단절, 명령 충돌, 정지 우선순위
 
 **하드웨어 시험(기본 묶음 밖, 실물 필요)**
-- 10/7: 바퀴를 띄운 벤치 → 바닥 주행 순서로 엔코더 환산, 정지 거리, 헤드 접촉 상태의 바퀴 밀림, 자이로 수신을 확인한다.
+- 10/7: 바퀴를 띄운 벤치 → 바닥 주행 순서로 진행한다.
+  - 엔코더 환산: 좌·우, 정·역방향
+  - 정지 거리, 헤드 접촉 중 밀림
+  - 자이로 수신과 모터 작동 중 방향 오차
+  - 로드셀 실측 취득률
 - 비상정지가 후륜 전원을 끊는지 확인한다. 끊지 않으면 바닥 주행을 하지 않는다.
+- 상단 리미트가 설치·검증되지 않으면 HOME, `HEAD_HOLD`, `DRIVE_STEP`의 프로토콜 시험을 하지 않는다.
 
 ---
 
@@ -224,10 +382,23 @@
 
 | 날짜 | 신상현 | 한건민 |
 |---|---|---|
-| 10/2 | 초안 공유 | 검토 의견 |
-| 10/3 | 의견 반영, 합의 | 합의 |
-| 10/3~5 | `protocol/` v1.1 반영(한건민 검토 뒤 커밋), Jetson 모의 Teensy와 시험 | 펌웨어 구현과 시험, 후륜 비상정지 배선 |
-| 10/6 | 설정값 7.1 중 10/6 항목 확정(팀) | 같이 |
-| 10/7 | — | Teensy 단독 주행·제동·헤드 유지 점검, 7.1 중 10/7 항목 측정 |
+| 10/1 | 2차 초안 공유 | — |
+| 10/2 | 2차 의견 반영 | 2차 초안 검토 |
+| 10/3 | 합의 | 합의 |
+| 10/3~5 | `protocol/` v1.1 반영(한건민 검토 뒤 커밋), Jetson 모의 Teensy와 시험 | 펌웨어 구현과 시험, 후륜 비상정지 배선, WT901C 핀 이동과 `pinmap.h` 갱신 |
+| 10/6 | 7.1 벤치값 확정(팀, 근거·책임 기록) | 같이 |
+| 10/7 | — | Teensy 단독 주행·제동·헤드 유지 점검, 7.1 검증·조정 |
 | 10/11 | 벤치 통신 시험(새 명령 포함, 모터 없이) | 같이 |
 | 10/12 | 장치 연결 | 같이 |
+
+---
+
+## 10. 이 초안의 미확정 항목
+
+| # | 항목 | 담당 |
+|---|---|---|
+| 1 | 상단 리미트 설치·검증 담당과 기한 | 서정준, 한건민 |
+| 2 | 후륜 비상정지 회로의 실제 차단 범위, 제동 방식 | 한건민 |
+| 3 | WT901C 출력 모드(지자기 사용 여부)와 모터 작동 중 방향 오차 | 한건민 |
+| 4 | 압박(CPR) 중 로드셀·리니어 센서 상실 시 동작 | 한건민, 신상현 (기존 규칙 변경이므로 별도 합의) |
+| 5 | `2-TU-002` 기울기 초과 때 헤드 위치 유지안의 타당성 | 한건민 |
