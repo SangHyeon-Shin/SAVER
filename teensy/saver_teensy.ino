@@ -10,23 +10,32 @@
  *   - Teensy 내부 상태 관리
  *
  * 이 파일이 하지 않는 일  →  [구현] 표시된 곳을 채워 주세요
- *   - 실제 모터 PID/PWM, 엔코더 환산, 로드셀·변위·전류 센서 보정
+ *   - 실제 모터 PID/PWM, 엔코더 환산, 로드셀·전류 센서 보정, 사이클 깊이 산출
+ *   - 리니어 보정은 test/linear_sensor_test에서 수행하고 EEPROM 저장값만 읽는다.
+ *   ※ 설치 전 ZERO/CAL 보정, 설치 후 영점·실측 거리·하강 양수 방향 재확인 필요.
  *
  * 이전 작업 참고:  teensy/reference/
- *   음압 모터 드라이버 신호(ERR/RUN/EN/VSP/FG), 압력센서 변환식,
+ *   음압 모터 드라이버 신호(ERR/RUN/EN/VSP), 압력센서 변환식,
  *   목표 음압 후보값, PCB 회로도가 거기 정리돼 있습니다.
  *   ※ 그 코드는 ESP32-S3 기준이라 핀 번호와 ADC 분해능이 다릅니다.
+ *   ※ 2026-09-08: 음압 FG는 미사용. 32/37번은 예비이며 RPM을 취득하지 않습니다.
  *
  * 통신 계층과 제어 계층을 섞지 마세요. 제어 루프는 아래 controlTick() 안에서만
  * 돌리고, 통신은 이 파일이 알아서 합니다. 그래야 통신이 막혀도 제어가 안 멈춥니다.
  * ==========================================================================*/
-#include <OneWire.h>
 #include <Wire.h>
+#include <EEPROM.h>
 #include <MAX30105.h>       /* SparkFun MAX3010x library 1.1.2 */
 #include <spo2_algorithm.h>
 
 #include "saver_proto.h"
 #include "pinmap.h"
+#include "src/saver_linear/linear_sensor_reader.h"
+
+static_assert(PIN_LINEAR_SENSOR == saver_linear::storage::PIN,
+              "Linear EEPROM calibration requires A16 / physical pin 40");
+static_assert(E2END + 1 >= saver_linear::storage::ADDRESS + saver_linear::storage::SIZE,
+              "Linear EEPROM calibration slot does not fit");
 
 /* ──────────────────────────── 1. 설정값 ────────────────────────────
  * ⚠ 아래 TODO 값은 명세 §11의 미확정 항목입니다.
@@ -50,12 +59,10 @@ const float RATE_TARGET_CPM = 110.0f; /* 확정됨: BPM 110 */
 /* 센서 데이터시트/reference에 근거한 취득 설정. 의료 판단 임계값이 아니다. */
 const uint16_t ADC_MAX_12BIT          = 4095;
 const float ADC_REFERENCE_V          = 3.3f;
-const float PRESSURE_MIN_PA          = 2500.0f;
-const float PRESSURE_MAX_PA          = 700000.0f;
-const uint8_t PRESSURE_VALID_SAMPLES = 2;
-const uint32_t DS18B20_CONVERSION_MS = 750;
-const uint32_t DS18B20_RETRY_MS      = 1000;
-const uint32_t DS18B20_STALE_MS      = 2000;
+const float PRESSURE_R_TOP_OHM       = 4700.0f;  /* 센서 OUT -> A8 */
+const float PRESSURE_R_BOTTOM_OHM    = 10000.0f; /* A8 -> GND */
+const float PRESSURE_DIVIDER_RATIO   =
+    PRESSURE_R_BOTTOM_OHM / (PRESSURE_R_TOP_OHM + PRESSURE_R_BOTTOM_OHM);
 const uint32_t MAX30102_POLL_MS      = 10;
 const uint32_t MAX30102_STALE_MS     = 1000;
 
@@ -94,116 +101,15 @@ struct Sensors {
   bool  rate_ok, depth_ok, force_ok, motor_i_ok, vac_ok;
   bool  ppg_hr_ok, spo2_ok, ppg_sqi_ok, temp_ok, fan_ok;
   bool  estop, limit_top, limit_bottom, vac_leak;
+  /* 보정 ZERO 기준의 현재 센서 위치. 직전 사이클 최대 깊이와 다른 내부 측정값이다. */
+  float linear_position_mm;
+  bool linear_position_ok, linear_within_cal_span;
 } g_s;
 
-/* DS18B20은 750 ms 변환 대기를 delay()로 막지 않고 여러 controlTick()에 나눈다.
- * pinmap상 이 1-Wire 버스에는 DS18B20 한 개만 연결되므로 Skip ROM을 사용한다. */
-class Ds18b20Reader {
- public:
-  explicit Ds18b20Reader(uint8_t pin)
-      : pin_(pin), phase_(START_RESET), phaseAtMs_(0), lastGoodMs_(0),
-        dataIndex_(0) {}
-
-  void begin() {
-    bus_.begin(pin_);
-    phase_ = START_RESET;
-    phaseAtMs_ = 0;
-    lastGoodMs_ = 0;
-    dataIndex_ = 0;
-  }
-
-  void tick(Sensors& sensors, uint32_t nowMs) {
-    if (lastGoodMs_ == 0 || nowMs - lastGoodMs_ > DS18B20_STALE_MS) {
-      sensors.temp_ok = false;
-    }
-
-    switch (phase_) {
-      case START_RESET:
-        if ((int32_t)(nowMs - phaseAtMs_) < 0) return;
-        if (!bus_.reset()) {
-          fail(sensors, nowMs);
-          return;
-        }
-        phase_ = START_CONVERSION;
-        return;
-
-      case START_CONVERSION:
-        bus_.skip();
-        bus_.write(0x44);  /* Convert T; 외부 전원형(3선식), strong pull-up 불필요. */
-        phaseAtMs_ = nowMs;
-        phase_ = WAIT_CONVERSION;
-        return;
-
-      case WAIT_CONVERSION:
-        if (nowMs - phaseAtMs_ < DS18B20_CONVERSION_MS) return;
-        phase_ = READ_RESET;
-        return;
-
-      case READ_RESET:
-        if (!bus_.reset()) {
-          fail(sensors, nowMs);
-          return;
-        }
-        phase_ = START_READ;
-        return;
-
-      case START_READ:
-        bus_.skip();
-        bus_.write(0xBE);  /* Read Scratchpad. */
-        dataIndex_ = 0;
-        phase_ = READ_BYTES;
-        return;
-
-      case READ_BYTES:
-        data_[dataIndex_++] = bus_.read();
-        if (dataIndex_ < sizeof data_) return;
-        finishRead(sensors, nowMs);
-        return;
-    }
-  }
-
- private:
-  enum Phase {
-    START_RESET,
-    START_CONVERSION,
-    WAIT_CONVERSION,
-    READ_RESET,
-    START_READ,
-    READ_BYTES
-  };
-
-  void fail(Sensors& sensors, uint32_t nowMs) {
-    sensors.temp_ok = false;  /* 마지막 값은 보존하고 유효성만 내린다. */
-    phase_ = START_RESET;
-    phaseAtMs_ = nowMs + DS18B20_RETRY_MS;
-    dataIndex_ = 0;
-  }
-
-  void finishRead(Sensors& sensors, uint32_t nowMs) {
-    bool crcOk = (OneWire::crc8(data_, 8) == data_[8]);
-    int16_t raw = (int16_t)(((uint16_t)data_[1] << 8) | data_[0]);
-    float tempC = (float)raw / 16.0f;
-
-    if (crcOk && tempC >= -20.0f && tempC <= 120.0f) {
-      sensors.temp_C = tempC;
-      sensors.temp_ok = true;
-      lastGoodMs_ = nowMs;
-      phase_ = START_RESET;
-      phaseAtMs_ = nowMs;
-      dataIndex_ = 0;
-    } else {
-      fail(sensors, nowMs);
-    }
-  }
-
-  uint8_t pin_;
-  OneWire bus_;
-  Phase phase_;
-  uint32_t phaseAtMs_;
-  uint32_t lastGoodMs_;
-  uint8_t data_[9];
-  uint8_t dataIndex_;
-};
+saver_linear::PersistedLinearSensor& linearSensor() {
+  static saver_linear::PersistedLinearSensor sensor;
+  return sensor;
+}
 
 /* SparkFun Example8의 MAX30102 호환 설정과 Maxim 알고리즘을 비차단 수집으로 옮겼다.
  * 유효 플래그가 나온 HR/SpO2만 공개하며, 저장소에 정의가 없는 SQI는 공개하지 않는다. */
@@ -314,11 +220,6 @@ class Max30102Reader {
   uint32_t lastSampleMs_;
 };
 
-Ds18b20Reader& tempReader() {
-  static Ds18b20Reader reader(PIN_DS18B20);
-  return reader;
-}
-
 Max30102Reader& ppgReader() {
   static Max30102Reader reader;
   return reader;
@@ -363,9 +264,17 @@ void sendTel() {
 
 /* ──────────────────────── 4. 안전 · 고장 ──────────────────────── */
 void motorsOff() {
-  analogWrite(PIN_CP_MOTOR_VSP, 0);
-  digitalWrite(PIN_CP_MOTOR_EN, LOW);
-  /* 명세 §7: 음압 유지. PIN_VAC_MOTOR_VSP/EN 은 변경하지 않는다. */
+  /* 구동계 프로토콜은 아직 없지만, 위험 정지 시 두 BTS7960에 정지 논리값을 쓴다. */
+  analogWrite(PIN_DRIVE1_RPWM, 0);
+  analogWrite(PIN_DRIVE1_LPWM, 0);
+  analogWrite(PIN_DRIVE2_RPWM, 0);
+  analogWrite(PIN_DRIVE2_LPWM, 0);
+  digitalWrite(PIN_DRIVE1_EN, LOW);
+  digitalWrite(PIN_DRIVE2_EN, LOW);
+
+  /* [구현] 압박 드라이버 UART 정지 명령: baud와 명령 형식 확정 전에는 송신 금지. */
+
+  /* 명세 §7: 음압 유지. PIN_VAC1/2_VSP 및 PIN_VAC1/2_EN은 변경하지 않는다. */
 }
 
 void raiseFault(const char* code, int sev, const char* why) {
@@ -562,35 +471,37 @@ void commWatchdog() {
 
 /* ──────────────────── 8. 실시간 제어 (한건민 영역) ──────────────────── */
 void readPressureSensor(Sensors& sensors) {
-  static uint8_t consecutiveValid = 0;
   sensors.vac_ok = false;  /* 실패 시 마지막 수치 자체는 덮어쓰지 않는다. */
 
   uint16_t adcValue = (uint16_t)analogRead(PIN_PRESSURE_SENSOR);
   if (adcValue == 0 || adcValue >= ADC_MAX_12BIT) {
-    consecutiveValid = 0;
     return;
   }
 
-  /* reference/Pressure_logic_esp32.ino의 식을 12-bit Teensy ADC에 그대로 적용. */
-  float voltage = (float)adcValue * (ADC_REFERENCE_V / (float)ADC_MAX_12BIT);
-  if (voltage < 0.5f) {
-    consecutiveValid = 0;
-    return;  /* 센서 명시 출력 하한보다 낮으면 미연결/실패 취급. */
-  }
+  const float adcVoltage =
+      (float)adcValue * (ADC_REFERENCE_V / (float)ADC_MAX_12BIT);
+  const float sensorVoltage = adcVoltage / PRESSURE_DIVIDER_RATIO;
+  (void)sensorVoltage;
 
-  float pressurePa = PRESSURE_MIN_PA
-      + (voltage - 0.5f) * (PRESSURE_MAX_PA - PRESSURE_MIN_PA) / 4.0f;
-  float vacKPa = -pressurePa / 1000.0f;  /* 명세 §6: 음압 게이지압은 음수. */
-  if (vacKPa < -80.0f || vacKPa > 0.0f) {
-    consecutiveValid = 0;
+  /*
+   * [구현] 센서 전체 품번을 확인한 뒤 해당 XGZP6847A 모델의 게이지압
+   * 변환식을 적용한다. KPG/KPGN/KPGPN, 압력 범위, 끝의 33 유무에 따라
+   * 영점 전압과 V/kPa가 달라진다. 확정 전에는 vac_kPa를 쓰거나 vac_ok를
+   * true로 만들지 않는다. 측정 불가 필드는 telemetry에서 자동 생략된다.
+   */
+}
+
+void readLinearSensor(Sensors &sensors) {
+  sensors.linear_position_ok = false;
+  sensors.linear_within_cal_span = false;
+  float positionMm;
+  if (!linearSensor().position(analogRead(PIN_LINEAR_SENSOR), positionMm))
     return;
-  }
-
-  if (consecutiveValid < PRESSURE_VALID_SAMPLES) ++consecutiveValid;
-  if (consecutiveValid < PRESSURE_VALID_SAMPLES) return;
-
-  sensors.vac_kPa = vacKPa;
-  sensors.vac_ok = true;
+  sensors.linear_position_mm = positionMm;
+  sensors.linear_position_ok = true;
+  sensors.linear_within_cal_span = linearSensor().within(positionMm);
+  // Stable raw ADC does not prove sensor presence or rule out a stuck voltage.
+  // Keep the saved manual ZERO; never use the boot position as an automatic zero.
 }
 
 void controlTick() {
@@ -607,15 +518,19 @@ void controlTick() {
   g_s.limit_bottom = (digitalRead(PIN_LIMIT_BOTTOM) == HIGH);
 
   readPressureSensor(g_s);
-  tempReader().tick(g_s, millis());
+  readLinearSensor(g_s);
   ppgReader().tick(g_s, millis());
 
-  /* 저장소에 N/mm/A 환산 보정값과 엔코더 PPR·기구비가 없다.
-   * ADC raw/count를 물리 단위 필드에 넣지 않고 측정 불가로 생략한다. */
+  /* 리니어 현재 위치는 위에서 별도로 취득한다. cp_depth_mm는 명세 §6의
+   * '직전 사이클 최대 압박 깊이'이므로 현재 위치로 대체하지 않는다.
+   * [구현] 설치 후 영점·하강 양수 검증 및 사이클 경계/최대 깊이 산출.
+   * N/A 환산 보정값과 엔코더 PPR도 미확정이므로 해당 필드는 생략한다. */
   g_s.rate_ok = false;
   g_s.depth_ok = false;
   g_s.force_ok = false;
   g_s.motor_i_ok = false;
+  /* 2선 NTC의 R25/B값/분압 저항이 미확정이므로 마지막 값은 보존하고 생략한다. */
+  g_s.temp_ok = false;
   g_s.fan_ok = false;
 
   if (I_LIMIT_A > 0.0f && g_s.motor_i_ok && g_s.motor_i_A > I_LIMIT_A) {
@@ -626,40 +541,64 @@ void controlTick() {
 /* ──────────────────────────── 9. 진입점 ──────────────────────────── */
 void setup() {
   /* 출력 래치를 먼저 LOW 로 두어 OUTPUT 전환 순간에도 구동 신호가 올라가지 않게 한다. */
-  digitalWrite(PIN_CP_MOTOR_VSP, LOW);
-  digitalWrite(PIN_VAC_MOTOR_VSP, LOW);
-  digitalWrite(PIN_COOLING_FAN, LOW);
-  digitalWrite(PIN_CP_MOTOR_EN, LOW);
-  digitalWrite(PIN_VAC_MOTOR_EN, LOW);
+  digitalWrite(PIN_VAC1_VSP, LOW);
+  digitalWrite(PIN_VAC1_EN, LOW);
+  digitalWrite(PIN_VAC2_VSP, LOW);
+  digitalWrite(PIN_VAC2_EN, LOW);
+  digitalWrite(PIN_FAN1_PWM, LOW);
+  digitalWrite(PIN_FAN2_PWM, LOW);
+  digitalWrite(PIN_DRIVE1_RPWM, LOW);
+  digitalWrite(PIN_DRIVE1_LPWM, LOW);
+  digitalWrite(PIN_DRIVE1_EN, LOW);
+  digitalWrite(PIN_DRIVE2_RPWM, LOW);
+  digitalWrite(PIN_DRIVE2_LPWM, LOW);
+  digitalWrite(PIN_DRIVE2_EN, LOW);
 
-  pinMode(PIN_CP_MOTOR_VSP, OUTPUT);
-  pinMode(PIN_VAC_MOTOR_VSP, OUTPUT);
-  pinMode(PIN_COOLING_FAN, OUTPUT);
-  pinMode(PIN_CP_MOTOR_EN, OUTPUT);
-  pinMode(PIN_VAC_MOTOR_EN, OUTPUT);
+  pinMode(PIN_VAC1_VSP, OUTPUT);
+  pinMode(PIN_VAC1_EN, OUTPUT);
+  pinMode(PIN_VAC2_VSP, OUTPUT);
+  pinMode(PIN_VAC2_EN, OUTPUT);
+  pinMode(PIN_FAN1_PWM, OUTPUT);
+  pinMode(PIN_FAN2_PWM, OUTPUT);
+  pinMode(PIN_DRIVE1_RPWM, OUTPUT);
+  pinMode(PIN_DRIVE1_LPWM, OUTPUT);
+  pinMode(PIN_DRIVE1_EN, OUTPUT);
+  pinMode(PIN_DRIVE2_RPWM, OUTPUT);
+  pinMode(PIN_DRIVE2_LPWM, OUTPUT);
+  pinMode(PIN_DRIVE2_EN, OUTPUT);
 
   /* 외부 회로의 바이어스와 레벨 변환을 사용하며 내부 pull-up은 가정하지 않는다. */
-  pinMode(PIN_VAC_MOTOR_ERR, INPUT);
-  pinMode(PIN_VAC_MOTOR_RUN, INPUT);
+  pinMode(PIN_CP_UART_RX, INPUT);
+  pinMode(PIN_CP_UART_TX, INPUT);  /* Serial7 미초기화: 드라이버 명령 확정 전까지 high-Z. */
+  pinMode(PIN_VAC1_ERR, INPUT);
+  pinMode(PIN_VAC1_RUN, INPUT);
+  pinMode(PIN_VAC2_ERR, INPUT);
+  pinMode(PIN_VAC2_RUN, INPUT);
   pinMode(PIN_LIMIT_TOP, INPUT);
   pinMode(PIN_LIMIT_BOTTOM, INPUT);
   pinMode(PIN_ESTOP, INPUT);
-  pinMode(PIN_ENCODER_A, INPUT);
-  pinMode(PIN_ENCODER_B, INPUT);
-  pinMode(PIN_HALL_SENSOR, INPUT);
-  pinMode(PIN_VAC_MOTOR_FG, INPUT);
+  pinMode(PIN_CP_ENCODER_A, INPUT);
+  pinMode(PIN_CP_ENCODER_B, INPUT);
+  pinMode(PIN_CP_HALL, INPUT);
+  pinMode(PIN_FAN1_TACH, INPUT);
+  pinMode(PIN_FAN2_TACH, INPUT);
+  pinMode(PIN_DRIVE1_ENCODER_A, INPUT);
+  pinMode(PIN_DRIVE1_ENCODER_B, INPUT);
+  pinMode(PIN_DRIVE2_ENCODER_A, INPUT);
+  pinMode(PIN_DRIVE2_ENCODER_B, INPUT);
 
+  pinMode(PIN_TEMPERATURE_NTC, INPUT);
   pinMode(PIN_PRESSURE_SENSOR, INPUT);
-  pinMode(PIN_LOAD_CELL, INPUT);
-  pinMode(PIN_LINEAR_SENSOR, INPUT);
+  pinMode(PIN_LOAD_CELL_ADC_RESERVED, INPUT);
+  pinMode(PIN_LINEAR_SENSOR, INPUT_DISABLE); /* 보정 스케치와 동일, 디지털 입력/바이어스 없음 */
   pinMode(PIN_CURRENT_SENSOR, INPUT);
   pinMode(PIN_MAX30102_SDA, INPUT);
   pinMode(PIN_MAX30102_SCL, INPUT);
-  pinMode(PIN_DS18B20, INPUT);
 
   analogReadResolution(12);
+  analogReadAveraging(16); /* 보정 스케치의 ADC 설정과 일치, 다른 ADC 입력에도 적용됨 */
+  linearSensor().begin(EEPROM); /* 부팅 시 1회 검증/복원. EEPROM 쓰기·Serial 출력 없음. */
   Serial.begin(115200);          /* Teensy 4.1 네이티브 USB 는 이 값을 무시함 */
-  tempReader().begin();
   ppgReader().begin();
   g_lastRx = millis();
   sendEvt("BOOT");
