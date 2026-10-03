@@ -160,7 +160,8 @@ export function Screen06({ fire, demo }) {
           {err ? '정렬 위치를 확인하세요' : '초록색 유도선을 따라 환자를 정렬해 주세요'}
         </div>
         <div style={{ fontSize: 20, color: '#3a4250', marginTop: 8, textAlign: 'center' }}>
-          긴 유도선이 환자의 정중앙에 오도록 맞추세요. 장치는 두고 환자를 움직여서 맞춰 주세요.
+          긴 유도선이 환자의 정중앙에 오도록 맞추세요. 환자를 들 필요는 없습니다.<br />
+          바퀴가 지나가도록 팔과 다리를 몸에 붙여 차렷 자세로 해 주세요.
         </div>
         <div style={{ display: 'flex', gap: 12, marginTop: 22 }}>
           <Btn variant="ghost" w={150} h={80} fs={24} onPress={() => fire(EV.CANCEL)}>취소</Btn>
