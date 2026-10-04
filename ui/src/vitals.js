@@ -1,9 +1,10 @@
 import { useEffect, useState, useMemo } from 'react'
+import { vitalsView } from './vitalsView.js'
 
 /* ============================================================
    파형 · 실시간 수치
    디자인 원본 <script data-dc-script>의 Component 클래스를 React로 옮긴 것.
-   실제 장비 연결 시에는 bridge.js의 telemetry 값이 이 값을 덮어씁니다.
+   실제 장비 연결 시에는 bridge.js의 telemetry 값만 쓴다(vitalsView.js).
    ============================================================ */
 
 /** SVG path 문자열 생성 (원본 _wave 이식) */
@@ -34,9 +35,10 @@ export function useWaves() {
 /**
  * 압박 수행 중 실시간 수치.
  * @param running S7(압박 수행) 상태일 때만 true → 경과시간/횟수 누적
- * @param telemetry 브리지에서 온 실측값(있으면 우선 사용)
+ * @param telemetry 브리지에서 온 실측값. null 이면 오프라인 시연(모의값)
+ * @param stale 텔레메트리가 오래됐거나 링크가 끊김 → 실측 칸을 비운다
  */
-export function useVitals(running, telemetry) {
+export function useVitals(running, telemetry, stale) {
   const [sec, setSec] = useState(0)
 
   useEffect(() => {
@@ -45,23 +47,5 @@ export function useVitals(running, telemetry) {
     return () => clearInterval(iv)
   }, [running])
 
-  // 시뮬레이션 값 (원본 renderVals 이식)
-  const rate  = 109 + (sec % 4 === 0 ? 2 : sec % 2 === 0 ? 1 : 0)
-  const depth = (5.1 + 0.25 * Math.abs(Math.sin(sec * 1.1))).toFixed(1)
-  const force = (38 + (sec % 5)).toFixed(0)
-  const count = Math.floor((sec * 110) / 60)
-  const mm = Math.floor(sec / 60)
-  const ss = sec % 60
-
-  const t = telemetry || {}
-  return {
-    sec,
-    reset: () => setSec(0),
-    depth:   t.cp_depth_mm != null ? (t.cp_depth_mm / 10).toFixed(1) + ' cm' : depth + ' cm',
-    rate:    t.cp_rate_cpm != null ? t.cp_rate_cpm + ' /min' : rate + ' /min',
-    force:   t.cp_force_N  != null ? '약 ' + (t.cp_force_N / 9.81).toFixed(0) + ' kg' : '약 ' + force + ' kg',
-    elapsed: `${mm}:${String(ss).padStart(2, '0')}`,
-    count:   count + '회',
-    live:    telemetry != null,
-  }
+  return { sec, reset: () => setSec(0), ...vitalsView(sec, telemetry, stale) }
 }

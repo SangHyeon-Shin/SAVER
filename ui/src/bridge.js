@@ -46,7 +46,8 @@ export function useBridge({ onState, onRejected } = {}) {
 
       ws.onopen = () => setConnected(true)
       ws.onclose = () => {
-        setConnected(false); setLinkUp(false); setStale(false)
+        // 끊기면 마지막 텔레메트리를 실측처럼 보이지 않게 stale 로 둔다(새 tel 이 오면 풀림)
+        setConnected(false); setLinkUp(false); setStale(true)
         if (!closed) retry = setTimeout(connect, 3000)      // 자동 재연결
       }
       ws.onerror = () => ws.close()
@@ -63,7 +64,9 @@ export function useBridge({ onState, onRejected } = {}) {
           case 'error':
             setLastError(m); break
           case 'link':
-            setLinkUp(!!m.connected); break
+            setLinkUp(!!m.connected)
+            if (!m.connected) setStale(true)        // 링크가 끊기면 브리지가 stale 을 따로 보내지 않는다
+            break
           case 'rejected':
             setRejected(m)
             cbReject.current && cbReject.current(m)

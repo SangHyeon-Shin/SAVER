@@ -95,6 +95,21 @@ const check = (name, ok, detail = '') => {
   check('이미지 5장 로드', d.querySelectorAll('img[src^="data:image"]').length >= 0)
   check('런타임 오류 없음', errors.length === 0, errors[0] || '')
 
+  // 실측 표시 규칙: 생략·stale 필드는 '—', 모의값으로 채우지 않는다 (vitalsView.js)
+  const { vitalsView, NA } = await import('../src/vitalsView.js')
+  const demo = vitalsView(30, null, false)
+  check('수치: 미연결은 모의값', !demo.live && / cm$/.test(demo.depth), demo.depth)
+  const full = vitalsView(30, { cp_depth_mm: 49.2, cp_rate_cpm: 109.8, cp_force_N: 382.1 }, false)
+  check('수치: 연결 시 받은 값 표시', full.live && full.depth === '4.9 cm' && full.rate === '109.8 /min' && full.force === '약 39 kg',
+    [full.depth, full.rate, full.force].join(' '))
+  const part = vitalsView(30, { cp_depth_mm: 49.2, cp_rate_cpm: 109.8 }, false)
+  check('수치: 생략된 압박력은 — (모의값 금지)', part.force === NA, part.force)
+  check('수치: 압박 횟수는 지어내지 않음', part.count === NA, part.count)
+  const st = vitalsView(30, { cp_depth_mm: 49.2, cp_rate_cpm: 109.8, cp_force_N: 382.1 }, true)
+  check('수치: stale 이면 모두 —', st.depth === NA && st.rate === NA && st.force === NA)
+  const bad = vitalsView(30, { cp_depth_mm: null, cp_force_N: 'x' }, false)
+  check('수치: 숫자가 아니면 —', bad.depth === NA && bad.force === NA)
+
   console.log(`\n${fail === 0 ? '✅ 전체 통과' : '❌ 실패 있음'}  (통과 ${pass} / 실패 ${fail})\n`)
   dom.window.close()
   process.exit(fail === 0 ? 0 : 1)

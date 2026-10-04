@@ -73,7 +73,7 @@ export default function App() {
 
   bridgeRef.current = bridge.connected ? bridge.sendIntent : null
 
-  const vitals = useVitals(!!node.running, bridge.telemetry)
+  const vitals = useVitals(!!node.running, bridge.telemetry, bridge.stale)
 
   /* ---------- 자동 전이 (부팅 · 바퀴 전개) ----------
      연결 시에는 브리지의 ticker 가 처리하므로 UI 는 관여하지 않는다.
