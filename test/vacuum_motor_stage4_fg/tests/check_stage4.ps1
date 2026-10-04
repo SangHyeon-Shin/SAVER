@@ -41,11 +41,12 @@ foreach ($definition in $definitions) {
     if (-not $analogPins.ContainsKey($value)) { throw "Unmapped analog alias: $value" }
     $pin = [int]$analogPins[$value]
   } else { $pin = [int]$value }
+  if ($name.EndsWith('_RESERVED')) { continue }
   if ($pin -lt 0 -or $pin -gt 41 -or -not $used.Add($pin)) { throw "Invalid/duplicate physical pin: $pin" }
   $pins[$name] = $pin
 }
-if ($used.Count -ne 37) { throw 'Expected 37 assigned outer pins and five spares.' }
-foreach ($spare in @(11,12,13,32,37)) {
+if ($used.Count -ne 39) { throw 'Expected 39 assigned outer pins and three disconnected spares.' }
+foreach ($spare in @(13,23,39)) {
   if ($used.Contains($spare)) { throw "Spare pin $spare is unexpectedly assigned." }
 }
 foreach ($signal in @('VSP','EN','ERR','RUN')) {
@@ -54,5 +55,5 @@ foreach ($signal in @('VSP','EN','ERR','RUN')) {
     throw "Stage 4 $signal does not match teensy/pinmap.h."
   }
 }
-Write-Output 'PASS: no-FG source guards; 37 unique physical pins; 11/12/13/32/37 spare; Stage 4 pins match pinmap.'
+Write-Output 'PASS: no-FG source guards; 39 unique physical pins; 13/23/39 spare; Stage 4 pins match pinmap.'
 Write-Output 'No executable, Arduino firmware, serial port, GPIO, or motor was run.'

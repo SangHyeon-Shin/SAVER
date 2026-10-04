@@ -16,8 +16,11 @@ constexpr uint8_t PIN_MAX_SCL = 19;  // Default Wire SCL; paired with pin 18.
 
 // Supplemental inhibition only: physically disconnect ALL motor power first.
 constexpr uint8_t PIN_VAC1_EN_GUARD = 26;   // Existing vacuum-1 EN; hold LOW.
-constexpr uint8_t PIN_VAC2_EN_GUARD = 35;   // Existing vacuum-2 EN; hold LOW.
+constexpr uint8_t PIN_VAC2_EN_GUARD = 37;   // Vacuum-2 EN moved off Serial8 TX35; hold LOW.
 constexpr uint8_t PIN_VAC1_VSP_GUARD = 24;  // Existing vacuum-1 VSP; static LOW.
 constexpr uint8_t PIN_VAC2_VSP_GUARD = 33;  // Existing vacuum-2 VSP; static LOW.
+
+static_assert(PIN_VAC2_EN_GUARD != 34 && PIN_VAC2_EN_GUARD != 35,
+              "PPG guard must not drive the WT901C Serial8 pins");
 
 #endif

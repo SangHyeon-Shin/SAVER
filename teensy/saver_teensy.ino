@@ -18,7 +18,9 @@
  *   음압 모터 드라이버 신호(ERR/RUN/EN/VSP), 압력센서 변환식,
  *   목표 음압 후보값, PCB 회로도가 거기 정리돼 있습니다.
  *   ※ 그 코드는 ESP32-S3 기준이라 핀 번호와 ADC 분해능이 다릅니다.
- *   ※ 2026-09-08: 음압 FG는 미사용. 32/37번은 예비이며 RPM을 취득하지 않습니다.
+ *   ※ 2026-10-02: 음압 FG는 계속 미사용. 32/37은 음압 2 RUN/EN으로 재배정.
+ *      WT901C는 Serial8 34/35 예약, NAU7802는 독립 Wire1 17/16 배정.
+ *      두 센서의 메인 취득 기능은 아직 미구현이며 Hall은 VESC에만 연결한다.
  *
  * 통신 계층과 제어 계층을 섞지 마세요. 제어 루프는 아래 controlTick() 안에서만
  * 돌리고, 통신은 이 파일이 알아서 합니다. 그래야 통신이 막혀도 제어가 안 멈춥니다.
@@ -570,6 +572,8 @@ void setup() {
   /* 외부 회로의 바이어스와 레벨 변환을 사용하며 내부 pull-up은 가정하지 않는다. */
   pinMode(PIN_CP_UART_RX, INPUT);
   pinMode(PIN_CP_UART_TX, INPUT);  /* Serial7 미초기화: 드라이버 명령 확정 전까지 high-Z. */
+  pinMode(PIN_GYRO_UART_RX, INPUT);
+  pinMode(PIN_GYRO_UART_TX, INPUT); /* Serial8 취득 미구현: RX/TX 모두 high-Z, 송신하지 않음. */
   pinMode(PIN_VAC1_ERR, INPUT);
   pinMode(PIN_VAC1_RUN, INPUT);
   pinMode(PIN_VAC2_ERR, INPUT);
@@ -579,7 +583,6 @@ void setup() {
   pinMode(PIN_ESTOP, INPUT);
   pinMode(PIN_CP_ENCODER_A, INPUT);
   pinMode(PIN_CP_ENCODER_B, INPUT);
-  pinMode(PIN_CP_HALL, INPUT);
   pinMode(PIN_FAN1_TACH, INPUT);
   pinMode(PIN_FAN2_TACH, INPUT);
   pinMode(PIN_DRIVE1_ENCODER_A, INPUT);
@@ -589,11 +592,13 @@ void setup() {
 
   pinMode(PIN_TEMPERATURE_NTC, INPUT);
   pinMode(PIN_PRESSURE_SENSOR, INPUT);
-  pinMode(PIN_LOAD_CELL_ADC_RESERVED, INPUT);
   pinMode(PIN_LINEAR_SENSOR, INPUT_DISABLE); /* 보정 스케치와 동일, 디지털 입력/바이어스 없음 */
   pinMode(PIN_CURRENT_SENSOR, INPUT);
   pinMode(PIN_MAX30102_SDA, INPUT);
   pinMode(PIN_MAX30102_SCL, INPUT);
+  pinMode(PIN_NAU7802_SDA, INPUT);
+  pinMode(PIN_NAU7802_SCL, INPUT); /* Wire1 취득 미구현: 외부 바이어스 사용, 버스 초기화 안 함. */
+  /* 23/A9와 39는 미연결 예비. VESC Hall을 Teensy 입력에 분기하지 않는다. */
 
   analogReadResolution(12);
   analogReadAveraging(16); /* 보정 스케치의 ADC 설정과 일치, 다른 ADC 입력에도 적용됨 */
