@@ -62,12 +62,15 @@ const check = (name, ok, detail = '') => {
   check('07 PPG 착용', await until(has('PPG 센서')))
 
   tap(B('다음'))
-  check('08 흡착·고정 확인', await until(has('흡착·고정')))
-
-  tap(B('재확인'))
-  check('09 환자 정보 입력', await until(has('환자 정보')))
+  check('09 압박점 탐색 (v2.1: 고정 전에 탐색)', await until(has('압박점 탐색')))
 
   tap(B('확인'))
+  check('20 바퀴 수납 · 안전핀 해제', await until(has('안전핀을 뽑아')))
+
+  tap(B('핀을 뺐습니다'))
+  check('08 흡착·고정 확인 (핀 해제 뒤)', await until(has('흡착·고정')))
+
+  tap(B('재확인'))
   check('10 압박 준비', await until(has('압박 준비')))
 
   tap(d.querySelector('#root [role="button"]'))
@@ -109,6 +112,19 @@ const check = (name, ok, detail = '') => {
   check('수치: stale 이면 모두 —', st.depth === NA && st.rate === NA && st.force === NA)
   const bad = vitalsView(30, { cp_depth_mm: null, cp_force_N: 'x' }, false)
   check('수치: 숫자가 아니면 —', bad.depth === NA && bad.force === NA)
+
+  // 상태머신 v2.1: S13 redirect 판정 (Jetson state_machine.py 와 같은 경우)
+  const { redirectTarget } = await import('../src/redirect.js')
+  const spec = JSON.parse(readFileSync('src/generated/state_machine_v2.json', 'utf8'))
+  const rule = spec.nodes.S13.redirect.BACK_TO_IDLE
+  check('상태머신: 탐색 → 핀 해제 → 고정 순서',
+    spec.nodes.X_PPG.on.PPG_ATTACHED === 'X_SEARCH' && spec.nodes.X_SEARCH.on.SEARCH_DONE === 'X_PIN'
+    && spec.nodes.X_PIN.on.PIN_RELEASED === 'S5' && spec.nodes.S5.on.VACUUM_OK === 'S6')
+  check('redirect: 플래그 미지원(v1.0)이면 검사 안 함', redirectTarget(rule, null) === null)
+  check('redirect: rearm_lock 이면 S12', redirectTarget(rule, { rearm_lock: true, vac_released: false }) === 'S12')
+  check('redirect: 해제 확인되면 그대로', redirectTarget(rule, { rearm_lock: false, vac_released: true }) === null)
+  check('redirect: vac_released 없음 → S12', redirectTarget(rule, { rearm_lock: false }) === 'S12')
+  check('redirect: rearm_lock 값 없음(오래됨) → S12', redirectTarget(rule, { rearm_lock: null, vac_released: true }) === 'S12')
 
   console.log(`\n${fail === 0 ? '✅ 전체 통과' : '❌ 실패 있음'}  (통과 ${pass} / 실패 ${fail})\n`)
   dom.window.close()

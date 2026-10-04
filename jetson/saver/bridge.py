@@ -86,11 +86,14 @@ class Bridge(object):
         self.loop = None
         self.log = CsvLogger(args.logdir)
 
-        self.scan_best = None
+        # 탐색으로 압박점 위로 이동을 마쳤는지. 3단계 탐색 모듈이 켠다.
+        # 꺼져 있으면 SET_CP_POINT 를 보내지 않는다(압박점을 임의로 정하지 않는다).
+        self.cp_point_ready = False
         self.fsm = StateMachine(spec_path=args.spec,
                                 on_change=self._on_state,
                                 on_command=self._on_command,
-                                mcu_state=lambda: self.link.mcu_state)
+                                mcu_state=lambda: self.link.mcu_state,
+                                mcu_flags=lambda: getattr(self.link, "mcu_flags", None))
         self.link = TeensyLink(port=args.serial,
                                on_telemetry=self._on_tel,
                                on_event=self._on_evt,
@@ -136,9 +139,9 @@ class Bridge(object):
             if CONFIG["vacuum_target_kPa"]:
                 kw = {"target_kPa": CONFIG["vacuum_target_kPa"]}
         elif cmd == "SET_CP_POINT":
-            if self.scan_best is None:
-                return                       # 스캔 결과 없이 압박점을 임의로 정하지 않는다
-            kw = {"idx": self.scan_best}
+            if not self.cp_point_ready:
+                return                       # 탐색 결과 없이 압박점을 임의로 정하지 않는다
+            kw = {"offset_mm": 0}            # 현재 위치가 압박점(v1.1 §2.2, 탐색 후 고정)
         elif cmd == "STOP_CPR":
             kw = {"reason": "SAFETY"}
         self.link.send(cmd, **kw)
@@ -153,12 +156,6 @@ class Bridge(object):
     def _on_evt(self, msg):
         name = msg.get("evt", "")
         self.log.event("mcu", name)
-        if name == "SCAN_RESULT":
-            # 스캔이 끝나는 즉시 압박점을 확정한다. UI 진행 속도와 무관하게
-            # 장치가 CPR_READY 로 올라가야 다음 상태 진입 조건이 충족된다.
-            self.scan_best = msg.get("best_idx")
-            if self.scan_best is not None:
-                self.link.send("SET_CP_POINT", idx=self.scan_best)
         # 장비가 UI 상태를 바꿔야 하는 경우만 상태머신에 주입
         mapping = {"VACUUM_OK": "VACUUM_OK", "VACUUM_FAIL": "VACUUM_ERROR"}
         if name in mapping:

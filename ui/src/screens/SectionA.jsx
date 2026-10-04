@@ -217,7 +217,9 @@ export function Screen08({ fire, demo }) {
   )
 }
 
-/* ================= 09 · 압박 위치 검색 + 환자 정보 ================= */
+/* ================= 09 · 압박점 탐색 (X_SEARCH) =================
+   v2.1 순서: 정렬 → 탐색(바퀴 위 주행) → 핀 해제 → 음압 고정.
+   반력 곡선 표시는 4단계에서 이 화면을 교체한다. */
 export function Screen09({ fire, ctx }) {
   const [sex, setSex] = useState(ctx.patient.sex)
   const [age, setAge] = useState(ctx.patient.age)
@@ -230,7 +232,7 @@ export function Screen09({ fire, ctx }) {
 
   return (
     <Light>
-      <Header title="압박 위치 검색 / 환자 정보" right="정보 입력" titleSize={26} />
+      <Header title="압박점 탐색 / 환자 정보" right="정보 입력" titleSize={26} />
       <div style={{ flex: 1, position: 'relative', display: 'flex', flexDirection: 'column', gap: 18, padding: '22px 28px 24px' }}>
         <div style={{ flex: 1, display: 'flex', gap: 24, minHeight: 0 }}>
           <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 16 }}>
@@ -258,7 +260,31 @@ export function Screen09({ fire, ctx }) {
           </div>
         </div>
         <Btn w="100%" h={78} fs={27} fw={700}
-          onPress={() => fire(EV.INFO_CONFIRMED, { patient: { sex, age } })}>확인</Btn>
+          onPress={() => fire(EV.SEARCH_DONE, { patient: { sex, age } })}>확인</Btn>
+      </div>
+    </Light>
+  )
+}
+
+/* ================= 20 · 바퀴 수납 · 안전핀 해제 (X_PIN) =================
+   탐색으로 압박점 위에 선 뒤, 구조자가 안전핀을 빼 바퀴를 수납하고 패드를 바닥에 닿게 한다.
+   다음 화면(S5)에 들어가면 음압을 켠다. */
+export function Screen20({ fire }) {
+  return (
+    <Light>
+      <Header title="바퀴 수납 · 안전핀 해제" right="탐색 완료" />
+      <div style={{ flex: 1, position: 'relative', display: 'flex', alignItems: 'center', gap: 30, padding: '0 40px' }}>
+        <div style={{ width: 360, height: 280, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <img src={IMG.device} alt="SAVER 장치" style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain', display: 'block' }} />
+        </div>
+        <div style={{ flex: 1 }}>
+          <div style={{ fontSize: 38, fontWeight: 700, lineHeight: 1.3 }}>압박점 위에 섰습니다.<br />안전핀을 뽑아<br />바퀴를 수납하세요</div>
+          <div style={{ fontSize: 21, color: '#3a4250', marginTop: 16 }}>패드가 바닥에 닿으면 다음을 누르세요. 다음 화면에서 음압 고정을 시작합니다.</div>
+        </div>
+        <Btn variant="ghost" w={160} fs={23} onPress={() => fire(EV.CANCEL)}
+          style={{ position: 'absolute', left: 28, bottom: 24 }}>취소</Btn>
+        <Btn w={240} fs={24} onPress={() => fire(EV.PIN_RELEASED)}
+          style={{ position: 'absolute', right: 28, bottom: 24 }}>핀을 뺐습니다</Btn>
       </div>
     </Light>
   )

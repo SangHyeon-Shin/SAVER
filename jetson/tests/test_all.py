@@ -27,11 +27,18 @@ print("\n== 2. 상태머신 ==")
 fired = []
 fsm = StateMachine(on_command=lambda c: fired.append(c))
 path = ["INIT_DONE","WHEELS_DONE","MOVE_DONE","START_PRESSED","CLOTHES_OK",
-        "POSITION_OK","PPG_ATTACHED","VACUUM_OK","INFO_CONFIRMED","CPR_START"]
+        "POSITION_OK","PPG_ATTACHED","SEARCH_DONE","PIN_RELEASED","VACUUM_OK","CPR_START"]
 ok = all(fsm.fire(e) for e in path)
 ck("정상 흐름 S1→S7", ok and fsm.node == "S7", fsm.node)
 ck("S7 running=True", fsm.is_running())
 ck("진입 명령 발행", "START_CPR" in fired and "VACUUM_ON" in fired, ",".join(fired))
+seen = [l["to"] for l in fsm.log]
+ck("탐색 → 핀 해제 → 고정 → 압박 준비 순서 (D-11)",
+   seen.index("X_SEARCH") < seen.index("X_PIN") < seen.index("S5") < seen.index("S6"), "→".join(seen))
+ck("탐색 노드는 Teensy 명령을 보내지 않음 (STIFFNESS_SCAN 미사용)", "STIFFNESS_SCAN" not in fired)
+ck("고정 뒤 압박 접촉 영점, 목표 설정",
+   fired.index("VACUUM_ON") < fired.index("SET_CP_POINT") < fired.index("SET_TARGET") < fired.index("START_CPR"),
+   ",".join(fired))
 ck("허용 안 된 이벤트 무시", fsm.fire("RELEASE_DONE") is False and fsm.node == "S7")
 fsm.fire("ROSC_SUSPECT"); ck("ROSC 분기", fsm.node == "S9")
 fsm.fire("RESUME_CPR");  ck("압박 재개", fsm.node == "S7")
@@ -41,6 +48,48 @@ f2.fire("VACUUM_ERROR")
 ck("오류 진입", f2.node == "S10" and f2.error_cause == "vacuum")
 f2.fire("RECHECK"); ck("RECHECK 복귀 S10→S5", f2.node == "S5")
 
+# 장치 상태 조건 (requires_mcu)
+mcu = {"s": "ARMED"}
+f3 = StateMachine(mcu_state=lambda: mcu["s"]); f3.force("X_PPG")
+ck("HOMED 아니면 탐색 진입 거부", f3.fire("PPG_ATTACHED") is False and f3.node == "X_PPG"
+   and f3.blocked_reason["need"] == ["HOMED"], str(f3.blocked_reason))
+mcu["s"] = "HOMED"
+ck("HOMED 면 탐색 진입", f3.fire("PPG_ATTACHED") and f3.node == "X_SEARCH")
+ck("탐색 완료 → 핀 해제", f3.fire("SEARCH_DONE") and f3.node == "X_PIN")
+ck("핀 해제 → 음압 고정", f3.fire("PIN_RELEASED") and f3.node == "S5")
+ck("음압 고정 전(HOMED)에는 압박 준비 거부", f3.fire("VACUUM_OK") is False and f3.node == "S5")
+mcu["s"] = "VACUUM_HOLD"
+ck("VACUUM_HOLD 면 압박 준비 진입", f3.fire("VACUUM_OK") and f3.node == "S6")
+ck("CPR_READY 전에는 압박 시작 거부", f3.fire("CPR_START") is False and f3.node == "S6")
+mcu["s"] = "CPR_READY"
+ck("CPR_READY 면 압박 시작", f3.fire("CPR_START") and f3.node == "S7")
+
+f5 = StateMachine(mcu_state=lambda: mcu["s"]); mcu["s"] = "HOMED"; f5.force("X_SEARCH")
+f5.fire("SEARCH_FAIL")
+ck("탐색 실패 → 오류", f5.node == "S10" and f5.error_return == "X_SEARCH", f5.node)
+mcu["s"] = "FAULT"
+ck("복귀 대상의 장치 조건 검사(@return, FAULT면 탐색 복귀 거부)",
+   f5.fire("RECHECK") is False and f5.node == "S10", str(f5.blocked_reason))
+mcu["s"] = "HOMED"
+ck("HOMED 복구 뒤 탐색 복귀", f5.fire("RECHECK") and f5.node == "X_SEARCH")
+
+# S13 조건: 음압이 남아 있으면 S2 대신 S12 (v1.1 합의 12번)
+flags = {"v": None}
+f4 = StateMachine(mcu_flags=lambda: flags["v"]); f4.force("S13")
+ck("플래그 미지원(v1.0)이면 S13 → S2", f4.fire("BACK_TO_IDLE") and f4.node == "S2")
+f4.force("S13"); flags["v"] = {"rearm_lock": True, "vac_released": False}
+ck("rearm_lock 이면 S13 → S12", f4.fire("BACK_TO_IDLE") and f4.node == "S12" and f4.log[-1].get("redirect"))
+ck("S12 해제 뒤 S13", f4.fire("RELEASE_DONE") and f4.node == "S13")
+flags["v"] = {"rearm_lock": False, "vac_released": True}
+ck("해제 확인되면 S13 → S2", f4.fire("BACK_TO_IDLE") and f4.node == "S2")
+for desc, fv in (("vac_released 없음", {"rearm_lock": False}),
+                 ("rearm_lock 값 없음(오래됨)", {"rearm_lock": None, "vac_released": True}),
+                 ("vac_released false", {"rearm_lock": False, "vac_released": False})):
+    f4.force("S13"); flags["v"] = fv
+    ck("%s → S12" % desc, f4.fire("BACK_TO_IDLE") and f4.node == "S12", f4.node)
+f4.force("S13"); flags["v"] = {"rearm_lock": True}
+ck("전원 끄기는 redirect 대상 아님", f4.fire("POWER_OFF") and f4.node == "S0")
+
 spec = json.load(open(StateMachine().spec and os.path.join(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "..", "protocol", "state_machine_v2.json")))
 bad = [(n, e, t) for n, d in spec["nodes"].items()
@@ -49,6 +98,11 @@ ck("노드 참조 무결성", not bad, str(bad[:2]))
 unknown = [(n, e) for n, d in spec["nodes"].items()
            for e in d.get("on", {}) if e not in spec["events"]]
 ck("이벤트 정의 무결성", not unknown, str(unknown[:2]))
+bad_rd = [(n, e) for n, d in spec["nodes"].items() for e, r in d.get("redirect", {}).items()
+          if e not in d.get("on", {}) or r.get("to") not in spec["nodes"]]
+ck("redirect 참조 무결성", not bad_rd, str(bad_rd[:2]))
+bad_rq = [(n, m) for n, d in spec["nodes"].items() for m in d.get("requires_mcu", []) if m not in P.MCU_STATES]
+ck("requires_mcu 가 Teensy 내부 상태인지", not bad_rq, str(bad_rq[:2]))
 cmds = set(c for d in spec["nodes"].values() for c in d.get("enter_cmds", []))
 ck("enter_cmds 가 명세 명령인지", cmds <= set(P.CMD), str(sorted(cmds - set(P.CMD))))
 

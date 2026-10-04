@@ -9,6 +9,7 @@
    scripts/sync-protocol.mjs 가 자동 복사합니다. 직접 편집 금지.
    ============================================================ */
 import spec from './generated/state_machine_v2.json'
+import { redirectTarget } from './redirect'
 
 /** 이벤트 상수. EV.CPR_START 처럼 씁니다 (오타를 조기에 잡기 위함) */
 export const EV = Object.freeze(
@@ -41,6 +42,7 @@ export const NODES = Object.freeze(
         errorReturn: n.error_return || null,
         enterCmds: n.enter_cmds || [],
         requiresMcu: n.requires_mcu || null,
+        redirect: n.redirect || {},
       },
     ])
   )
@@ -67,7 +69,11 @@ export function transition(ctx, event, payload = {}) {
   const target = cur.on && cur.on[event]
   if (!target) return { next: ctx, changed: false }
 
-  const toId = target === '@return' ? (ctx.errorReturn || 'S2') : target
+  let toId = target === '@return' ? (ctx.errorReturn || 'S2') : target
+  // 장치 플래그에 따른 목적지 변경 (Jetson state_machine.py 와 같은 규칙, redirect.js).
+  // 오프라인 데모에는 장치 플래그가 없으므로 payload.mcuFlags 가 있을 때만 검사한다.
+  const redirected = redirectTarget(cur.redirect[event], payload.mcuFlags)
+  if (redirected) toId = redirected
   const next = { ...ctx, node: toId }
 
   if (toId === 'S10') {

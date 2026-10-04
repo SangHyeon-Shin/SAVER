@@ -17,7 +17,7 @@ DEFAULT_SPEC = os.path.normpath(
 class StateMachine(object):
 
     def __init__(self, spec_path=None, on_change=None, on_command=None,
-                 mcu_state=None):
+                 mcu_state=None, mcu_flags=None):
         import threading
         self._lock = threading.RLock()   # 리더 스레드와 asyncio 틱이 함께 호출한다
         with open(spec_path or DEFAULT_SPEC, "r") as f:
@@ -28,6 +28,10 @@ class StateMachine(object):
         self.on_command = on_command or (lambda cmd: None)
         # 장치(Teensy) 현재 상태를 돌려주는 함수. None 이면 검사하지 않는다.
         self.mcu_state = mcu_state or (lambda: None)
+        # 장치 플래그(mot 의 rearm_lock, vac_released 등)를 dict 로 돌려주는 함수.
+        # None 을 돌려주면 장치가 플래그를 보내지 않는 것(v1.0)이므로 redirect 를 검사하지 않는다.
+        # dict 안의 값이 None 이면 값이 없거나 오래된 것이다.
+        self.mcu_flags = mcu_flags or (lambda: None)
         self.blocked_reason = None
 
         self.node = self.spec["initial"]
@@ -79,9 +83,16 @@ class StateMachine(object):
         target = self.cur.get("on", {}).get(event)
         if not target:
             return False
+        if target == "@return":
+            target = self.error_return or "S2"
+
+        # 장치 플래그에 따른 목적지 변경 (예: 음압이 남아 있으면 S13 → S12)
+        redirected = self._redirect(event)
+        if redirected:
+            target = redirected
 
         # 장치 선행조건 검사 — UI 가 장치보다 앞서가는 것을 막는다
-        need = self.nodes[target if target != "@return" else self.node].get("requires_mcu")
+        need = self.nodes[target].get("requires_mcu")
         if need:
             cur_mcu = self.mcu_state()
             if cur_mcu is not None and cur_mcu not in need:
@@ -91,8 +102,6 @@ class StateMachine(object):
         self.blocked_reason = None
 
         prev = self.node
-        if target == "@return":
-            target = self.error_return or "S2"
 
         if target == "S10":
             self.error_return = self.cur.get("error_return", "S2")
@@ -105,8 +114,11 @@ class StateMachine(object):
 
         self.node = target
         self._entered_at = time.time()
-        self.log.append({"ts": time.time(), "from": prev, "event": event,
-                         "to": target, "state": self.nodes[target].get("state")})
+        entry = {"ts": time.time(), "from": prev, "event": event,
+                 "to": target, "state": self.nodes[target].get("state")}
+        if redirected:
+            entry["redirect"] = True
+        self.log.append(entry)
         if len(self.log) > 500:
             self.log = self.log[-500:]
 
@@ -115,6 +127,19 @@ class StateMachine(object):
 
         self.on_change(self.snapshot(), event)
         return True
+
+    def _redirect(self, event):
+        """현재 노드의 redirect 규칙에 걸리면 바뀐 목적지를, 아니면 None 을 돌려준다."""
+        rule = self.cur.get("redirect", {}).get(event)
+        if not rule:
+            return None
+        flags = self.mcu_flags()
+        if flags is None:                  # 장치가 플래그를 보내지 않음(v1.0)
+            return None
+        for key, values in rule.get("when_mcu", {}).items():
+            if flags.get(key) in values:   # 값 없음·오래됨(None)도 목록에 있으면 해당
+                return rule["to"]
+        return None
 
     def auto_due(self):
         """자동 전이 시각이 됐으면 이벤트 이름을 돌려준다 (S1 부팅 등)."""

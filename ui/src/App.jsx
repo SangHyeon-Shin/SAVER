@@ -13,7 +13,7 @@ import * as DE from './screens/SectionDE'
 const SCREEN = {
   S1: A.Screen01, X_WHEELS: A.Screen02, X_MOVE: A.Screen03, S2: A.Screen04,
   X_CLOTHES: A.Screen05, S3S4: A.Screen06, X_PPG: A.Screen07, S5: A.Screen08,
-  X_SEARCH: A.Screen09, S6: A.Screen10,
+  X_SEARCH: A.Screen09, X_PIN: A.Screen20, S6: A.Screen10,
   S7: B.Screen11, S8: B.Screen12,
   S9: Cs.Screen13, S10: Cs.Screen14, X_POSOUT: Cs.Screen15, S11: Cs.Screen16,
   S12: DE.Screen17, S13: DE.Screen18, X_VENT: DE.Screen19,
