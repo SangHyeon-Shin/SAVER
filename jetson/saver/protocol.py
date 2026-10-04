@@ -8,6 +8,7 @@ Teensy 측 대응 구현: teensy/saver_proto.h
 Python 3.6 (JetPack 4.6.x) 호환. f-string·dataclass·walrus 사용하지 않습니다.
 """
 import json
+import random
 
 PROTO_VERSION = 1
 MAX_LINE = 512
@@ -119,3 +120,14 @@ class SeqCounter(object):
         n = self._n
         self._n = 1 if self._n >= 65535 else self._n + 1
         return n
+
+
+def initial_seq(rng=None):
+    """세션 시작 seq (1~65535 중 무작위).
+
+    Teensy 는 최근 8개 seq 를 기억하고 같은 seq 는 실행하지 않는다(명세 §4.1).
+    Teensy 가 별도 전원으로 켜져 있는 채 Jetson 만 재시작하면, 1부터 다시 세는
+    seq 가 직전 세션과 겹쳐 새 명령이 ACK 만 받고 실행되지 않는다.
+    시작값을 무작위로 두어 겹칠 확률을 명령당 8/65535 이하로 낮춘다.
+    """
+    return (rng or random.SystemRandom()).randint(1, 65535)

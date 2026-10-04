@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """SAVER Jetson 자동시험 — 하드웨어 없이 전부 통과해야 합니다."""
-import os, sys, time, json, subprocess, threading
+import os, sys, time, json, random, subprocess, threading
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from saver import protocol as P
 from saver.state_machine import StateMachine
@@ -123,6 +123,35 @@ ck("자동 재연결", link.connected and not link.is_stale())
 link.stop(); sim2.terminate(); sim2.wait()
 try: os.remove("/tmp/ttyFAKE_TEST")
 except OSError: pass
+
+print("\n== 6. Jetson 재시작, Teensy 전원 유지 ==")
+# Teensy 를 별도 5 V 로 켜면(VIN, VUSB 분리) Jetson 재시작이 Teensy 를 리셋하지 않는다.
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "simulators"))
+from fake_teensy import FakeTeensy
+
+def session(ft, start, cmds):
+    sc = P.SeqCounter(start)
+    for c in cmds:
+        ft.handle({"v": 1, "t": "cmd", "seq": sc.next(), "cmd": c})
+
+ft = FakeTeensy(tel_hz=20, seed=1)
+session(ft, 1, ["GET_STATUS", "PING", "ARM"])
+session(ft, 1, ["GET_STATUS", "PING", "DISARM"])
+ck("같은 seq 재사용 시 실행 안 됨 (명세 §4.1, 시작 seq 고정의 위험)", ft.state == "ARMED", ft.state)
+ft2 = FakeTeensy(tel_hz=20, seed=1)
+session(ft2, 1, ["GET_STATUS", "PING", "ARM"])
+session(ft2, P.initial_seq(random.Random(7)), ["GET_STATUS", "PING", "DISARM"])
+ck("무작위 시작 seq면 재시작 뒤 명령 실행", ft2.state == "IDLE", ft2.state)
+for f in (ft, ft2):
+    os.close(f.master); os.close(f.slave)
+ck("시작 seq 범위 1~65535", all(1 <= P.initial_seq() <= 65535 for _ in range(2000)))
+_orig = P.initial_seq
+P.initial_seq = lambda rng=None: 4242
+try:
+    ck("TeensyLink 기본 시작 seq는 initial_seq 사용", TeensyLink(port="/nonexistent")._seq.next() == 4242)
+finally:
+    P.initial_seq = _orig
+ck("seq_start 지정 시 그 값 사용", TeensyLink(port="/nonexistent", seq_start=10)._seq.next() == 10)
 
 print("\n%s  (통과 %d / 실패 %d)\n" % ("전체 통과" if P_["fail"] == 0 else "실패 있음", P_["pass"], P_["fail"]))
 sys.exit(0 if P_["fail"] == 0 else 1)

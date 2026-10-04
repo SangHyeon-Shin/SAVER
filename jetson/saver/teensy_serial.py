@@ -78,7 +78,7 @@ class TeensyLink(object):
 
     def __init__(self, port=None, baud=115200,
                  on_telemetry=None, on_event=None, on_error=None, on_link=None,
-                 logger=None):
+                 logger=None, seq_start=None):
         self.port_hint = port
         self.baud = baud
         self.on_telemetry = on_telemetry or (lambda m: None)
@@ -89,7 +89,8 @@ class TeensyLink(object):
 
         self._ser = None
         self._buf = b""
-        self._seq = P.SeqCounter()
+        # 시작 seq 는 무작위: Jetson 만 재시작될 때 직전 세션 seq 와 겹치지 않게 (protocol.initial_seq)
+        self._seq = P.SeqCounter(P.initial_seq() if seq_start is None else seq_start)
         self._pending = {}              # seq -> [msg, sent_at, tries]
         self._lock = threading.Lock()
         self._stop = threading.Event()
