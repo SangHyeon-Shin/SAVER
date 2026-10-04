@@ -1,10 +1,10 @@
-# 프로토콜 v1.1 초안: 주행 탐색 명령 (검토용, 4차)
+# 프로토콜 v1.1 초안: 주행 탐색 명령 (검토용, 5차)
 
 | 항목 | 내용 |
 |---|---|
 | 상태 | **초안, 합의 전.** `protocol/`은 공동 영역이라 이 문서에서 먼저 합의한다 |
-| 작성 | 신상현 (2026-10-01 1차, 2026-10-01 2차, 2026-10-02 3차, 2026-10-03 4차) |
-| 검토 | 한건민 (10/1 1차 회신, 10/1 2차 회신 §0.2, 10/2 3차 회신 §0.3, 10/3 4차 회신 §0.4) |
+| 작성 | 신상현 (2026-10-01 1차, 2026-10-01 2차, 2026-10-02 3차, 2026-10-03 4차, 2026-10-04 5차) |
+| 검토 | 한건민 (10/1 1차 회신, 10/1 2차 회신 §0.2, 10/2 3차 회신 §0.3, 10/3 4차 회신 §0.4, 10/4 5차 회신 §0.5) |
 | 범위 | 탐색 후 고정 순서(제출 보고서 6.2~6.3)에 필요한 명령, 이벤트, 텔레메트리, 오류 코드 |
 | 반영 | 합의 후 `protocol/teensy_usb_protocol_v1.md`를 v1.1로 고치고 `jetson/tests/test_all.py`, `teensy/test_saver_proto.cpp`를 함께 고친다 |
 | 핀맵 기준 | **GitHub `main` 1f19e1c의 `teensy/pinmap.h`**(2026-09-08 판). 2차 초안은 그 이전 핀맵을 보고 썼다(§0.3-1) |
@@ -79,6 +79,36 @@
 
 확답 대기(설치·검증 완료로 표시하지 않음): 상단 리미트 설치 담당과 일정, 후륜 비상정지의 실제 차단 범위.
 
+### 0.5 5차 회신 반영 (10/4)
+
+한건민 동의(10/4): `VACUUM_HOLD`의 조건부 `HOME`, `SHORT`와 `ABORTED` 구분, `tel`/`mot` 분할과 §3.3·§3.4 규칙, 상단 리미트와 후륜 비상정지를 미검증으로 두는 것, 상단 리미트 설치·검증 전 `HOME`·`HEAD_HOLD`·`DRIVE_STEP` 거부. **아래 `DISARM` 처리와 `bid`·`aid` 범위를 반영하면 `protocol/` v1.1에 반영하기로 했다.**
+
+| # | 한건민 회신 | 반영 |
+|---|---|---|
+| 1 | 핀·I²C 최종안은 58b90f7의 별도 버스. MAX30102 `Wire` 18/19, NAU7802 `Wire1` 17/16, 엔코더 #1 11/12, #2 20/21, VAC2 RUN/EN 32/37, WT901C `Serial8` RX 34/TX 35, `A9` 예비. 한건민 로컬에 반영(`test/test.ino` 상수와 `PINS` 출력 포함), 커밋 전 | §1 표와 같음을 확인. 핀 이동 묶음 상태를 "로컬 반영, 커밋 전"으로 바꿈 |
+| 2 | `DISARM → 항상 IDLE`은 상태와 하드웨어가 어긋난다(`motorsOff()`는 음압 유지). 음압 없는 `ARMED`/`HOMED`는 `IDLE`. 음압 유지 중이면 압박·주행 출력 차단, 음압 유지, `VACUUM_HOLD`, 원점·영점·유지 무효, 재가동 금지, `HOME`·`VACUUM_OFF`·조회만 허용, 복구는 `VACUUM_OFF → IDLE → ARM → HOME`. `FAULT`/ESTOP은 상태를 바꾸지 않고 `RESET_FAULT`·E-stop 해제 절차를 우회하지 않음. 음압 해제는 `VACUUM_OFF`나 수동 조작으로만. 한성윤 확인 필요 표시 유지 | §2.2 `DISARM` 행과 §4.5를 다시 씀. 재가동 금지는 상태 밖 플래그 `rearm_lock`으로 두고 `tel`에 싣는다(§3.1). 아래 확인 요청 1 |
+| 3 | `bid`·`aid`를 조회 4개(`PING`, `GET_STATUS`, `GET_INFO`, `GET_FAULTS`)를 뺀 모든 상태·출력·설정 변경 명령으로 넓힘. `aid`가 4,294,967,295에 이르면 순환하지 않고 새 명령을 거부, 재부팅으로 새 `boot_id` | §2.5를 다시 씀. 즉시 변경 명령의 기록 칸 `cmd_last`를 따로 둬서 진행 중인 동작 기록을 밀어내지 않게 함. `aid` 소진은 `AID_EXHAUSTED`. 일반 중복 기록 8개(v1.0 §4.1)는 v1.1 펌웨어에서 쓰지 않음. 아래 확인 요청 2 |
+| 4 | `tel`/`mot` 같은 `tn`·`boot_id`·`ms`, `mot` 매 주기, 생략 필드 재사용 금지, 메시지별 최신성, 본문 511 + LF, 범위 밖·NaN·Infinity 금지, 잘린 JSON 송신 금지. 길이는 실제 생성 함수와 Jetson 파서로 시험해야 구현 완료 | §3.3·§3.4 유지. §3.4에 완료 기준을 적음. `rearm_lock`을 더해 다시 잼(`tel` 481 byte, 여유 30) |
+| 5 | main 코드 3건 확인. v1.1에서 `FAULT`/ESTOP을 `DISARM`으로 풀지 않음, `Serial.write()`로 LF 하나만, 모든 생성 함수에서 길이·범위·유한값·`-0.00` 검사, 버퍼 초과 시 잘린 줄 대신 송신 실패, 위험 오류는 출력 차단 뒤 보고 | §10-11을 "수정 계획 합의"로 바꿈 |
+
+**한건민 확인 요청 2건** (정해지면 `protocol/`에 반영)
+
+1. **`DISARM` 뒤 `VACUUM_HOLD`에서 `HOME`의 범위.** 회신은 `HOME`을 허용하면서 복구는 `VACUUM_OFF → IDLE → ARM → HOME`이라고 했다. 이 초안은 이렇게 읽었다.
+   - `HOME`은 **헤드를 환자에게서 떼는 복귀로만** 허용한다(§2.2 "`VACUUM_HOLD`의 `HOME`" 규칙 그대로). `rearm_lock`은 풀지 않는다.
+   - `rearm_lock`이 켜져 있으면 `SET_CP_POINT`, `SET_TARGET`, `TRIAL_COMPRESSION`, `START_CPR`, `RESUME_CPR`, `HEAD_HOLD`, `DRIVE_STEP`, `STIFFNESS_SCAN`을 `REARM_LOCKED`로 거부한다. 그래서 `HOME` 뒤 `SET_CP_POINT`로 다시 압박에 들어가는 길이 없다.
+   - `rearm_lock`은 `VACUUM_OFF`로 `IDLE`이 될 때만 풀린다.
+   - "음압 유지 중"은 상태명이 아니라 **음압 출력이 켜져 있는지**로 판단한다. `VACUUM_ON` 직후 아직 목표에 이르지 않았어도 블로워가 돌고 있으면 음압 유지 경로로 가고, 상태는 `VACUUM_HOLD`로 둔다. 실제 음압은 `vac_kPa`로 본다.
+2. **정지 방향 명령의 예외.** `DRIVE_STOP`, `STOP_CPR`, `PAUSE_CPR`, `DISARM`도 `bid`·`aid`를 싣지만, `AID_REQUIRED`·`BOOT_MISMATCH`·`STALE_SEQ`·`AID_EXHAUSTED`로는 거부하지 않고 실행한다(상태 검사는 그대로).
+   - 이유: 기록 문제로 정지를 막으면 위험하다. 옛 정지 요청을 다시 실행해도 장치는 안전한 쪽으로만 움직인다. 예를 들어 AED 충격 직전에 누른 `PAUSE_CPR`은 Jetson 재시작 직후라 `bid`가 틀려도 압박을 멈춰야 한다.
+   - 반대로 `RESUME_CPR`, `START_CPR`, `RESET_FAULT`, `VACUUM_OFF`는 옛 요청이 실행되면 위험하므로(충격 중 압박 재개, 새 고장 해제, 압박 중 흡착 해제) 예외 없이 거부한다.
+   - 같은 `aid` 재수신은 다시 실행하지 않고 원래 ACK를 보낸다. 유효하고 더 큰 `aid`면 `aid_max`를 올린다.
+
+**Jetson 쪽 후속**(신상현, `protocol/` 반영 뒤)
+- `S13` 진입 때 보내는 `DISARM`의 응답이 `VACUUM_HOLD`이고 `rearm_lock = true`면 UI가 "음압 유지 중"과 해제 절차(`S12`)를 안내한다. 음압이 남아 있으면 `S2`로 돌아가지 않는다. `state_machine_v2.json`에 조건을 넣어야 하므로 이번 v1.1 묶음에 포함한다.
+- 조회를 뺀 모든 명령에 `bid`·`aid`. `GET_INFO` 뒤 seq·`aid`를 이어 간다. v1.0 펌웨어(`GET_INFO` 없음)와 연결할 때는 시작 seq를 무작위로 둔다(5f17985, Teensy 별도 전원 결정 반영).
+- Jetson `decode`의 본문 한도를 511 byte로 맞춘다(지금은 512).
+- 생략·stale 필드를 모의값이나 이전 값으로 채우지 않는 UI 규칙은 1639af7로 반영했다.
+
 ---
 
 ## 1. 하드웨어 전제와 미검증 항목
@@ -93,7 +123,7 @@
 | 로드셀 | DYMH-103 + NAU7802. 지원 속도 최대 320 SPS | 500 Hz 제어·기록 루프와 ADC 신규 변환을 구분한다(§4.3) | — |
 | **I²C 별도 버스**(한건민 10/3 확정) | **MAX30102(0x57)는 `Wire` SDA 18/SCL 19, NAU7802(0x2A)는 `Wire1` SDA 17/SCL 16.** 두 버스의 SDA·SCL을 묶지 않는다. 주행 엔코더 #1은 16/17에서 **11/12**로 옮긴다. 11/12를 쓰므로 기본 SPI는 쓸 수 없다(내장 microSD는 SDIO라 영향 없음). `A9`는 **예비**로 두고 로드셀을 `A9` 아날로그 입력으로 다루지 않는다 | 실물 검증 전: 각 버스의 풀업 전압과 병렬 저항, NAU7802 신규 변환 취득률, 버스 장애 때 제어 지연. 버스를 나눠도 MCU와 전원은 공통이다. 로드셀 신규 변환이 끊기면 `3-TU-009`로 처리한다(§6) | 10/7 |
 | **핀맵 기준** | main 1f19e1c: 홀 센서 **39번**, 32·37번 **예비**(음압 FG 제거로 해제), 후륜 엔코더 16/17, 20/21, 음압 모터 2는 VSP 33, RUN 34, EN 35, ERR 36 | 이 초안의 핀 번호는 main 기준이다. 2차 초안의 "37번 = 홀 센서" 서술은 이전 핀맵을 본 것이라 철회한다 | — |
-| **핀 이동 묶음**(미반영, 한건민 로컬에만 있음) | 아래를 **한 커밋으로** 바꾼다. 하나라도 빠지면 그 코드는 옛 배선으로 동작하거나 35번이 음압 EN과 자이로 TX로, 16/17이 엔코더와 `Wire1`로 겹친다. 목록은 main 1f19e1c에서 `VAC2`, `M2_EN`, `M2_RUN`, `Serial8`, `ENCODER`, `Wire1`, 핀 번호 11·12·16·17·32·34·35·37을 전수 검색해 만들었다(`teensy/reference/`의 ESP32 옛 코드는 제외) | 아래 "핀 이동 대상 파일" 표. 바꾸는 동안 24 V와 USB를 끈다 | 10/5 (한건민) |
+| **핀 이동 묶음**(한건민 로컬 반영, 커밋 전. 10/4 확인) | 아래를 **한 커밋으로** 바꾼다. 하나라도 빠지면 그 코드는 옛 배선으로 동작하거나 35번이 음압 EN과 자이로 TX로, 16/17이 엔코더와 `Wire1`로 겹친다. 목록은 main 1f19e1c에서 `VAC2`, `M2_EN`, `M2_RUN`, `Serial8`, `ENCODER`, `Wire1`, 핀 번호 11·12·16·17·32·34·35·37을 전수 검색해 만들었다(`teensy/reference/`의 ESP32 옛 코드는 제외) | 아래 "핀 이동 대상 파일" 표. 바꾸는 동안 24 V와 USB를 끈다 | 10/5 (한건민) |
 | **출력 차단 뒤 헤드 유지** | 압박 축 출력을 끊었을 때 헤드가 기계적으로 그 자리에 머무는지(볼스크류 역구동) 확인 안 됨 | 헤드를 모사체에 `press_mm` 누른 상태에서 출력을 끊고 리니어 센서로 처짐·밀림을 잰다. 결과가 나오기 전에는 "출력 차단 = 위치 유지"로 가정하지 않는다 | 10/7 |
 | 주행 부호 | `dist_mm > 0` 장치 전방, `< 0` 후방 | 합의. 전방과 모사체 머리 방향의 대응은 설치 절차(UI 안내)로 고정하고 Jetson 설정 `scan_dir_sign`으로 맞춘다 | — |
 | 설정값 | 미확정 | §7 순서대로 10/6 벤치값, 10/7 검증 | 10/6, 10/7 |
@@ -116,7 +146,7 @@
 
 ### 2.1 새 명령
 
-동작 명령 4개(`HOME`, `HEAD_HOLD`, `DRIVE_STEP`, `SET_CP_POINT`)는 공통 파라미터 **`bid`**(대상 부팅 세션, `GET_INFO`의 `boot_id`)와 **`aid`**(동작 번호, 1 이상 32비트 정수)를 싣는다. 규칙은 §2.5다.
+조회 명령 4개(`PING`, `GET_STATUS`, `GET_INFO`, `GET_FAULTS`)를 뺀 **모든 명령**은 공통 파라미터 **`bid`**(대상 부팅 세션, `GET_INFO`의 `boot_id`)와 **`aid`**(명령 번호, 1 이상 32비트 정수)를 싣는다(5차 확대). 규칙은 §2.5다.
 
 ```json
 {"v":1,"t":"cmd","seq":1208,"cmd":"DRIVE_STEP","bid":48213,"aid":37,"dist_mm":10.00}
@@ -140,7 +170,9 @@
 | `FAULT_ACTIVE` | 원인이 남아 있는 오류가 있음(§6). `err`에 그 오류 코드 |
 | `STALE_SEQ` | 이 부팅에서 이미 평가한 가장 큰 `aid`보다 작은 `aid`. 기록에 남아 있지 않은 옛 요청도 거부한다(§2.5) |
 | `BOOT_MISMATCH` | `bid`가 현재 `boot_id`와 다름. 재부팅 전에 보낸 요청이다 |
-| `AID_REQUIRED` | 동작 명령에 `bid`나 `aid`가 없음 |
+| `AID_REQUIRED` | 조회가 아닌 명령에 `bid`나 `aid`가 없음. 정지 방향 명령은 이 사유로 거부하지 않는다(§2.5) |
+| `AID_EXHAUSTED` | `aid_max`가 4,294,967,295에 이름. 순환하지 않으므로 재부팅으로 새 `boot_id`를 받을 때까지 새 명령을 거부한다. 정지 방향 명령은 실행한다 |
+| `REARM_LOCKED` | `rearm_lock`이 켜져 있음(음압 유지 중 `DISARM` 뒤). `VACUUM_OFF`로 `IDLE`이 될 때까지 재가동 명령을 거부한다(§2.2) |
 | `CP_ZERO_UNSET` | 압박 접촉 영점이 없음. 마지막 `HOME` 뒤 `SET_CP_POINT`가 성공하지 않았다(§2.2) |
 | `HOME_UNAVAILABLE` | 상단 리미트 미설치·미검증(`limit_top_ok = 0`) |
 | `ALREADY_HOLDING` | 헤드 유지 중에 새 `aid`의 `HEAD_HOLD`. 현재 눌린 위치를 새 접촉점으로 잡아 더 내려가는 것을 막는다. 다시 잡으려면 `HOME` 뒤 보낸다 |
@@ -158,7 +190,7 @@
 | `START_CPR`, `TRIAL_COMPRESSION` | `CPR_READY` | 변경 없음에 더해, 압박 접촉 영점이 없으면 `CP_ZERO_UNSET`으로 거부한다. 상태 전이가 이미 막지만 Teensy가 한 번 더 확인한다 |
 | `SET_CP_POINT` | `idx` 또는 `offset_mm` | 탐색 후 고정에서는 `VACUUM_HOLD`에서 `offset_mm = 0`을 보낸다. 뜻은 "현재 위치가 압박점"이다. Teensy는 **현재 위치를 접촉점으로 간주하지 않고** §2.3 절차로 헤드를 내려 **압박 접촉 영점**을 새로 잡는다. 헤드가 HOME 위치가 아니면 `HEAD_NOT_READY`, 시작 시 접촉 중이면 `IN_CONTACT`. 실패하면 `2-TU-006`. `CP_ZERO_SET`에 seq와 `result`를 싣는다 |
 | `RESET_FAULT` | 원인 해소 확인 후 `IDLE` | 변경 없음. 재시작은 **`IDLE → ARM → HOME → 새 탐색(HEAD_HOLD drv_zero:true)`**이다. 오류 전의 탐색 좌표는 버린다 |
-| `DISARM` | `ARMED` 이후. 모터 차단, `IDLE` | 동작 명령 실행 중에도 허용. 진행 중인 명령은 `result = STOPPED`로 끝내고, **최종 상태는 §4.5 표와 관계없이 `IDLE`**이다(§4.5 `DISARM` 우선). **`FAULT`에서는 출력 차단을 유지하고 상태를 바꾸지 않는다**(`ack ok:false`, `FAULT_ACTIVE`). 해제는 `RESET_FAULT`로만 한다. `ESTOP`에서는 v1.0대로 거부한다. 음압 처리는 v1.0 상태표(`IDLE` = 음압 해제)를 바꾸지 않으며 §10에서 따로 본다 |
+| `DISARM` | `ARMED` 이후. 모터 차단, `IDLE` | 동작 명령 실행 중에도 허용하고 진행 중인 명령은 `result = STOPPED`로 끝낸다. 결과는 **음압 출력에 따라** 나뉜다(한건민 10/4). **음압 출력 꺼짐**(`ARMED`·`HOMED`): 모든 출력 차단, `IDLE`. **음압 출력 켜짐**(`VACUUM_ON` 이후, `VACUUM_HOLD`·`CPR_READY`·`CPR_RUNNING`·`CPR_PAUSED` 포함): 압박 축과 주행 출력 차단, **음압 유지**, 상태 `VACUUM_HOLD`, 기구 HOME 원점·압박 접촉 영점·주행 원점·헤드 유지 무효, **`rearm_lock = true`**. 이때 허용은 `HOME`(헤드 복귀만), `VACUUM_OFF`, 정지 방향 명령, 조회뿐이고 나머지는 `REARM_LOCKED`. 복구는 `VACUUM_OFF → IDLE → ARM → HOME`. **`FAULT`·ESTOP**: 출력 차단 유지, 상태 불변(`FAULT_ACTIVE`·`ESTOP_ACTIVE`), `RESET_FAULT`나 물리 E-stop 해제 절차를 우회하지 않는다. 음압 해제는 `DISARM`에 묶지 않고 `VACUUM_OFF`나 수동 조작으로만 한다 — **한성윤 확인 필요** |
 | `STIFFNESS_SCAN` | 고정 후 탐색 | 변경 없음. 결선 C안에서는 쓰지 않는다 |
 | ESTOP 중 허용 명령 | `PING`, `GET_STATUS` | **`GET_INFO`, `GET_FAULTS`, `DRIVE_STOP` 추가**(`DRIVE_STOP`은 ACK만, 출력 상태 변화 없음) |
 
@@ -204,7 +236,7 @@
 | `proto` | 지원 프로토콜 판. 와이어 `v`는 1로 유지하되 명령 의미의 판을 따로 알린다 |
 | `caps` | 지원 기능. `DRIVE`(DRIVE_STEP·DRIVE_STOP), `HEAD_HOLD`, `CP_ZERO`(v1.1 의미의 SET_CP_POINT·HOME), `MOT`(`mot` 메시지, §3.2), `AID`(§2.5 `bid`·`aid` 규칙), `FAULTS`(`GET_FAULTS`, §3.5) |
 | `boot_id` | 부팅마다 바뀌는 값(EEPROM 부팅 횟수, 1~65535 순환). `tel`, `mot`에도 싣는다 |
-| `last_seq` | 이 부팅에서 **처음 평가되어 중복 기록(일반 8개 또는 동작 기록)에 들어간 비조회 명령** 중 마지막 것의 seq. 수락·거부를 가리지 않는다. 기록이 없으면 생략한다 |
+| `last_seq` | 이 부팅에서 **처음 평가되어 기록 칸(`act_cur`, `act_rej`, `cmd_last`, §2.5)에 들어간 비조회 명령** 중 마지막 것의 seq. 수락·거부를 가리지 않는다. 기록이 없으면 생략한다 |
 | `last_aid` | 이 부팅에서 평가한 가장 큰 `aid`(수락·거부 모두). 없으면 생략한다 |
 
 **`last_seq`, `last_aid`를 바꾸지 않는 것**: 조회 명령(`GET_INFO` 자신 포함), 같은 seq·`aid`의 재전송(재실행 없이 ACK만 다시 보내는 경우), 기록하지 않는 거부(`STALE_SEQ`, `BOOT_MISMATCH`, `AID_REQUIRED`, `SEQ_CONFLICT`). 그래서 `INFO` 응답이 유실돼 `GET_INFO`를 다시 보내도, 그 사이 옛 재전송이 와도, 처음과 같은 값이 나온다.
@@ -213,16 +245,19 @@
 
 ### 2.5 동작 명령 기록과 중복 처리
 
-**명령 분류**
+**명령 분류**(5차: `bid`·`aid`를 조회 외 모든 명령으로 확대)
 
-| 분류 | 명령 | 중복 처리 |
+| 분류 | 명령 | 중복·오래된 요청 처리 |
 |---|---|---|
-| 조회 | `PING`, `GET_STATUS`, `GET_INFO`, `GET_FAULTS` | **기록하지 않는다. 같은 seq가 다시 와도 매번 새로 실행하고 새 응답을 보낸다.** 상태를 바꾸지 않으므로 다시 실행해도 안전하다. `INFO`나 `GET_STATUS`의 응답이 유실돼도 같은 seq 재전송으로 다시 받는다 |
-| 동작 | `HOME`, `HEAD_HOLD`, `DRIVE_STEP`, `SET_CP_POINT` | 아래 `bid`·`aid` 규칙과 동작 기록 |
-| 그 밖 | 기존 명령, `DRIVE_STOP` 포함 | 기존 일반 중복 기록(최근 8개, v1.0 §4.1). 같은 문제가 이 명령들에도 있는지는 §10 |
+| 조회 | `PING`, `GET_STATUS`, `GET_INFO`, `GET_FAULTS` | **`bid`·`aid` 없음. 기록하지 않는다. 같은 seq가 다시 와도 매번 새로 실행하고 새 응답을 보낸다.** 상태를 바꾸지 않으므로 다시 실행해도 안전하다 |
+| 동작(완료 이벤트 있음) | `HOME`, `HEAD_HOLD`, `DRIVE_STEP`, `SET_CP_POINT`, `TRIAL_COMPRESSION`, `STIFFNESS_SCAN` | `bid`·`aid`. 기록 칸 `act_cur`·`act_rej`. 한 번에 하나만 실행(`busy`) |
+| 즉시 변경 | `ARM`, `SET_TARGET`, `VACUUM_ON`, `VACUUM_OFF`, `START_CPR`, `RESUME_CPR`, `RESET_FAULT`, `SET_TEL_RATE` | `bid`·`aid`. 기록 칸 `cmd_last` |
+| 정지 방향(즉시 변경의 하위) | `DRIVE_STOP`, `STOP_CPR`, `PAUSE_CPR`, `DISARM` | `bid`·`aid`. 기록 칸 `cmd_last`. **기록 사유(`AID_REQUIRED`, `BOOT_MISMATCH`, `STALE_SEQ`, `AID_EXHAUSTED`)로 거부하지 않는다**(§0.5 확인 요청 2) |
+
+v1.0의 일반 중복 기록(최근 seq 8개)은 v1.1 펌웨어에서 쓰지 않는다. 조회는 매번 실행하고, 나머지는 `aid`로 가린다.
 
 동작 명령은 **한 번에 하나만** 실행한다. 실행 중 다른 동작 명령은 `BUSY`로 거부하고 큐에 쌓지 않는다.
-실행 중에도 받는 명령은 `DRIVE_STOP`, `DISARM`, `PING`, `GET_STATUS`, `GET_INFO`, `GET_FAULTS`, `SET_TEL_RATE`다.
+실행 중에도 받는 명령은 정지 방향 명령 4개, 조회 4개, `SET_TEL_RATE`다.
 
 **세션과 증가 번호**(한건민 10/3 지적 2)
 
@@ -233,34 +268,37 @@
 
 seq는 v1.0대로 1~65535 순환이고 ACK 짝 맞추기에만 쓴다. 오래된 요청인지는 seq가 아니라 `aid`로 가린다. 2차 초안의 seq 순환 비교, 3차 초안의 16개 기록과 수신 번호 만료는 **없앤다.** `aid`는 순환하지 않으므로 만료가 필요 없다.
 
-**동작 기록**: 두 칸만 둔다.
+**기록 칸**: 세 칸을 둔다.
 
 | 칸 | 내용 | 바뀌는 때 |
 |---|---|---|
-| `act_cur` | 수락된 가장 최근 동작. `aid`, seq, 명령명, 정규화한 파라미터, 원래 ACK, 완료 이벤트 전문(끝났을 때) | **새 동작이 수락될 때만.** 동작은 하나씩만 실행하므로 그때는 이전 동작이 이미 끝나 결과가 저장돼 있다. 거부된 동작, 조회, 만료로는 바뀌지 않는다. 진행 중인 기록은 교체·삭제되지 않는다 |
+| `act_cur` | 수락된 가장 최근 동작. `aid`, seq, 명령명, 정규화한 파라미터, 원래 ACK, 완료 이벤트 전문(끝났을 때) | **새 동작이 수락될 때만.** 동작은 하나씩만 실행하므로 그때는 이전 동작이 이미 끝나 결과가 저장돼 있다. 즉시 변경 명령, 거부된 동작, 조회로는 바뀌지 않는다. 진행 중인 기록은 교체·삭제되지 않는다 |
 | `act_rej` | 마지막으로 거부한 동작(`BUSY`, `NOT_HOMED` 등 상태 거부). `aid`, seq, 명령명, 파라미터, 원래 ACK | 새 동작이 거부될 때 |
+| `cmd_last` | 마지막으로 평가한 즉시 변경 명령(수락·거부 모두). `aid`, seq, 명령명, 파라미터, 원래 ACK | 새 즉시 변경 명령을 평가할 때. 동작 실행 중 받은 정지 명령이나 `SET_TEL_RATE`가 `act_cur`를 밀어내지 않도록 따로 둔다 |
 
 파라미터 정규화: 정수는 그대로, mm 값은 0.01 단위로 반올림, 생략한 선택 파라미터는 기본값으로 채운다.
 
-**판단 순서**(동작 명령)
+**판단 순서**(조회가 아닌 모든 명령)
 
+0. 정지 방향 명령이면 아래 1·2·5·7번 사유가 생겨도 **거부하지 않고** 6번처럼 평가·실행한다. 이때 `aid`가 유효하고 `aid_max`보다 크면 `aid_max`를 올리고, 아니면 `aid_max`와 기록 칸은 그대로 둔다.
 1. `bid` 또는 `aid`가 없거나 `aid = 0`이면 `AID_REQUIRED`. 실행하지 않고 기록하지 않는다.
 2. `bid ≠ boot_id`면 `BOOT_MISMATCH`. 실행하지 않고 기록하지 않는다.
-3. `aid = act_cur.aid`면 seq·명령명·정규화 파라미터를 대조한다.
-   - 같으면 재실행하지 않는다. 진행 중이면 원래 ACK를, 끝났으면 원래 ACK와 저장된 완료 이벤트를 다시 보낸다.
+3. `aid`가 `act_cur.aid` 또는 `cmd_last.aid`와 같으면 seq·명령명·정규화 파라미터를 대조한다.
+   - 같으면 재실행하지 않는다. 진행 중이면 원래 ACK를, 끝났으면 원래 ACK와 저장된 완료 이벤트를 다시 보낸다(`cmd_last`는 원래 ACK만).
    - 다르면 `SEQ_CONFLICT`. 실행하지 않는다.
 4. `aid = act_rej.aid`면 같은 방식으로 대조해, 같으면 **원래 거부 ACK를 다시 보낸다**(다시 평가하지 않는다). 다르면 `SEQ_CONFLICT`.
 5. `aid < aid_max`면 `STALE_SEQ`. 실행하지 않고 기록하지 않는다.
-6. `aid > aid_max`면 새 명령으로 평가한다. `aid_max = aid`로 둔다. 수락하면 `act_cur`에, 거부하면 `act_rej`에 넣는다.
+6. `aid > aid_max`면 새 명령으로 평가한다. `aid_max = aid`로 둔다. 동작이면 수락 시 `act_cur`, 거부 시 `act_rej`에, 즉시 변경이면 `cmd_last`에 넣는다.
+7. `aid_max = 4,294,967,295`에 이른 뒤의 새 `aid`는 `AID_EXHAUSTED`. 순환하지 않는다. Jetson은 사용자에게 재시작을 안내하고, Teensy는 재부팅 뒤 새 `boot_id`로 `aid_max`를 비운다.
 
 같은 `aid`는 한 번만 평가된다. 3·4번은 `aid_max`보다 작아도 5번보다 먼저 본다. 그래서 그 뒤에 다른 동작이 거부됐더라도 진행 중이거나 마지막으로 끝난 동작의 결과는 다시 받을 수 있다(§4.4).
 
 **Jetson 규칙**
-- 연결하면(Jetson 프로그램 재시작 포함) 먼저 `GET_INFO`를 보낸다.
+- 연결하면(Jetson 프로그램 재시작 포함) 먼저 `GET_INFO`를 보낸다. `UNKNOWN_COMMAND`면 v1.0 펌웨어이므로 v1.0 규칙을 따르고, 이전 세션 seq와 겹치지 않게 시작 seq를 무작위로 둔다(5f17985).
   - 다음 seq는 `last_seq + 1`(65535 다음은 1)로 이어 간다. `last_seq`가 없으면 1부터 시작한다.
   - 다음 `aid`는 `last_aid + 1`로, `bid`는 `boot_id`로 둔다. `last_aid`가 없으면 1부터 시작한다.
 - 한 연결 안에서 seq와 `aid`를 다시 쓰지 않는다. 재전송만 같은 seq·`aid`를 쓰고, 그때는 명령과 파라미터를 바꾸지 않는다.
-- 재전송은 가장 최근 동작 명령 하나에만 한다. 새 동작 명령은 이전 동작의 완료 이벤트(또는 §4.4 복구)를 확인한 뒤에만 보낸다.
+- 재전송은 가장 최근 동작 명령 하나와 가장 최근 즉시 변경 명령 하나에만 한다. 새 동작 명령은 이전 동작의 완료 이벤트(또는 §4.4 복구)를 확인한 뒤에만 보낸다.
 - ACK로 거부를 받은 동작은 재전송하지 않는다. 다시 하려면 새 seq와 새 `aid`로 보낸다.
 
 **`busy` 유지 범위**: 명령을 수락한 순간부터 결과(반력 평균 포함)를 **`act_cur`에 저장한 순간**까지다. USB 송신 성공을 기다리지 않는다. 송신이 늦거나 실패해도 결과는 `act_cur`에서 다시 받을 수 있다.
@@ -279,8 +317,8 @@ seq는 v1.0대로 1~65535 순환이고 ACK 짝 맞추기에만 쓴다. 오래된
 | 메시지 | 최악값 길이 | 여유(511 기준) |
 |---|---:|---:|
 | v1.0 `tel`(`faults` 6개) | 411 byte | 100 |
-| **4차 `tel`** = v1.0 + `tn`, `boot_id`, `faults_more` | **462 byte** | 49 |
-| **4차 `mot`** | **423 byte** | 88 |
+| **5차 `tel`** = v1.0 + `tn`, `boot_id`, `faults_more`, `rearm_lock` | **481 byte** | 30 |
+| **5차 `mot`**(4차와 같음) | **423 byte** | 88 |
 | `DRIVE_DONE` | 225 byte | 286 |
 | `HEAD_HELD`, `HOMING_DONE`, `CP_ZERO_SET` | 194 byte | 317 |
 | `INFO` | 211 byte | 300 |
@@ -297,6 +335,7 @@ seq는 v1.0대로 1~65535 순환이고 ACK 짝 맞추기에만 쓴다. 오래된
 | `tn` | int | 텔레메트리 주기 번호. 부팅 때 1부터 주기마다 1씩 늘린다(0~4,294,967,295). **같은 주기의 `tel`과 `mot`는 같은 `tn`과 같은 `ms`를 싣는다** |
 | `boot_id` | int | §2.4 |
 | `faults_more` | bool | `faults`를 6개로 잘랐을 때만 `true`로 싣는다. 자르지 않았으면 생략 |
+| `rearm_lock` | bool | 음압 유지 중 `DISARM` 뒤 재가동 금지(§2.2). **항상 싣는다.** `VACUUM_OFF`로 `IDLE`이 될 때 `false`. 재부팅 뒤 `false`(상태 `IDLE`) |
 
 **`faults` 순서**: 심각도 3 → 2 → 1, 같은 심각도 안에서는 먼저 생긴 것부터. 6개를 넘으면 앞의 6개만 싣는다. 그래서 위험 오류가 먼저 보인다. 나머지는 `GET_FAULTS`로 받는다(§3.5).
 
@@ -355,6 +394,8 @@ seq는 v1.0대로 1~65535 순환이고 ACK 짝 맞추기에만 쓴다. 오래된
 | 송신 초과 | 만든 줄이 511 byte를 넘으면 **잘린 JSON을 보내지 않는다.** 구현 결함이므로 아래 생성 시험에서 미리 막는다 |
 
 **최대 길이 생성 시험**(양쪽): 위 규칙의 최댓값(음수 최대 자릿수, 정수 최댓값, 최장 문자열, `faults` 6개와 `faults_more`)으로 **모든 메시지 종류**를 만들어 본문이 511 byte 이하인지, 상대 쪽 파서가 받는지 확인한다. 위 길이 표가 그 결과이며, 계산 스크립트는 `docs/protocol_v1.1_worst_len.py`다(초안 검토용, 합의 뒤 양쪽 시험으로 옮긴다). Jetson은 같은 생성 함수로 만든 문자열을 `jetson/tests`에, Teensy는 `buildTel` 등 실제 생성 함수의 출력을 `test_saver_proto.cpp`에 넣는다.
+
+**구현 완료 기준**(한건민 10/4): 위 계산 스크립트 결과는 초안 값이다. Teensy 실제 생성 함수의 최댓값 출력이 Jetson 파서(`protocol.decode`)를 통과하고 본문 511 byte 이하, 줄 끝 LF 하나임을 양쪽 시험이 확인해야 구현 완료로 본다.
 
 ### 3.5 `GET_FAULTS` (새 조회 명령)
 
@@ -474,9 +515,9 @@ Jetson의 대기 한도는 다음과 같다.
 | `HEAD_HOLD` 접촉 뒤 `press_mm` 하강 중 | 위와 같음 | 위와 같음. 접촉점은 기록하지만 유지는 성립하지 않음 | `HOME` | 위와 같음 |
 | `DRIVE_STEP` | `DRIVE_DONE result=STOPPED` 등 | `HOMED`, 헤드 유지는 그대로 | 정지 확인 뒤(`drv_settled`) `DRIVE_STEP`, `HOME` | 정지 확인 전 `DRIVE_STEP`(`NOT_SETTLED`) |
 | `SET_CP_POINT` | `CP_ZERO_SET result≠OK` | `VACUUM_HOLD`, 압박 접촉 영점 없음 | `HOME`(헤드 복귀) 뒤 `SET_CP_POINT` | `START_CPR`·`TRIAL_COMPRESSION`(`CP_ZERO_UNSET`), 헤드가 HOME이 아니면 `SET_CP_POINT`(`HEAD_NOT_READY`) |
-| **어느 동작이든 `DISARM`으로 중단** | 원래 seq·`aid`로 `result = STOPPED` | **`IDLE`**. 모든 출력 차단. 기구 HOME 원점, 탐색 접촉점, 압박 접촉 영점, 주행 원점, 헤드 유지를 모두 무효로 한다 | `ARM` | 모든 동작 명령(`NOT_HOMED`) |
+| **어느 동작이든 `DISARM`으로 중단** | 원래 seq·`aid`로 `result = STOPPED` | **음압 출력 꺼짐**: `IDLE`, 모든 출력 차단. **음압 출력 켜짐**: `VACUUM_HOLD`, 압박·주행 출력 차단, 음압 유지, `rearm_lock = true`. 두 경우 모두 기구 HOME 원점, 탐색 접촉점, 압박 접촉 영점, 주행 원점, 헤드 유지를 무효로 한다 | `IDLE`: `ARM`. `VACUUM_HOLD`: `HOME`(헤드 복귀만), `VACUUM_OFF` | `IDLE`: 모든 동작 명령(`NOT_HOMED`). `VACUUM_HOLD`: 재가동 명령(`REARM_LOCKED`) |
 
-- **우선순위**: `FAULT`·ESTOP > `DISARM` > 위 명령별 행. `FAULT`(심각도 3)로 끝났으면 §6 복구 순서(`RESET_FAULT → IDLE → ARM → HOME`)를 따른다. `DISARM`으로 끝났으면 명령별 행과 관계없이 `IDLE`이다(한건민 10/3 지적 4). 같은 동작이 `DRIVE_STOP`과 `DISARM`을 함께 받으면 `DISARM` 행을 따른다.
+- **우선순위**: `FAULT`·ESTOP > `DISARM` > 위 명령별 행. `FAULT`(심각도 3)로 끝났으면 §6 복구 순서(`RESET_FAULT → IDLE → ARM → HOME`)를 따른다. `DISARM`으로 끝났으면 명령별 행과 관계없이 `DISARM` 행을 따른다(한건민 10/3 지적 4, 10/4 음압 구분). 같은 동작이 `DRIVE_STOP`과 `DISARM`을 함께 받으면 `DISARM` 행을 따른다.
 - Jetson은 `STOPPED`를 받으면 같은 `tn`의 `tel`·`mot`로 실제 상태를 확인한다. `STOPPED`만으로 `HOMED`가 남았다고 보지 않는다.
 - "임시 정지"는 §6 `2-TU-002`의 유지 조건을 모두 만족할 때만 하는 정지 위치 유지이며, `head_hold_active`를 켜지 않는다.
 
@@ -603,7 +644,11 @@ Jetson `tests/test_all.py` + 모의 Teensy:
 - 반력 평균 중 로드셀 정체 → `OK`가 아니라 `FAULT`(`3-TU-009`). 샘플 수만 부족 → `OK`, `cp_force_N` 생략
 - 기울기 초과: 유지 조건 5개 중 하나라도 어긋나면 출력 차단, 심각도 3·ESTOP이 겹치면 차단
 - `DRIVE_STOP` 중단: 원래 seq·`aid`로 `STOPPED`, STOP 자체는 ACK만
-- **`DISARM` 중단**: 어느 동작 중이든 `STOPPED` 뒤 상태 `IDLE`, 원점·영점·유지 모두 무효. `FAULT`에서 `DISARM` → `FAULT_ACTIVE`, 상태 유지
+- **`DISARM`**(5차): 음압 출력 꺼짐 → `IDLE`. 음압 출력 켜짐(`VACUUM_ON` 직후 포함, `CPR_RUNNING` 포함) → `VACUUM_HOLD`, 음압 유지, `rearm_lock = true`, 원점·영점·유지 무효. 그 뒤 `SET_CP_POINT`·`SET_TARGET`·`START_CPR`·`RESUME_CPR`·`HEAD_HOLD`·`DRIVE_STEP` → `REARM_LOCKED`. `HOME`은 헤드 복귀만 하고 `rearm_lock` 유지. `VACUUM_OFF` → `IDLE`, `rearm_lock = false`. `FAULT`·ESTOP에서 `DISARM` → 상태·출력 불변
+- **`bid`·`aid` 확대**(5차): 즉시 변경 명령(`ARM`, `START_CPR`, `RESET_FAULT` 등)의 옛 `aid` → `STALE_SEQ`, 실행 안 함. 같은 `aid` 재전송 → `cmd_last`의 원래 ACK. 동작 실행 중 `SET_TEL_RATE`·`PAUSE_CPR`을 받아도 `act_cur`가 바뀌지 않아 동작 결과를 다시 받을 수 있음
+- **정지 방향 예외**: `bid` 틀림·`aid` 없음·옛 `aid`의 `PAUSE_CPR`·`STOP_CPR`·`DRIVE_STOP`·`DISARM`도 실행(상태 검사는 함). 같은 조건의 `RESUME_CPR`·`START_CPR`·`RESET_FAULT`·`VACUUM_OFF`는 거부
+- **`aid` 소진**: `aid_max = 4,294,967,295` 뒤 새 `aid` → `AID_EXHAUSTED`, 정지 방향 명령은 실행
+- 조회 명령은 `bid`·`aid` 없이 실행되고 기록에 남지 않음
 - **결과 우선순위**: 거리 미달만 → `SHORT`(`code` `2-TU-004`). 거리 미달과 방향 이탈이 함께 → `ABORTED`(`code` `2-TU-001`)
 - **`VACUUM_HOLD`의 `HOME`**: 시작 즉시 압박 접촉 영점 무효, 음압·상태 유지, 끝난 뒤(성공·중단 모두) `START_CPR`·`TRIAL_COMPRESSION` → `CP_ZERO_UNSET`, `SET_CP_POINT` 성공 뒤 허용. `limit_top_ok = 0` → `HOME_UNAVAILABLE`
 - `tel`/`mot` 동기화(§3.3): 같은 `tn` 짝만 함께 판단, `mot`만 오래되면 새 동작 명령 안 보냄, `boot_id` 변화 시 이전 값 폐기, 필드 생략 시 이전 값 이어 쓰지 않음, `tn` 역전 메시지 폐기
@@ -622,7 +667,9 @@ Teensy `test_saver_proto.cpp`(한건민):
 - 파라미터 정규화와 `SEQ_CONFLICT`, `aid_max`·`act_cur`·`act_rej` 판단 순서, `BOOT_MISMATCH`, `GET_INFO`의 `last_seq`·`last_aid` 불변 조건
 - 중복 요청, 재부팅, 센서 단절, 명령 충돌, 정지 우선순위
 - **최대 길이 생성 시험**(§3.4): 실제 생성 함수(`buildTel` 등)에 범위 최댓값을 넣어 모든 메시지 종류의 본문 ≤ 511 byte. 범위 밖 실수는 필드 생략. 송신 줄 끝이 LF 하나인지(CR 없음)
-- `DISARM`이 `FAULT`에서 상태를 바꾸지 않는지
+- `DISARM`이 `FAULT`·ESTOP에서 상태를 바꾸지 않는지, 음압 출력 여부에 따라 `IDLE`·`VACUUM_HOLD`로 나뉘는지, `rearm_lock`이 `VACUUM_OFF`로만 풀리는지
+- `bid`·`aid` 판단 순서(정지 방향 예외, `cmd_last`, `AID_EXHAUSTED`)
+- 실제 생성 함수 출력이 `Serial.write()` 기준 LF 하나로 끝나는지, 버퍼 초과 시 잘린 줄 없이 송신 실패로 처리하는지
 
 **하드웨어 시험(기본 묶음 밖, 실물 필요)**
 - 10/7: 바퀴를 띄운 벤치 → 바닥 주행 순서로 진행한다.
@@ -645,8 +692,9 @@ Teensy `test_saver_proto.cpp`(한건민):
 | 10/1 | 2차 초안 공유 | — |
 | 10/2 | 3차 초안 공유(3차 의견 반영) | 2차 초안 검토(완료), 3차 초안 검토 |
 | 10/3 | 4차 초안 공유(4차 의견 반영) | 3차 초안 검토(완료), 4차 초안 검토 |
-| 10/4 | 합의 | 합의 |
-| 10/4~5 | `protocol/` v1.1 반영(한건민 검토 뒤 커밋), Jetson 모의 Teensy와 시험 | 펌웨어 구현과 시험, 후륜 비상정지 배선, **핀 이동 묶음**(§1 표 6개 파일, `test/test.ino` 포함) |
+| 10/4 | 5차 초안 공유(5차 회신 반영) | 4차 초안 검토(완료), 5차 확인 요청 2건 회신 |
+| 10/5 | 합의 | 합의, 핀 이동 묶음 커밋 |
+| 10/5~6 | `protocol/` v1.1 반영(한건민 검토 뒤 커밋), `state_machine_v2.json` `S13` 조건, Jetson 모의 Teensy와 시험 | 펌웨어 구현과 시험, 후륜 비상정지 배선, **핀 이동 묶음**(§1 표 6개 파일, `test/test.ino` 포함) |
 | 10/6 | 7.1 벤치값 확정(팀, 근거·책임 기록) | 같이 |
 | 10/7 | — | Teensy 단독 주행·제동·헤드 유지 점검, 7.1 검증·조정 |
 | 10/11 | 벤치 통신 시험(새 명령 포함, 모터 없이) | 같이 |
@@ -666,6 +714,7 @@ Teensy `test_saver_proto.cpp`(한건민):
 | 6 | `HOME`을 `VACUUM_HOLD`에서 허용하는 상태표 변경(§2.2) | 한건민, 신상현 |
 | 7 | I²C는 별도 버스로 결정(10/3, MAX30102 `Wire` 18/19, NAU7802 `Wire1` 17/16, 엔코더 #1 11/12, `A9` 예비). 남은 것은 실물 검증: 각 버스 풀업 전압·병렬 저항, 취득률, 버스 장애 시 제어 지연 | 한건민 |
 | 8 | 텔레메트리 분할 방향은 합의(10/3). 4차 배치(상태 필드를 `mot`로, `mot` 매 주기 송신)와 §3.4 형식 규칙 확인 | 한건민, 신상현 |
-| 9 | `DISARM` 때 음압 처리. v1.0 상태표는 `IDLE` = 음압 해제인데, ESTOP에서는 흡착을 갑자기 풀면 위험하다는 이유로 음압을 유지한다. 환자 위에서 `DISARM`했을 때의 처리는 기존 규칙 변경이라 별도 합의 | 한건민, 신상현, 한성윤 |
-| 10 | v1.0 상태 변경 명령(`ARM`, `VACUUM_ON`, `START_CPR` 등)도 일반 기록 8개를 벗어난 옛 seq가 오면 새 명령으로 실행될 수 있다(지적 2와 같은 구조). `bid`·`aid` 규칙을 이 명령들까지 넓힐지 | 한건민, 신상현 |
-| 11 | main 코드에서 본 3건(§0.4): `FAULT`에서 `DISARM`이 `IDLE`로 바꿈, CRLF 송신, 실수 범위 제한 없음. 수정은 `teensy/` 담당 | 한건민 |
+| 9 | `DISARM` 때 음압 처리: **한건민 안으로 정함(10/4)**. 음압 출력이 켜져 있으면 음압을 유지하고 `VACUUM_HOLD` + `rearm_lock`. 해제는 `VACUUM_OFF`나 수동 조작으로만. 남은 것: 확인 요청 1(§0.5), 의학적 타당성 **한성윤 확인 필요** | 한건민, 신상현, 한성윤 |
+| 10 | `bid`·`aid` 확대: **조회 4개 외 모든 명령으로 정함(10/4)**. 남은 것: 정지 방향 예외(§0.5 확인 요청 2) | 한건민, 신상현 |
+| 11 | main 코드 3건(§0.4): 한건민 확인(10/4), v1.1 구현 때 수정하기로 합의(§0.5-5) | 한건민 |
+| 12 | `S13`에서 `DISARM` 뒤 음압이 남으면 `S2`로 돌아가지 않고 해제 절차로 안내(`state_machine_v2.json` 변경, v1.1 묶음) | 신상현, 한건민 |
