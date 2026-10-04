@@ -1,4 +1,4 @@
-# 음성 안내 문구 초안 v0.1
+# 음성 안내 문구 초안 v0.2
 
 원본: `ui/src/voice/prompts.json` (이 문서는 그 파일에서 생성). 상태: **한성윤 검토 전**. 작성 2026-10-04, 신상현.
 
@@ -63,18 +63,54 @@
 | V10 | 영문 약어 읽기(PPG → 피피지) | 피피지 센서를 환자의 손가락에 끼워 주세요. |
 | V31 | 숫자 읽기(1초 → 일 초) | 일 초 동안, 천천히 숨을 불어넣으세요. |
 
+## 생성 지시 (세 모델 공통 조건)
+
+성별·나이는 팀이 정하고 세 모델 모두 같게 한다. 선택지: 성별 여성/남성, 나이 20대 후반/30대/40대 (기본 30대 여성). 속도 0.95.
+
+- 목소리: {age} {gender}, 한국어 표준어(서울말)를 쓰는 원어민. 사투리나 외국어 억양이 없다. 응급 상황에서 일반인 구조자를 돕는 심폐소생 보조 장치의 안내 음성이다.
+- 상황: 쓰러진 환자 옆에서 장치를 처음 써 보는 일반인 구조자가 듣는다. 주변이 시끄럽고 구조자는 긴장해 있다.
+- 차분하고 또렷하게. 믿음이 가지만 딱딱하지 않게.
+- 속도는 평소 대화보다 조금 느리게. 문장 사이에 짧게 쉰다.
+- 받침과 끝소리까지 정확히 발음한다. 음량은 처음부터 끝까지 일정하게.
+- 웃음, 숨소리, 속삭임, 과장된 연기, 노래하듯 오르내리는 억양은 넣지 않는다.
+
+| 등급 | 연기 지시 | Eleven v4 감정 태그 | MiniMax 감정 값 |
+|---|---|---|---|
+| 안내 | 안내 문장이다. 감정은 중립으로, 차분하고 친절하게 읽는다. | `[calm]` | `calm` |
+| 주의 | 주의 문장이다. 차분하지만 단호하게, 지시가 분명히 들리도록 읽는다. | `[serious]` | `fluent` |
+| 경고 | 경고 문장이다. 긴박감을 조금 높여 단호하게 읽되, 소리치거나 겁주지 않는다. | `[urgent but calm]` | `fluent` |
+
+**모델별 넣는 방법**
+- Gemini 3.8 Flash TTS: 아래 형식의 자연어 프롬프트 한 덩어리를 문장마다 넣는다.
+```
+# 음성 프로필
+{목소리 조건}
+# 상황
+{상황}
+# 연기 지시
+- {공통 지시 4줄}
+- {등급별 연기 지시}
+# 대본 (아래 문장만 그대로 읽는다. 다른 말은 덧붙이지 않는다)
+{TTS 입력}
+```
+- Eleven v4: 음성 설계(Voice Design)에 영어 목소리 설명을 넣어 목소리를 만들고, 문장 앞에 등급별 감정 태그를 붙인다(예: `[serious] 환자에게서 모두 손을 떼세요. ...`).
+- MiniMax Speech 2.8 HD: 목소리 설명(한국어 또는 영어)으로 목소리를 만들거나 고르고, 문장마다 감정 값을 등급별로 지정한다. 언어 보정 Korean.
+- 영어 목소리 설명: A native Korean female|male voice in her|his late 20s|30s|40s, speaking standard Seoul Korean with no regional dialect or foreign accent. The guidance voice of an emergency CPR assist device that helps a bystander. Calm, clear and steady; warm but authoritative; reassuring and never panicked. Medium pitch, slightly slower than conversational pace, crisp articulation, even volume. Clean studio recording with no background noise, breathiness or reverb.
+- 실제 복사용 프롬프트는 공유 페이지에서 조건을 고르면 만들어진다.
+
+
 | 모델 코드 | 모델 | 만드는 법 |
 |---|---|---|
-| `el4` | ElevenLabs Eleven v4 | elevenlabs.io → 음성 생성(Text to Speech). 모델에서 Eleven v4를 고릅니다(Turbo 아님). 목소리는 Voice Library에서 언어를 Korean으로 걸러 안내·내레이션용 1개를 고릅니다. 설정은 기본값. |
-| `gm38` | Google Gemini 3.8 Flash TTS | Google AI Studio → 음성 생성. 모델 Gemini 3.8 Flash TTS, 목소리 1개. 스타일 지시는 모든 문구에 똑같이 "차분하고 또렷한 안내 방송 톤으로 읽어 주세요." |
-| `mm28` | MiniMax Speech 2.8 HD | MiniMax 웹(Audio) → 모델 Speech 2.8 HD, 언어 Korean, 한국어 목소리 1개. 설정은 기본값. |
+| `el4` | ElevenLabs Eleven v4 | 음성 설계(Voice Design)에 영어 목소리 설명을 넣어 목소리를 만들거나, 라이브러리에서 같은 조건으로 고른다. 모델 Eleven v4(Turbo 아님), 속도 0.95, 문장 앞에 등급별 감정 태그. |
+| `gm38` | Google Gemini 3.8 Flash TTS | Google AI Studio 음성 생성. 기본 목소리 중 성별이 맞는 차분한 목소리 1개. 문장마다 위 형식의 자연어 프롬프트 전체를 넣는다. |
+| `mm28` | MiniMax Speech 2.8 HD | 목소리 설명으로 목소리를 만들거나 한국어 목소리를 고른다. Speech 2.8 HD, 언어 보정 Korean, 속도 0.95, 문장마다 등급별 감정 값. |
 
 **공통 조건**
-- 모델마다 목소리 1개로 5문구를 모두 만든다. 한국어 원어민 표준어, 성인, 차분하고 또렷한 안내 톤. 속도는 기본값.
-- 감정 태그·효과음·배경음은 넣지 않는다. 문장부호를 포함해 위 문장을 그대로 넣는다.
+- 모델마다 목소리 1개로 5문구를 모두 만든다. 목소리 조건(성별, 나이, 표준어, 톤)과 속도 0.95는 세 모델 모두 같게.
+- 감정은 위 등급별 방식으로만 지정한다(Gemini 연기 지시, Eleven v4 감정 태그, MiniMax 감정 값). 효과음·배경음은 넣지 않는다. 문장부호를 포함해 TTS 입력을 그대로 넣는다.
 - 형식은 가능하면 WAV, 안 되면 MP3(128 kbps 이상).
 - 파일 이름: `모델코드_문구ID.확장자` (예: `el4_V16.mp3`, `gm38_V25.wav`, `mm28_V31.mp3`).
-- 모델마다 `모델코드_meta.txt`: 모델 정확한 이름, 목소리 이름·ID, 바꾼 설정, 요금제(무료/유료), 생성 날짜.
+- 모델마다 `모델코드_meta.txt`: 모델 정확한 이름, 목소리 이름·ID, 목소리 조건(성별·나이), 바꾼 설정, 요금제(무료/유료), 생성 날짜.
 - 비교용 15개는 무료 체험 범위로 충분하다(문구 5개, 약 150자). 최종 생성은 선정 모델의 상업 이용 조건을 확인한 뒤 한다.
 
 **받은 뒤 (신상현·Claude Code)**

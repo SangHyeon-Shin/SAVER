@@ -207,6 +207,8 @@ const check = (name, ok, detail = '') => {
   check('음성 문구: TTS 입력에 숫자·영문 없음(발음대로 한글)', VP.prompts.every((p) => !/[0-9A-Za-z]/.test(p.say)),
     VP.prompts.filter((p) => /[0-9A-Za-z]/.test(p.say)).map((p) => p.id).join(','))
   check('음성 문구: 블라인드 비교 5문구가 목록에 있음', VP.blind_test.length === 5 && VP.blind_test.every((i) => vids.includes(i)))
+  check('음성 문구: 모든 등급에 생성 지시(톤·감정·태그) 있음', VP.prompts.every((p) => VP.direction.levels[p.level]
+    && VP.direction.levels[p.level].ko && VP.direction.levels[p.level].tag && VP.direction.levels[p.level].minimax))
   check('음성 문구: S0 외 모든 화면에 문구', Object.keys(spec.nodes).filter((n) => n !== 'S0')
     .every((n) => VP.prompts.some((p) => p.node === n)),
     Object.keys(spec.nodes).filter((n) => n !== 'S0' && !VP.prompts.some((p) => p.node === n)).join(','))
