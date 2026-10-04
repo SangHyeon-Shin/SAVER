@@ -7,7 +7,8 @@
  *
  * References: vacuum_motor_stage4_fg (now NO FG) and pressure_sensor_test.
  * M1: VSP24, EN26, ERR27 (LOW=fault), RUN25 (LOW=running indication).
- * M2: VSP33, EN35, ERR36, RUN34. FG and motor +5V OUTPUT unused/insulated.
+ * M2: VSP33, EN37, ERR36, RUN32. FG and motor +5V OUTPUT unused/insulated.
+ * 2026-10-02: rewire M2 RUN34->32 / EN35->37 before using this build.
  * Sensor: XGZP6847A100KPGN, regulated 5 V supply, common signal GND.
  * Sensor OUT -> 4.7k ohm -> A8/22 -> 10k ohm -> GND. A8 must stay <=3.3 V.
  * Do not supply the sensor from 3.3 V or tie the motor's +5V output to Teensy VIN.
@@ -51,9 +52,9 @@ constexpr uint8_t PIN_VAC1_EN = 26;  // motor 1 LOW disable; Stage4와 동일.
 constexpr uint8_t PIN_VAC1_ERR = 27; // motor 1 active-LOW 오류 입력.
 constexpr uint8_t PIN_VAC1_RUN = 25; // motor 1 active-LOW 상태 입력, 출력으로 쓰지 않음.
 constexpr uint8_t PIN_VAC2_VSP = 33; // FlexPWM2_0: motor 1과 다른 그룹.
-constexpr uint8_t PIN_VAC2_EN = 35;  // motor 2 독립 LOW disable.
+constexpr uint8_t PIN_VAC2_EN = 37;  // motor 2 독립 LOW disable; Serial8 TX35와 분리.
 constexpr uint8_t PIN_VAC2_ERR = 36; // motor 2 active-LOW 오류 입력.
-constexpr uint8_t PIN_VAC2_RUN = 34; // motor 2 active-LOW 상태 입력.
+constexpr uint8_t PIN_VAC2_RUN = 32; // motor 2 active-LOW 상태 입력; Serial8 RX34와 분리.
 constexpr uint8_t PIN_PRESSURE = A8; // pressure_sensor_test와 같은 물리 핀 22.
 constexpr uint8_t VSP_PINS[2] = {PIN_VAC1_VSP, PIN_VAC2_VSP};
 constexpr uint8_t EN_PINS[2] = {PIN_VAC1_EN, PIN_VAC2_EN};
@@ -89,8 +90,11 @@ class VacuumPressureBench {
     while (!Serial && (uint32_t)(millis() - started) < 2000U) {}
     usbReady_ = (bool)Serial;
     samplePressure();
-    emit("SAVER_VACUUM_PRESSURE_BENCH_TEST_READY,build=no_fg_pa_manual_v2");
-    emit("PINS,M1_VSP=24,M1_EN=26,M1_ERR=27,M1_RUN=25,M2_VSP=33,M2_EN=35,M2_ERR=36,M2_RUN=34,A8=22,FG=UNUSED");
+    emit("SAVER_VACUUM_PRESSURE_BENCH_TEST_READY,build=no_fg_pa_manual_v3_pinmap");
+    emitf("PINS,M1_VSP=%u,M1_EN=%u,M1_ERR=%u,M1_RUN=%u,M2_VSP=%u,M2_EN=%u,M2_ERR=%u,M2_RUN=%u,A8=%u,FG=UNUSED",
+          (unsigned)PIN_VAC1_VSP, (unsigned)PIN_VAC1_EN, (unsigned)PIN_VAC1_ERR, (unsigned)PIN_VAC1_RUN,
+          (unsigned)PIN_VAC2_VSP, (unsigned)PIN_VAC2_EN, (unsigned)PIN_VAC2_ERR, (unsigned)PIN_VAC2_RUN,
+          (unsigned)PIN_PRESSURE);
     emit("SAFETY,motors_off_commanded=1,armed=0,usb_disconnect_stops=1,run_mode=MANUAL_STOP");
     help();
     checkSafety();

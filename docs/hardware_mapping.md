@@ -3,9 +3,11 @@
 SAVER의 Teensy 4.1 배선 기준입니다. 단일 기준은 `teensy/pinmap.h`이며, 이 문서와
 코드의 핀 번호는 함께 변경합니다.
 
-> **상태 (2026-09-08):** 음압 모터 두 대의 FG를 사용하지 않으며, 기존 32/37번은
-> 예비 핀으로 돌렸습니다. 사용자 제공 단일 모터 구동 관찰·로그는 §3.2에 구분해
-> 기록했습니다. 신호 전압·보호 기능·센서 보정·통합 동작 검증이 완료된 것은 아닙니다.
+> **상태 (2026-10-02):** 음압 모터 2 RUN/EN은 32/37, WT901C Serial8은 RX34/TX35입니다.
+> NAU7802는 독립 Wire1 SDA17/SCL16, 주행 모터 1 엔코더는 11/12로 옮겼습니다.
+> 코드의 핀 배정/시험 버스 설정 반영과 실물 재배선·동작 검증은 별개입니다.
+> 두 음압 FG는 계속 미사용이며 Hall은 VESC에만 연결합니다. 사용자 제공 단일 모터
+> 구동 관찰·로그는 §3.2에 구분했습니다. 신호 전압·보호·보정·통합 검증 완료를 뜻하지 않습니다.
 > 배선 변경 시 24 V와 USB를 모두 끄고, FG 및 모터 +5 V 출력선은 분리·절연합니다.
 
 ---
@@ -23,7 +25,7 @@ Teensy 4.1의 외곽 핀 기능을 기준으로 다시 배정했습니다. ESP32
 | 로직 전압 | GPIO와 ADC 모두 3.3 V 전용, 5 V tolerant 아님 |
 | 핀 범위 | 외곽 through-hole `0~41`만 사용 |
 | 하단 패드 | `42~54` 미사용; QSPI 패드 리드선 납땜 불필요 |
-| 핀 배정 | `teensy/pinmap.h` 기준, 2026-09-08 음압 FG 제외 |
+| 핀 배정 | `teensy/pinmap.h` 기준, 2026-10-02 Serial8 / 독립 Wire1 배정 |
 | 실물 상태 | 단일 음압 모터 구동 사용자 관찰 있음; 전압·보호·통합 검증 미완료 |
 
 ### 1.1 전체 핀 배정
@@ -36,16 +38,18 @@ Teensy 4.1의 외곽 핀 기능을 기준으로 다시 배정했습니다. ESP32
 | UART | 압박 드라이버 | TX7 → Driver RX | 출력 | `29` | RX7과 인접한 고정 Serial7 TX 경로 |
 | 인터럽트 | 압박부 | Encoder A | 입력 | `30` | B상 31과 인접 |
 | 인터럽트 | 압박부 | Encoder B | 입력 | `31` | A상 30과 인접 |
-| 인터럽트 | 압박부 | Hall | 입력 | `39` | 외곽 인터럽트 핀, 엔코더쌍과 분리 |
+| 예비 | 압박부 | Hall 미연결 예약 | — | `39` | 사용자 확인: 모터 Hall은 VESC 전용, Teensy로 분기 안 함 |
+| UART 예약 | WT901C-TTL | RX8 ← Sensor TX | 입력 | `34` | 기본 Serial8 RX, Serial4/5 엔코더 충돌 회피 |
+| UART 예약 | WT901C-TTL | TX8 → Sensor RX | 출력 예정 | `35` | 기본 Serial8 TX; 메인 드라이버 미구현 동안 high-Z |
 | PWM | 음압 모터 1 | VSP | 출력 | `24` | `FlexPWM1_2`; 독립 주파수 그룹 |
 | 입력 | 음압 모터 1 | RUN | 입력 | `25` | 모터 1 제어선과 인접 |
 | 출력 | 음압 모터 1 | EN | 출력 | `26` | 모터 1 독립 disable |
 | 입력 | 음압 모터 1 | ERR | 입력 | `27` | EN과 인접한 상태선 |
 | 미연결 | 음압 모터 1 | FG | — | 없음 | 사용자 결정으로 속도 펄스 미사용, 선 끝 절연 |
 | PWM | 음압 모터 2 | VSP | 출력 | `33` | `FlexPWM2_0`; 모터 1과 주파수 독립 |
-| 입력 | 음압 모터 2 | RUN | 입력 | `34` | 모터 2 제어선과 인접 |
-| 출력 | 음압 모터 2 | EN | 출력 | `35` | 모터 2 독립 disable |
-| 입력 | 음압 모터 2 | ERR | 입력 | `36` | EN과 인접한 상태선 |
+| 입력 | 음압 모터 2 | RUN | 입력 | `32` | 기존 FG 예비를 재사용하여 Serial8 RX34 확보 |
+| 출력 | 음압 모터 2 | EN | 출력 | `37` | 기존 FG 예비를 재사용하여 Serial8 TX35 확보, 독립 disable |
+| 입력 | 음압 모터 2 | ERR | 입력 | `36` | 기존 상태 입력 유지, EN37과 인접 |
 | 미연결 | 음압 모터 2 | FG | — | 없음 | 사용자 결정으로 속도 펄스 미사용, 선 끝 절연 |
 | PWM | 냉각팬 1 | PWM | 출력 | `5` | `FlexPWM2_1`; 독립 주파수 그룹 |
 | 인터럽트 | 냉각팬 1 | TACH | 입력 | `38` | 팬 RPM 펄스 측정용 |
@@ -56,28 +60,27 @@ Teensy 4.1의 외곽 핀 기능을 기준으로 다시 배정했습니다. ESP32
 | 안전 | E-stop | 보조접점 상태 | 입력 | `6` | 물리 E-stop 상태 보고 전용 |
 | ADC | 온도 | 2선 NTC 분압 | 입력 | `A0 / 14` | 아날로그 온도 측정용 |
 | ADC | 압력 | 전처리 출력 | 입력 | `A8 / 22` | 센서용 외곽 ADC 입력 |
-| ADC 예약 | 로드셀 | 증폭/ADC 인터페이스 | 입력 | `A9 / 23` | 원시 브리지 직결 금지, 인터페이스 미선정 |
+| 예비 | 확장 | ADC 미연결 예약 | — | `A9 / 23` | 로드셀은 NAU7802 I²C 사용; 원시 브리지 직결 금지 |
 | ADC | 리니어 센서 | 변위 전압 | 입력 | `A16 / 40` | 외곽 고번호 ADC 입력 |
 | ADC | 전류 센서 | 전류 전압 | 입력 | `A17 / 41` | A16과 인접한 센서 하네스 |
 | I²C | MAX30102 | SDA | 양방향 | `18` | 기본 `Wire` SDA |
 | I²C | MAX30102 | SCL | 출력 | `19` | 기본 `Wire` SCL |
 | 미연결 | MAX30102 | INT | — | 없음 | 현재 폴링 방식에서 사용하지 않음 |
+| I²C | NAU7802 | SDA | 양방향 | `17` | 독립 `Wire1` SDA, MAX30102와 버스 분리 |
+| I²C | NAU7802 | SCL | 출력 | `16` | 독립 `Wire1` SCL, 기존 엔코더는 11/12로 이동 |
+| 미연결 | NAU7802 | DRDY | — | 없음 | 신규 변환 준비 비트는 I²C로 폴링 |
 | PWM | BTS7960 모터 1 | RPWM | 출력 | `7` | `FlexPWM1_3_B`; LPWM과 주파수 공유 |
 | PWM | BTS7960 모터 1 | LPWM | 출력 | `8` | `FlexPWM1_3_A`; RPWM과 인접 |
 | 출력 | BTS7960 모터 1 | R_EN + L_EN | 출력 | `15` | 모듈 1 양쪽 하프브리지 동시 disable |
-| 인터럽트 | 구동 모터 1 | Encoder A | 입력 | `16` | B상 17과 인접 |
-| 인터럽트 | 구동 모터 1 | Encoder B | 입력 | `17` | A상 16과 인접 |
+| 인터럽트 | 구동 모터 1 | Encoder A | 입력 | `11` | B상 12와 인접, Wire1 SCL16 충돌 해소 |
+| 인터럽트 | 구동 모터 1 | Encoder B | 입력 | `12` | A상 11과 인접, Wire1 SDA17 충돌 해소 |
 | PWM | BTS7960 모터 2 | RPWM | 출력 | `0` | 남은 외곽 PWM 출력 `FlexPWM1_1` |
 | PWM | BTS7960 모터 2 | LPWM | 출력 | `1` | 인접 PWM 출력 `FlexPWM1_0` |
 | 출력 | BTS7960 모터 2 | R_EN + L_EN | 출력 | `10` | 모듈 2를 모듈 1과 독립 disable |
 | 인터럽트 | 구동 모터 2 | Encoder A | 입력 | `20` | B상 21과 인접 |
 | 인터럽트 | 구동 모터 2 | Encoder B | 입력 | `21` | A상 20과 인접 |
 | 미연결 | BTS7960 두 모듈 | R_IS / L_IS | — | 없음 | 출력 특성과 전압 확인 전 사용하지 않음 |
-| 예비 | 확장 | MOSI 후보 | — | `11` | 현재 미연결 |
-| 예비 | 확장 | MISO 후보 | — | `12` | 현재 미연결 |
 | 예비 | 확장 | SCK 후보 | — | `13` | 현재 미연결, 내장 LED 연결 핀 |
-| 예비 | 확장 | 미배정 | — | `32` | 음압 모터 1 FG 제거로 해제, 코드에서 접근하지 않음 |
-| 예비 | 확장 | 미배정 | — | `37` | 음압 모터 2 FG 제거로 해제, 코드에서 접근하지 않음 |
 
 `16/17`은 디지털 핀이고 `A16/A17`은 물리 핀 `40/41`입니다. 이름은 비슷하지만
 서로 다른 핀이므로 충돌하지 않습니다.
@@ -106,10 +109,98 @@ Teensyduino 1.62.0 `cores/teensy4/pwm.c` 기준입니다.
 
 - 네이티브 USB Serial은 GPIO를 사용하지 않으므로 Jetson 통신에 영향이 없습니다.
 - 압박 모터용 `Serial7`의 `28/29`와 MAX30102용 기본 `Wire`의 `18/19`는 보존합니다.
-- `Serial1~6`, `Serial8`, `Wire1`, `Wire2`의 기본 핀은 다른 신호가 사용합니다.
-- 기본 SPI의 `11/12/13`은 비어 있지만 기본 CS `10`은 모터 2 EN이 사용합니다.
+- WT901C는 `Serial8 RX34/TX35` 예약입니다. 센서 TX→34, 센서 RX←35로 교차 연결합니다.
+  메인 수신 드라이버·baud 설정은 미구현이므로 핀 예약만으로 센서 취득을 주장하지 않습니다.
+- NAU7802는 독립 `Wire1 SDA17/SCL16`, MAX30102는 `Wire SDA18/SCL19`입니다.
+  두 버스의 SDA/SCL을 서로 묶지 않습니다. 전원과 신호 GND는 각 모듈 규격에 맞춥니다.
+  메인 NAU7802 취득은 미구현이며 반력 기록 시험만 Wire1을 사용합니다.
+- `Serial1~6`, `Wire2`의 기본 핀은 다른 신호가 사용합니다.
+- 기본 SPI MOSI/MISO `11/12`는 주행 모터 1 엔코더, 기본 CS `10`은 모터 2 EN이 사용합니다.
+  기본 외부 SPI를 함께 사용할 수 없습니다. Teensy 내장 microSD는 SDIO라 이 핀들과 별개입니다.
 - `42~54`는 사용하지 않으므로 하단 SMT/QSPI 패드에 리드선을 납땜하지 않습니다.
-- 외곽 미배정 핀은 `11/12/13/32/37` 다섯 개입니다. 팬 TACH는 그대로 유지합니다.
+- 실제 신호 배정 39개, 미연결 예비는 `13/23(A9)/39` 세 개입니다. 팬 TACH는 그대로 유지합니다.
+
+### 1.4 이번 재배선 순서 (`planned`, 실물 미검증)
+
+1. USB와 모든 모터·센서 전원을 끕니다. 구 펌웨어와 새 배선을 혼용하지 않습니다.
+2. 음압 2 RUN **34→32**, EN **35→37**; VSP33/ERR36은 유지합니다.
+3. 주행 모터 1 엔코더 A/B **16/17→11/12**; 모터 2 엔코더 20/21은 유지합니다.
+4. NAU7802 SDA/SCL **18/19→17/16**. MAX30102는 18/19 유지입니다.
+5. WT901C TX→34, RX←35는 TTL 전압·전원과 센서 설정을 확인한 뒤 연결합니다.
+   새 메인 펌웨어는 아직 자이로를 읽지 않습니다. Hall 선은 VESC에만 두고 39는 미연결입니다.
+6. 각 I²C 버스의 풀업을 별도로 확인합니다. 버스 분리는 공통 MCU·전원 장애의 독립을 뜻하지 않습니다.
+   전압·도통·단락·EN 부팅 LOW 및 재연결은 모터 전원을 분리하고 검증합니다.
+
+관련 코드: `teensy/pinmap.h`, 메인 초기화, `test/test.ino`, PPG EN 보호 핀,
+`test/reaction_force_logger`의 초기화·읽기·재연결을 함께 변경합니다. `protocol/`은 변경하지 않습니다.
+
+### 1.5 핀 변경 검증 기록 (2026-10-02)
+
+실물 검증 수준은 계속 `planned`입니다. 아래는 컴파일/소스/모의 검사 결과이지
+핀 전압·버스 통신·모터 작동 시험이 아닙니다. 장치 포트를 열거나 업로드하지 않았습니다.
+
+- Teensyduino 1.62.0 / Arduino CLI 1.5.1 / `teensy:avr:teensy41`, `--warnings all`로
+  메인, 음압+압력 통합, PPG, 반력 기록기 **4개 스케치 컴파일·링크 통과**.
+  메인은 임시 `saver_teensy/` 폴더에 `.ino`/헤더/`src/`를 그대로 복사해 빌드했습니다.
+- `teensy/tests/check_pinmap.ps1`: 실제 코어 헤더를 포함한 19개 컴파일타임 assertion,
+  중복/하단 패드 금지/예비 핀 유지, 메인/통합/PPG/Wire1 코드 일치 검사 통과.
+- 벤치 검사 11개 스크립트와 위 핀 검사에서 **소스에 명시된 assertion 총 646개 통과**.
+  반력 CSV 검사기의 합성 fixture 8개도 통과했습니다. 모의 데이터이며 실측 기록이 아닙니다.
+- `teensy/test_saver_proto.cpp`: ARM `-std=c++11 -Wall -Wextra -Werror -fsyntax-only` 통과.
+  **PC용 g++가 없어 네이티브 실행 시험은 미실행**이며 ARM 문법 검사가 이를 대체하지 않습니다.
+- 새 검사는 처음에 코어에 맞지 않는 C++14/키보드 매크로 누락으로 실패하여,
+  설치된 Teensy 코어 기준 GNU++17/US_ENGLISH 옵션으로 맞췄습니다.
+  `<Wire.h>`를 버스 접근으로 오인한 검사 정규식도 실제 메서드 호출만 검사하도록 고쳤습니다.
+- 기존 `test/tests/test_combined.cpp`가 시간제한 제거 이전 API를 호출하여 실패했습니다.
+  **실제 모터 제어 로직은 바꾸지 않고** 현재 수동 STOP API, 자동 종료 없음, 옛 시간 인자
+  거부 검사를 맞췄습니다. ERR/USB/잘못된 명령 정지 검사는 유지했습니다.
+- 새 별도 `saver-perfboard-solder-only-30x42.html` 연결표를 현재 로컬 핀맵과 동기화했습니다.
+  브라우저 360/736/1600 px, 밝음/어두움 총 6개 표시 검사에서 스크립트 오류·외부 요청이
+  없었고 연결 모델 검사도 통과했습니다. 기존 HTML 두 개는 해시가 그대로입니다.
+  이는 `simulated` 연결 모델/표시 검사이며 실제 납 패턴의 도통·전류·내구성 시험이 아닙니다.
+  이 핀 변경 검사 당시 압력 4.7 kΩ/10 kΩ 분압은 외부 회로 표시뿐이었습니다.
+  이후 같은 새 HTML에 앞면 저항 실장과 뒷면 납 경로를 추가했습니다(`planned`, 실물 미제작).
+  R1 4.7 kΩ: C14/R09↔C08/R09, R2 10 kΩ: C07/R09↔C07/R13(앞면 기준).
+  센서 OUT은 H-T-4(C14/R07), A8은 소켓 C14/R11이며 두 신호망 사이에 R1이 있습니다.
+  **C14/R10은 비워야 하며 원래 H-T-4→A8 직결 납 경로를 남기면 안 됩니다.**
+  기존 외부 분압과 중복 사용하지 않습니다. 정상 출력 4.5 V의 공칭 분압 출력은 약 3.061 V지만,
+  5.0 V 출력은 약 3.401 V이므로 일반적인 5 V 입력 보호 회로가 아닙니다.
+  저항 크기·홀 피치·소켓/USB 간섭·납의 내구성·전원 순서·역급전은 실물 검증 전입니다.
+
+컴파일 경고: 수정한 스케치/핀맵 자체는 0개. 외부 SparkFun 라이브러리 4종이 메인과
+PPG에서 각각 관찰됐습니다. 외부 라이브러리는 수정하거나 경고를 숨기지 않았습니다.
+
+| 외부 파일 | 경고 |
+|---|---|
+| `spo2_algorithm.h:83` | `an_x` 미사용 |
+| `spo2_algorithm.h:84` | `an_y` 미사용 |
+| `heartRate.cpp:108` | 비교식과 비트 AND의 괄호 권고 |
+| `MAX30105.cpp:292` | `originalContents` 미사용 |
+
+주요 재검증 명령(저장소 루트):
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File teensy/tests/check_pinmap.ps1
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File test/tests/check_combined.ps1
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File test/vacuum_motor_stage4_fg/tests/check_stage4.ps1
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File test/max30102_sensor_test/tests/check_contact.ps1
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File test/reaction_force_logger/tests/check_logger.ps1
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File test/reaction_force_logger/tools/check_recording.ps1 -SelfTest
+arduino-cli compile --fqbn teensy:avr:teensy41 --warnings all --build-property 'recipe.hooks.postbuild.1.pattern=' <스케치 폴더>
+& "$env:USERPROFILE/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/python.exe" tools/consistency_audit.py
+git diff --check
+```
+
+추가 회귀검사: `test/linear_sensor_test/tests/check_linear.ps1`,
+`test/compression_motor_single_test/tests/check_vesc_bench.ps1`,
+`test/compression_linear_pid_test/tests/`의 `check_bench`, `check_calibration_capture`,
+`check_current_control`, `check_depth_control`, `check_vesc_link` `.ps1`도 실행했습니다.
+Loader 실행 방지를 위해 위 postbuild hook을 비웠으며 컴파일은 업로드가 아닙니다.
+이 PC의 `python` 명령은 Microsoft Store 별칭이라 실패하므로 위 실제 실행 파일을 사용했습니다.
+
+UART 핀 근거: 설치된 PJRC `HardwareSerial8.cpp` 및
+[PJRC UART 핀 표](https://www.pjrc.com/teensy/td_uart.html).
+Wire1 핀 근거: 설치된 `libraries/Wire/WireIMXRT.cpp`의 Teensy 4.1 SDA17/SCL16 설정.
 
 ---
 
@@ -258,9 +349,10 @@ RPM·압력·전류·입력 전압·보드 무손상을 검증한 결과가 아�
 확정되기 전에는 펌웨어의 `motorsOff()`가 압박 모터를 소프트웨어로 정지시킨다고 볼 수
 없으므로 압박 모터 전원을 분리합니다.
 
-피드백 센서는 압박 엔코더 `30/31`, 홀 `39`, 리니어 `A16`, 전류 `A17`, 상·하
-리미트 `3/4`입니다. 로드셀은 `A9`를 인터페이스 후보로 예약했지만 원시 `SG+/SG-`를
-직결하지 않습니다. 아날로그 증폭기 또는 외부 ADC 선택 후 핀맵을 다시 확인합니다.
+압박 엔코더 `30/31`은 예약이며 리니어 `A16`, 전류 `A17`, 상·하 리미트 `3/4`를 유지합니다.
+사용자 확인상 모터 Hall은 VESC에만 연결하며 Teensy `39`는 미연결 예비입니다.
+로드셀은 DYMH-103 + NAU7802의 독립 Wire1 `17/16`을 사용합니다. `A9/23`은 미연결
+예비이며 원시 `SG+/SG-`를 직결하지 않습니다. 핀 배정과 메인 취득 구현은 별개입니다.
 
 ---
 
@@ -318,8 +410,8 @@ R_EN/L_EN만 핀 10에 묶어 독립적으로 정지할 수 있게 합니다.
 | Red/Black | 24 V 모터 권선 | BTS7960 M+/M- | BTS7960 M+/M- | Teensy 연결 금지 |
 | Blue | 엔코더 전원 | 검증된 5 V | 검증된 5 V | 24 V 연결 금지 |
 | Green | 엔코더 GND | 공통 GND | 공통 GND | — |
-| Yellow | Encoder A | Teensy `16` | Teensy `20` | 출력 전압 확인 |
-| White | Encoder B | Teensy `17` | Teensy `21` | 출력 전압 확인 |
+| Yellow | Encoder A | Teensy `11` | Teensy `20` | 출력 전압 확인 |
+| White | Encoder B | Teensy `12` | Teensy `21` | 출력 전압 확인 |
 
 엔코더 출력이 5 V push-pull이면 레벨 변환하고, open-collector이면 3.3 V pull-up을
 사용합니다. 회전당 11펄스 표기가 채널당인지 quadrature edge 기준인지 실측해야 합니다.
@@ -334,6 +426,8 @@ R_EN/L_EN만 핀 10에 묶어 독립적으로 정지할 수 있게 합니다.
 | 센서 | 연결 | 담당 | 상태 |
 |---|---|---|---|
 | PPG (MAX30102) | I²C `18/19`, INT 미사용 | Teensy | 핀 반영, 실물값 미검증 |
+| 로드셀 (DYMH-103 + NAU7802) | 독립 Wire1 SDA`17` / SCL`16`, DRDY 미사용 | Teensy | 반력 기록 시험 버스 변경; 메인 취득 미구현 |
+| 자이로 (WT901C-TTL) | Serial8 RX`34` / TX`35` | Teensy | 핀 예약, 메인 드라이버 미구현 |
 | MR60BHA2 레이더 | UART → Jetson | Jetson | 연결 형태 미확정 |
 | Raspberry Pi Camera V2.1 | CSI → Jetson | Jetson | 미착수 |
 

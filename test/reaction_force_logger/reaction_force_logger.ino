@@ -18,8 +18,8 @@
 
 namespace {
 using namespace reaction;
-constexpr uint8_t SDA_PIN = 18; // Default Wire SDA; existing I2C bus, NOT reserved A9.
-constexpr uint8_t SCL_PIN = 19; // Default Wire SCL; no new GPIO allocation.
+constexpr uint8_t SDA_PIN = 17; // Dedicated Wire1 SDA; MAX30102 remains on Wire/18.
+constexpr uint8_t SCL_PIN = 16; // Dedicated Wire1 SCL; drive-1 encoder moved to 11/12.
 constexpr uint8_t NAU_ADDRESS = 0x2A;
 constexpr uint32_t POLL_US = 250; // Poll readiness; never create a sample when CR=0.
 constexpr uint16_t CAL_SAMPLES = 320;
@@ -27,24 +27,24 @@ constexpr uint16_t CAL_SAMPLES = 320;
 class WireTransport {
 public:
   bool write(uint8_t reg, uint8_t value) {
-    Wire.beginTransmission(NAU_ADDRESS);
-    Wire.write(reg);
-    Wire.write(value);
-    return Wire.endTransmission() == 0;
+    Wire1.beginTransmission(NAU_ADDRESS);
+    Wire1.write(reg);
+    Wire1.write(value);
+    return Wire1.endTransmission() == 0;
   }
   bool read(uint8_t reg, uint8_t *bytes, size_t n) {
-    Wire.beginTransmission(NAU_ADDRESS);
-    Wire.write(reg);
-    if (Wire.endTransmission() != 0)
+    Wire1.beginTransmission(NAU_ADDRESS);
+    Wire1.write(reg);
+    if (Wire1.endTransmission() != 0)
       return false;
-    const uint8_t got = Wire.requestFrom(NAU_ADDRESS, uint8_t(n));
-    if (got != n || size_t(Wire.available()) != n) {
-      while (Wire.available())
-        Wire.read();
+    const uint8_t got = Wire1.requestFrom(NAU_ADDRESS, uint8_t(n));
+    if (got != n || size_t(Wire1.available()) != n) {
+      while (Wire1.available())
+        Wire1.read();
       return false;
     }
     for (size_t i = 0; i < n; ++i)
-      bytes[i] = uint8_t(Wire.read());
+      bytes[i] = uint8_t(Wire1.read());
     return true;
   }
 };
@@ -64,7 +64,7 @@ public:
       usb_ = connected;
       command_.reset();
       if (connected) {
-        emit("SAVER_REACTION_FORCE_LOGGER_READY,build=nau320_csv_v1");
+        emit("SAVER_REACTION_FORCE_LOGGER_READY,build=nau320_csv_v2_wire1");
         help();
       } else {
         recorder_.stop("USB_DISCONNECTED");
@@ -110,10 +110,10 @@ private:
   int32_t tareMin_ = 0, tareMax_ = 0;
 
   void initWire() {
-    Wire.begin();
-    Wire.setSDA(SDA_PIN);
-    Wire.setSCL(SCL_PIN);
-    Wire.setClock(400000);
+    Wire1.setSDA(SDA_PIN);
+    Wire1.setSCL(SCL_PIN);
+    Wire1.begin();
+    Wire1.setClock(400000);
   }
   bool emit(const char *fmt, ...) {
     if (!usb_)
@@ -150,7 +150,7 @@ private:
   void pollSensor(uint64_t now) {
     if (reader_.failed()) {
       if (uint32_t(millis() - retryAt_) >= 2000) {
-        Wire.end();
+        Wire1.end();
         initWire();
         reader_.begin(millis());
         emit("EVENT,SENSOR_RETRY,calibration_reset=1,log_auto_restart=0");
@@ -254,7 +254,8 @@ private:
          (unsigned long)window_.rails, forceOk, recorder_.active(), raw, force);
   }
   void help() {
-    emit("PINS,SDA=18,SCL=19,I2C_ADDRESS=0x2A,SD=builtin_SDIO,MOTOR_CONTROL=NONE");
+    emit("PINS,BUS=Wire1,SDA=%u,SCL=%u,I2C_ADDRESS=0x2A,SD=builtin_SDIO,MOTOR_CONTROL=NONE",
+         (unsigned)SDA_PIN, (unsigned)SCL_PIN);
     emit("COMMANDS,STATUS|HELP|TARE|CAL kg|CAL_SHOW|CAL_RESET|TIME "
          "YYYY-MM-DDTHH:MM:SSZ|LOG_START|LOG_STOP");
     emit("NOTE,320_SPS_nominal_not_500Hz,force_requires_tare_and_known_mass,raw_logging_allowed");
@@ -299,7 +300,7 @@ private:
         "# "
         "read_us=MCU_read_completion_not_conversion_time,gap_flag=interval_gt_6250us,exact_ADC_"
         "losses_unknown\n"
-        "# build=nau320_csv_v1,motor_control=none,uncalibrated_force_is_empty\n"
+        "# build=nau320_csv_v2_wire1,i2c_bus=Wire1,sda=17,scl=16,motor_control=none,uncalibrated_force_is_empty\n"
         "utc,read_us,seq,raw,force_ok,force_N,adc_rail,gap_flag,interval_us\n",
         utc, cal_.confirmed, cal_.zero, cal_.countsPerKg);
     if (!recorder_.start(header))
