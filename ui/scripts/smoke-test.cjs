@@ -224,10 +224,12 @@ const check = (name, ok, detail = '') => {
     VP.prompts.filter((p) => p.node !== '*' && !spec.nodes[p.node]).map((p) => p.id).join(','))
   check('음성 문구: TTS 입력에 숫자·영문 없음(발음대로 한글)', VP.prompts.every((p) => !/[0-9A-Za-z]/.test(p.say)),
     VP.prompts.filter((p) => /[0-9A-Za-z]/.test(p.say)).map((p) => p.id).join(','))
-  check('음성 문구: 블라인드 비교 5문구가 목록에 있음', VP.blind_test.length === 5 && VP.blind_test.every((i) => vids.includes(i)))
-  check('음성 문구: 모든 등급에 보이스 태그, 두 모델 모두 목소리 필터', VP.prompts.every((p) => VP.direction.levels[p.level]
+  check('음성 문구: 시험 묶음이 목록에 있고 세 등급을 모두 포함', VP.pilot.every((i) => vids.includes(i))
+    && ['안내', '주의', '경고'].every((lv) => VP.pilot.some((i) => VP.prompts.find((p) => p.id === i).level === lv)))
+  check('음성 문구: 모든 등급에 보이스 태그(긴장 태그 없음), 목소리 필터와 생성 설정', VP.prompts.every((p) => VP.direction.levels[p.level]
     && /^\[[^\]]+\]$/.test(VP.direction.levels[p.level].tag))
-    && VP.direction.models.every((m) => VP.direction.filters[m.code] && VP.direction.filters[m.code].length >= 4))
+    && Object.values(VP.direction.levels).every((l) => !/serious|urgent/i.test(l.tag))
+    && VP.direction.filters.length >= 4 && VP.direction.settings.length >= 6)
   check('음성 문구: S0 외 모든 화면에 문구', Object.keys(spec.nodes).filter((n) => n !== 'S0')
     .every((n) => VP.prompts.some((p) => p.node === n)),
     Object.keys(spec.nodes).filter((n) => n !== 'S0' && !VP.prompts.some((p) => p.node === n)).join(','))
