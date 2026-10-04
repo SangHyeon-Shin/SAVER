@@ -193,8 +193,8 @@ cd ui && npm run build:single && npm run smoke
   목록은 팀장에게 받아 같은 위치에 둔다.
   의도된 예외는 훅을 건너뛰지 말고 `patent-scan: allow` 마커를 파일에 남기거나
   사람이 직접 검토한 뒤 커밋한다.
-- **`docs/specs/`는 원본 보존 영역이다.** 2026-08-03에 공개되었으므로 수정·삭제
+- **`docs/specs/`는 원본 보존 영역이다.** 명세 원본이므로 수정·삭제
   금지. 확장자 불일치는 이 폴더를 직접 고치지 말고 `tools/fix_extensions.py`로
   진단 후 처리한다.
 - 새 문서·보고서 초안은 `report/`, 원자료는 `sources/`, 실험 원본은 `data/raw/`에
-  둔다. 저장소 분리 원칙은 `SPLIT_PLAN.md`를 따른다.
+  둔다. 저장소 분리 원칙은 `README.md`의 "저장소 구성"을 따른다.

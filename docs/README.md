@@ -12,20 +12,17 @@
 
 | 문서 | 내용 |
 |---|---|
-| `hardware_mapping.md` | 핀·센서·전원. 실기 확인 후 채움 |
+| `PROJECT_STATE.md` | **지금 무엇이 사실인가.** 확정값·마감·검증 상태의 단일 출처 |
+| `hardware_mapping.md` | 핀·센서·전원. Teensy 외부 5 V 전원 계획(10/4, 미검증) 포함 |
+| `protocol_v1.1_draft.md` | **프로토콜 v1.1 합의본(7차, 10/4).** `protocol/` 반영 전까지 v1.1의 기준 |
+| `protocol_v1.1_worst_len.py` | v1.1 메시지 최대 길이 계산(본문 511 byte 한도) |
+| `protocol_review_한건민.md` | 프로토콜 검토 기록 |
 | `document_index.md` | 프로젝트 문서 85건 색인. `specs/` 에 15건 포함 |
-| `specs/` | 개발에 직접 필요한 명세 원본 (요구사항·연동표·알고리즘·근거추적표 등) |
-| `../protocol/teensy_usb_protocol_v1.md` | USB 통신 명세 |
+| `specs/` | 개발에 직접 필요한 명세 원본 (요구사항·연동표·알고리즘·근거추적표 등). 수정·삭제 금지 |
+| `../protocol/teensy_usb_protocol_v1.md` | USB 통신 명세 v1.0 |
 | `../teensy/reference/` | Git 이력에서 복원한 이전 작업 (ESP32 기준, 참고용) |
 
-## 하드웨어 통합 주간(8/1~8/7)에 채울 것
+## 실측 자료를 둘 곳
 
-| 파일 | 시점 | 내용 |
-|---|---|---|
-| `jetson_environment.md` | 8/1 | JetPack·Python 버전, 장치 인식 결과 |
-| `hardware_mapping.md` | 8/2 | 핀 배치 확정, 결선도 |
-| `measurements.md` | 8/5 | **측정값 vs 예측값 비교표** ← 최종보고서 핵심 |
-| `fault_injection.md` | 8/6 | 고장 주입 시험 결과 |
-
-`measurements.md` 가 가장 중요합니다. 현재 보고서의 값이 전부 설계값이라,
-실측 데이터가 최종보고서와 논문을 동시에 뒷받침합니다.
+시험 원본(T1~T4, 벤치 측정, 고장 주입 로그)은 이 저장소가 아니라 `SAVER-docs`의 `data/raw/`에 둡니다.
+결과를 정리한 값은 `PROJECT_STATE.md` §4에 주장 수준(`tested` 등)과 함께 옮깁니다.
