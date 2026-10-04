@@ -79,6 +79,20 @@ ERR = {
 }
 
 
+def resolve_enter_cmd(cmd, mcu_state):
+    """상태 진입 명령을 장치 상태에 맞게 고른다(state_machine_v2.json v2.2).
+
+    S7 진입의 START_CPR: 장치가 CPR_PAUSED 면 RESUME_CPR(일시정지·AED·ROSC 확인 뒤 재개),
+    CPR_RUNNING 이면 보내지 않는다(None, 인공호흡 안내처럼 멈추지 않은 경우).
+    정지 방향(PAUSE_CPR 등)은 장치 상태가 오래됐을 수 있으므로 항상 그대로 보낸다."""
+    if cmd == "START_CPR":
+        if mcu_state == "CPR_PAUSED":
+            return "RESUME_CPR"
+        if mcu_state == "CPR_RUNNING":
+            return None
+    return cmd
+
+
 def severity(code):
     """'3-CU-021' → 3. 알 수 없으면 1(주의)로 처리한다."""
     try:

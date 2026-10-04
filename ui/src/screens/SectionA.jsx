@@ -78,6 +78,8 @@ export function Screen04({ fire }) {
             <img src={IMG.patient_angled} alt="환자를 바닥에 눕힌 모습" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
           </div>
           <div style={{ fontSize: 48, fontWeight: 800, color: '#1a1f29' }}>환자를 단단한 바닥에 눕히세요.</div>
+          {/* 119 신고와 AED 요청이 장치 사용보다 먼저다(119 현장경험자 인터뷰 권고, v2.2) */}
+          <div style={{ fontSize: 26, fontWeight: 700, color: C.danger }}>119 신고와 AED 요청을 먼저 하세요.</div>
         </div>
         <Btn w={240} fs={24} onPress={() => fire(EV.START_PRESSED)}
           style={{ position: 'absolute', right: 28, bottom: 24 }}>시작</Btn>
@@ -245,13 +247,19 @@ export function Screen20({ fire }) {
 }
 
 /* ================= 10 · 압박 준비 / 손 떼기 · S6 · UI-06 ================= */
-export function Screen10({ fire }) {
+export function Screen10({ fire, ctx }) {
   return (
     <Light>
       <Header title="압박 준비" right="최종 안전 확인" />
       <PressArea onPress={() => fire(EV.CPR_START)}
         style={{ flex: 1, position: 'relative', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 18, animation: 'bluepulse 1.6s ease-in-out infinite' }}>
         <div style={{ position: 'absolute', inset: 14, border: `2px dashed ${C.primary}`, borderRadius: 12, opacity: .4, pointerEvents: 'none', animation: 'sblink 1.6s ease-in-out infinite' }} />
+        {ctx && typeof ctx.aedPads === 'boolean' && (
+          <div style={{ position: 'absolute', top: 28, right: 32, fontSize: 18, fontWeight: 700, pointerEvents: 'none',
+            color: ctx.aedPads ? C.success : '#6b7280' }}>
+            AED 패드: {ctx.aedPads ? '붙임' : '없음 · 도착하면 압박 화면에서 [AED 사용]'}
+          </div>
+        )}
         <div style={{ width: 84, height: 84, borderRadius: '50%', border: `6px solid ${C.danger}`, position: 'relative' }}>
           <div style={{ position: 'absolute', top: '50%', left: '8%', right: '8%', height: 6, background: C.danger, transform: 'translateY(-50%) rotate(45deg)' }} />
         </div>

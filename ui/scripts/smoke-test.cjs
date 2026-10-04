@@ -54,11 +54,14 @@ const check = (name, ok, detail = '') => {
 
   tap(B('이동 완료'))
   check('04 시작 대기', await until(has('시작 대기')))
+  check('04 119 신고·AED 요청 먼저 안내', has('119 신고와 AED 요청을 먼저')())
 
   tap(B('시작'))
   check('05 겉옷 인식 완료 전환', await until(has('제거 인식됨')))
 
   tap(B('다음'))
+  check('21 겉옷 뒤 AED 패드 부착 확인 (v2.2)', await until(has('지금 패드를 붙이세요')))
+  tap(B('패드를 붙였습니다'))
   check('06 흉곽 정렬', await until(has('흉곽 정렬')))
 
   tap(B('정렬 완료'))
@@ -81,6 +84,7 @@ const check = (name, ok, detail = '') => {
 
   tap(B('재확인'))
   check('10 압박 준비', await until(has('압박 준비')))
+  check('10 AED 패드 상태 표시', has('AED 패드: 붙임')())
 
   tap(d.querySelector('#root [role="button"]'))
   check('11 압박 수행 진입', await until(has('압박 모니터링')))
@@ -91,8 +95,20 @@ const check = (name, ok, detail = '') => {
   check('11 압박 깊이/속도 표시', /[\d.]+ cm/.test(T()) && /\d+ \/min/.test(T()),
     T().match(/[\d.]+ cm|\d+ \/min/g)?.join(' '))
 
+  tap(BX('AED 사용'))
+  check('22 압박 중 AED 사용 → AED 화면 (압박 멈춤)', await until(has('AED 음성 안내를 따르세요')))
+  const tm = () => d.querySelector('[data-aed-timer]')?.textContent
+  const tm0 = tm()
+  await wait(1600)
+  check('22 자동 재개 없음, 중단 경과 시간 증가', has('AED 음성 안내를 따르세요')() && tm() !== tm0, `${tm0} → ${tm()}`)
+  check('22 경고 기준 미설정이면 경고 없음', has('경고 기준 미설정')() && !has('길어지고 있습니다')())
+  check('22 패드 붙임 확인 표시', has('패드: 붙임 확인됨')())
+  tap(BX('압박 재개'))
+  check('22 → 11 구조자 재개로만 압박 화면 복귀', await until(has('압박 모니터링')))
+
   tap(B('일시정지'))
   check('12 일시정지', await until(has('재개하려면')))
+  check('12 일시정지 중에도 AED 사용 버튼', !!BX('AED 사용'))
 
   tap(BX('재개')); await until(has('압박 모니터링'))
   tap(BX('정지'))

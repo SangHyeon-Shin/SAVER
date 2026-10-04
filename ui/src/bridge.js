@@ -17,6 +17,7 @@ import { useEffect, useRef, useState, useCallback } from 'react'
      {type:'link',         connected, port}
      {type:'rejected',     name, node, allowed, reason, mcu, need}
      {type:'search',       phase, reason, points[{x,F,ref,r}], tip_x, D_mm, target_x, pos_x, rule, ...}
+     {type:'config',       aed_pause_warn_s}   (AED 압박 중단 경고 기준, 비어 있으면 경고 안 함)
 
    보내는 메시지 (intent, force 외)
      {type:'search', action:'start'|'stop'}   압박점 탐색 시작·중지 (X_SEARCH 에서만)
@@ -37,6 +38,7 @@ export function useBridge({ onState, onRejected } = {}) {
   const [lastError, setLastError] = useState(null)
   const [rejected, setRejected] = useState(null)
   const [search, setSearch] = useState(null)       // 브리지가 보낸 마지막 탐색 진행
+  const [config, setConfig] = useState(null)       // 브리지 설정(aed_pause_warn_s 등)
 
   const wsRef = useRef(null)
   const cbState = useRef(onState); cbState.current = onState
@@ -78,6 +80,8 @@ export function useBridge({ onState, onRejected } = {}) {
             break
           case 'search':
             setSearch(m); break
+          case 'config':
+            setConfig(m); break
           case 'rejected':
             setRejected(m)
             cbReject.current && cbReject.current(m)
@@ -118,6 +122,6 @@ export function useBridge({ onState, onRejected } = {}) {
 
   const clearSearch = useCallback(() => setSearch(null), [])
 
-  return { connected, linkUp, telemetry, stale, lastError, rejected, search,
+  return { connected, linkUp, telemetry, stale, lastError, rejected, search, config,
            sendIntent, sendForce, sendSearch, clearSearch, url: DISABLED ? '(연결 안 함)' : WS_URL }
 }

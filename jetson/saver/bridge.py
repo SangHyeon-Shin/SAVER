@@ -56,6 +56,7 @@ CONFIG = {
     "target_depth_mm": 0,         # TODO 한성윤 (가이드라인 근거)
     "force_max_N": 0,             # TODO 한성윤 / 서정준
     "vacuum_target_kPa": 0,       # TODO 서정준 + 한건민
+    "aed_pause_warn_s": None,     # TODO 한성윤. AED 분석·충격 중 압박 중단 경고 기준(초). 비어 있으면 경고 안 함
 }
 # 압박점 탐색(saver/search.py, 초안 §7.2). 전부 비어 있으면 탐색을 시작하지 않는다.
 CONFIG.update(dict((k, None) for k in SEARCH_KEYS))
@@ -154,6 +155,12 @@ class Bridge(object):
 
     def _on_command(self, cmd):
         """상태 진입 시 정의된 Teensy 명령 (state_machine_v2.json 의 enter_cmds)"""
+        sent = P.resolve_enter_cmd(cmd, self.link.mcu_state)    # 재개면 RESUME_CPR (v2.2)
+        if sent != cmd:
+            self.log.event("sys", "CMD_RESOLVED:%s->%s" % (cmd, sent))
+        if sent is None:
+            return
+        cmd = sent
         kw = {}
         if cmd == "SET_TARGET":
             kw = {"bpm": CONFIG["target_bpm"]}
@@ -246,6 +253,7 @@ class Bridge(object):
         self.clients.add(ws)
         await ws.send(json.dumps(dict(self.fsm.snapshot(), type="state", event="SYNC")))
         await ws.send(json.dumps({"type": "link", "connected": self.link.connected}))
+        await ws.send(json.dumps({"type": "config", "aed_pause_warn_s": CONFIG.get("aed_pause_warn_s")}))
         try:
             async for raw in ws:
                 try:

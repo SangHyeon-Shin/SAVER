@@ -33,7 +33,7 @@ ck("명령 분류: 조회 4, 정지 4", len(P.QUERY_CMDS) == 4 and len(P.STOP_CM
 print("\n== 2. 상태머신 ==")
 fired = []
 fsm = StateMachine(on_command=lambda c: fired.append(c))
-path = ["INIT_DONE","WHEELS_DONE","MOVE_DONE","START_PRESSED","CLOTHES_OK",
+path = ["INIT_DONE","WHEELS_DONE","MOVE_DONE","START_PRESSED","CLOTHES_OK","AED_PADS_ON",
         "POSITION_OK","PPG_ATTACHED","SEARCH_DONE","PIN_RELEASED","VACUUM_OK","CPR_START"]
 ok = all(fsm.fire(e) for e in path)
 ck("정상 흐름 S1→S7", ok and fsm.node == "S7", fsm.node)
@@ -43,12 +43,37 @@ seen = [l["to"] for l in fsm.log]
 ck("탐색 → 핀 해제 → 고정 → 압박 준비 순서 (D-11)",
    seen.index("X_SEARCH") < seen.index("X_PIN") < seen.index("S5") < seen.index("S6"), "→".join(seen))
 ck("탐색 노드는 Teensy 명령을 보내지 않음 (STIFFNESS_SCAN 미사용)", "STIFFNESS_SCAN" not in fired)
-ck("고정 뒤 압박 접촉 영점, 목표 설정",
-   fired.index("VACUUM_ON") < fired.index("SET_CP_POINT") < fired.index("SET_TARGET") < fired.index("START_CPR"),
+ck("고정 뒤 목표 설정, 압박 접촉 영점 (v2.2: 영점 하강 중 BUSY 거부 방지)",
+   fired.index("VACUUM_ON") < fired.index("SET_TARGET") < fired.index("SET_CP_POINT") < fired.index("START_CPR"),
    ",".join(fired))
 ck("허용 안 된 이벤트 무시", fsm.fire("RELEASE_DONE") is False and fsm.node == "S7")
 fsm.fire("ROSC_SUSPECT"); ck("ROSC 분기", fsm.node == "S9")
 fsm.fire("RESUME_CPR");  ck("압박 재개", fsm.node == "S7")
+
+# AED 병행 (v2.2)
+ck("겉옷 뒤 AED 패드 확인 → 정렬", "X_AED_PAD" in seen and seen.index("X_CLOTHES") < seen.index("X_AED_PAD") < seen.index("S3S4"))
+fa = StateMachine(); fa.force("X_AED_PAD")
+ck("AED 없음도 정렬로 진행", fa.fire("AED_NONE") and fa.node == "S3S4")
+fired_a = []
+fa = StateMachine(on_command=lambda c: fired_a.append(c)); fa.force("S7")
+ck("압박 중 AED 버튼 → AED 화면, 압박 일시정지 명령", fa.fire("AED_PAUSE") and fa.node == "X_AED" and fired_a == ["PAUSE_CPR"])
+ck("AED 화면은 자동 전이 없음", fa.auto_due() is None and fa.cur.get("auto") is None)
+ck("AED 화면에서는 재개·정지만 (ROSC·오류·인공호흡 이벤트 무시)",
+   fa.allowed() == ["AED_RESUME", "STOP"] and not fa.fire("ROSC_SUSPECT") and not fa.fire("VENT_GUIDE") and fa.node == "X_AED")
+ck("구조자 재개 → 압박 화면", fa.fire("AED_RESUME") and fa.node == "S7")
+fa.force("S8"); ck("일시정지 중에도 AED 화면으로", fa.fire("AED_PAUSE") and fa.node == "X_AED")
+mcu_a = {"s": "CPR_PAUSED"}
+fb = StateMachine(mcu_state=lambda: mcu_a["s"]); fb.force("X_AED")
+ck("장치 CPR_PAUSED 에서 재개 허용 (v2.1 결함 수정)", fb.fire("AED_RESUME") and fb.node == "S7")
+fb.force("S8"); ck("일시정지 재개도 허용", fb.fire("RESUME") and fb.node == "S7")
+mcu_a["s"] = "HOMED"; fb.force("S6")
+ck("장치 준비 전 압박 시작은 여전히 거부", fb.fire("CPR_START") is False and fb.node == "S6")
+ck("진입 명령: 일시정지 뒤 START_CPR → RESUME_CPR", P.resolve_enter_cmd("START_CPR", "CPR_PAUSED") == "RESUME_CPR")
+ck("진입 명령: 압박 중이면 START_CPR 안 보냄", P.resolve_enter_cmd("START_CPR", "CPR_RUNNING") is None)
+ck("진입 명령: 처음 시작·불명은 그대로", P.resolve_enter_cmd("START_CPR", "CPR_READY") == "START_CPR"
+   and P.resolve_enter_cmd("START_CPR", None) == "START_CPR")
+ck("진입 명령: 정지 방향은 상태와 관계없이 그대로", all(P.resolve_enter_cmd("PAUSE_CPR", st_) == "PAUSE_CPR"
+   for st_ in ("CPR_PAUSED", "CPR_RUNNING", None)))
 
 f2 = StateMachine(); f2.force("S5")
 f2.fire("VACUUM_ERROR")

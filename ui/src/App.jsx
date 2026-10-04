@@ -5,6 +5,7 @@ import { useWaves, useVitals } from './vitals'
 import { useBridge } from './bridge'
 import { useSearchDemo, DEMO } from './searchDemo'
 import { Screen09 } from './screens/Search'
+import { Screen21, Screen22 } from './screens/Aed'
 import { Btn } from './ui'
 import * as A from './screens/SectionA'
 import * as B from './screens/SectionB'
@@ -19,6 +20,7 @@ const SCREEN = {
   S7: B.Screen11, S8: B.Screen12,
   S9: Cs.Screen13, S10: Cs.Screen14, X_POSOUT: Cs.Screen15, S11: Cs.Screen16,
   S12: DE.Screen17, S13: DE.Screen18, X_VENT: DE.Screen19,
+  X_AED_PAD: Screen21, X_AED: Screen22,
 }
 
 /* ---------- 1024×600 스테이지를 화면에 꽉 차게 스케일 ---------- */
@@ -88,6 +90,8 @@ export default function App() {
      연결 시  : intent 만 보내고 화면은 브리지가 돌려준 state 로 바뀐다
      미연결 시: 로컬 전이 (오프라인 시연 전용)                        */
   const fire = useCallback((event, payload = {}) => {
+    // AED 패드 부착 여부는 화면 표시용으로 UI 가 기억한다(장치 상태가 아님)
+    if (event === EV.AED_PADS_ON || event === EV.AED_NONE) setCtx((c) => ({ ...c, aedPads: event === EV.AED_PADS_ON }))
     if (bridgeRef.current && bridgeRef.current(event, payload)) return
     // 오프라인 시연: 음압 잔존이면 장치 플래그를 붙여 S13 → S12 redirect 를 보인다(redirect.js)
     if (event === EV.BACK_TO_IDLE && demoRef.current.vacResidual) {
@@ -163,7 +167,9 @@ export default function App() {
   }, [node, fire, bridge.connected])
 
   /* ---------- 압박 재시작 시 카운터 초기화 ---------- */
-  useEffect(() => { if (ctx.node === 'S2') vitals.reset() }, [ctx.node])
+  useEffect(() => {
+    if (ctx.node === 'S2') { vitals.reset(); setCtx((c) => (c.aedPads === undefined ? c : { ...c, aedPads: undefined })) }
+  }, [ctx.node])
 
   /* ---------- 개발/시연 패널 열기: 좌상단 1.5초 길게 누르기 or D키 ---------- */
   useEffect(() => {
@@ -176,7 +182,9 @@ export default function App() {
   const holdEnd = () => clearTimeout(holdRef.current)
 
   const Screen = SCREEN[ctx.node]
-  const props = { fire, ctx, demo, vitals, waves, search, searchCtl, setPatient }
+  // AED 압박 중단 경고 기준(초). 의학 근거 확인 전이라 기본은 비어 있다(브리지 CONFIG.aed_pause_warn_s)
+  const aedWarnS = bridge.connected && bridge.config ? bridge.config.aed_pause_warn_s : null
+  const props = { fire, ctx, demo, vitals, waves, search, searchCtl, setPatient, aedWarnS }
 
   return (
     <div style={{ position: 'fixed', inset: 0, background: '#0a0d12', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -244,7 +252,7 @@ function DevPanel({ ctx, node, demo, setDemo, setCtx, fire, bridge, scale, onClo
   const toggle = (k) => setDemo((d) => ({ ...d, [k]: !d[k] }))
 
   const events = [
-    ['ROSC 의심', EV.ROSC_SUSPECT], ['기기 오류', EV.ERROR], ['위치 이탈', EV.POSITION_DRIFT],
+    ['AED 사용', EV.AED_PAUSE], ['ROSC 의심', EV.ROSC_SUSPECT], ['기기 오류', EV.ERROR], ['위치 이탈', EV.POSITION_DRIFT],
     ['인공호흡 가이드', EV.VENT_GUIDE], ['일시정지', EV.PAUSE], ['정지(안전정지)', EV.STOP],
   ]
 
