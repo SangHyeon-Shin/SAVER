@@ -198,6 +198,18 @@ const check = (name, ok, detail = '') => {
   await until(() => T4().includes('대기로'), 3000)
   tap([...d4.querySelectorAll('#root button')].find((b) => b.textContent.includes('대기로')))
   check('해제 완료 뒤 대기로 → 시작 대기(S2)', await until(() => T4().includes('시작 대기'), 3000))
+  // 음성 안내 문구 (src/voice/prompts.json)
+  const VP = JSON.parse(readFileSync('src/voice/prompts.json', 'utf8'))
+  const vids = VP.prompts.map((p) => p.id)
+  check('음성 문구: ID 중복 없음, 화면 노드 존재', new Set(vids).size === vids.length
+    && VP.prompts.every((p) => p.node === '*' || spec.nodes[p.node]),
+    VP.prompts.filter((p) => p.node !== '*' && !spec.nodes[p.node]).map((p) => p.id).join(','))
+  check('음성 문구: TTS 입력에 숫자·영문 없음(발음대로 한글)', VP.prompts.every((p) => !/[0-9A-Za-z]/.test(p.say)),
+    VP.prompts.filter((p) => /[0-9A-Za-z]/.test(p.say)).map((p) => p.id).join(','))
+  check('음성 문구: 블라인드 비교 5문구가 목록에 있음', VP.blind_test.length === 5 && VP.blind_test.every((i) => vids.includes(i)))
+  check('음성 문구: S0 외 모든 화면에 문구', Object.keys(spec.nodes).filter((n) => n !== 'S0')
+    .every((n) => VP.prompts.some((p) => p.node === n)),
+    Object.keys(spec.nodes).filter((n) => n !== 'S0' && !VP.prompts.some((p) => p.node === n)).join(','))
   check('런타임 오류 없음 (시나리오 포함)', errors.length === 0, errors[0] || '')
 
   console.log(`\n${fail === 0 ? '✅ 전체 통과' : '❌ 실패 있음'}  (통과 ${pass} / 실패 ${fail})\n`)
