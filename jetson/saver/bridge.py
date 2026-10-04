@@ -9,6 +9,8 @@
   UI ← {"type":"state", ...}                     확정된 상태 (UI 는 그대로 그림)
   UI ← {"type":"telemetry", ...}                 실측값 (stale 이면 stale:true)
   UI ← {"type":"error", ...}                     오류
+  UI → {"type":"search","action":"start"|"stop"} 압박점 탐색 시작·중지 (X_SEARCH 에서만)
+  UI ← {"type":"search", ...}                    탐색 진행 (반력 곡선, 판정, D, 압박점)
 
 실행
   python3 -m saver.bridge                                  # 시리얼 없이 (UI 시험)
@@ -36,11 +38,13 @@ if __package__ in (None, ""):                     # 직접 실행 대응
     from saver.state_machine import StateMachine
     from saver.teensy_serial import TeensyLink
     from saver.logger import CsvLogger
+    from saver.search import SearchRunner, PARAM_KEYS as SEARCH_KEYS
 else:
     from . import protocol as P
     from .state_machine import StateMachine
     from .teensy_serial import TeensyLink
     from .logger import CsvLogger
+    from .search import SearchRunner, PARAM_KEYS as SEARCH_KEYS
 
 
 # ─────────────────────────────────────────────────────────────
@@ -53,6 +57,13 @@ CONFIG = {
     "force_max_N": 0,             # TODO 한성윤 / 서정준
     "vacuum_target_kPa": 0,       # TODO 서정준 + 한건민
 }
+# 압박점 탐색(saver/search.py, 초안 §7.2). 전부 비어 있으면 탐색을 시작하지 않는다.
+CONFIG.update(dict((k, None) for k in SEARCH_KEYS))
+
+# 장치가 정하는 이벤트. 장치에 연결돼 있으면 UI 가 보내도 받지 않는다(압박점을 임의로 확정하지 않는다).
+DEVICE_OWNED = ("SEARCH_DONE",)
+# 이 노드에 들어오면 이전 탐색 결과를 버린다.
+CP_RESET_NODES = ("S1", "S2", "X_SEARCH", "S12", "S13")
 
 
 def load_config(path):
@@ -63,6 +74,9 @@ def load_config(path):
     with open(path) as f:
         data = json.load(f)
     sim = bool(data.pop("_simulation_only", False))
+    if not sim and "sim_eapd_mm" in data:
+        print("[주의] sim_eapd_mm 은 시뮬레이션 설정에서만 씁니다. 무시합니다.")
+        data.pop("sim_eapd_mm")
     CONFIG.update({k: v for k, v in data.items() if not k.startswith("_")})
     if sim:
         print("=" * 62)
@@ -72,7 +86,7 @@ def load_config(path):
 
 
 def warn_unset():
-    miss = [k for k, v in CONFIG.items() if not v]
+    miss = [k for k, v in CONFIG.items() if not v and k != "sim_eapd_mm"]
     if miss:
         print("[주의] 미확정 설정값: %s" % ", ".join(miss))
         print("       확정 전까지 압박 개시(START_CPR)는 Teensy가 거부합니다. 정상입니다.")
@@ -89,6 +103,9 @@ class Bridge(object):
         # 탐색으로 압박점 위로 이동을 마쳤는지. 3단계 탐색 모듈이 켠다.
         # 꺼져 있으면 SET_CP_POINT 를 보내지 않는다(압박점을 임의로 정하지 않는다).
         self.cp_point_ready = False
+        # 환자 EAPD(mm). 레이더 모듈이 채운다. 시뮬레이션 설정의 sim_eapd_mm 만 예외다.
+        # 없으면 탐색을 시작하지 않는다(대체 상수 없음, 초안 §0.1-3).
+        self.eapd_mm = CONFIG.get("sim_eapd_mm")
         self.fsm = StateMachine(spec_path=args.spec,
                                 on_change=self._on_state,
                                 on_command=self._on_command,
@@ -100,7 +117,10 @@ class Bridge(object):
                                on_error=self._on_err,
                                on_link=self._on_link,
                                on_mot=self._on_mot,
+                               on_ack=self._on_ack,
                                logger=self.log)
+        self.search = SearchRunner(self.link, CONFIG, on_update=self._on_search,
+                                   on_done=self._on_search_done, logger=self.log)
 
     # ── 브로드캐스트 ────────────────────────────────────────
     def push(self, msg):
@@ -126,6 +146,10 @@ class Bridge(object):
         snap["event"] = event
         snap["type"] = "state"
         self.push(snap)
+        if snap.get("node") in CP_RESET_NODES:
+            self.cp_point_ready = False
+        if snap.get("node") != "X_SEARCH" and self.search.active:
+            self.search.cancel("LEFT_NODE")        # 탐색 화면을 벗어나면 동작을 멈춘다
 
     def _on_command(self, cmd):
         """상태 진입 시 정의된 Teensy 명령 (state_machine_v2.json 의 enter_cmds)"""
@@ -149,6 +173,9 @@ class Bridge(object):
 
     def _on_tel(self, msg):
         self.log.telemetry(msg)
+        r = self.fsm.retry_device()          # 상태 조건에 막혀 보류한 장치 이벤트(fire_device)
+        if r and r[0] == "expired":
+            self.log.event("sys", "DEVICE_EVENT_EXPIRED:" + r[1])
         out = dict(msg)
         out["type"] = "telemetry"
         out["stale"] = False
@@ -160,13 +187,33 @@ class Bridge(object):
         out["type"] = "motion"
         self.push(out)
 
+    def _on_ack(self, msg):
+        self.search.on_ack(msg)
+
+    def _on_search(self, snap):
+        out = dict(snap)
+        out["type"] = "search"
+        self.push(out)
+
+    def _on_search_done(self, ok, snap):
+        self._on_search(snap)
+        if self.fsm.node != "X_SEARCH":
+            return
+        if ok:
+            self.cp_point_ready = True              # S6 에서 SET_CP_POINT(offset_mm=0)
+            self.fsm.fire("SEARCH_DONE")
+        elif snap.get("moved") and snap.get("reason") not in ("USER_STOP", "LEFT_NODE"):
+            self.fsm.fire("SEARCH_FAIL")            # 동작 뒤 실패 → 오류 화면, RECHECK 로 다시 탐색
+        # 시작 전 거부(설정 없음, EAPD 없음, 미지원 펌웨어)는 탐색 화면에 사유만 표시한다
+
     def _on_evt(self, msg):
+        self.search.on_event(msg)
         name = msg.get("evt", "")
         self.log.event("mcu", name)
         # 장비가 UI 상태를 바꿔야 하는 경우만 상태머신에 주입
         mapping = {"VACUUM_OK": "VACUUM_OK", "VACUUM_FAIL": "VACUUM_ERROR"}
         if name in mapping:
-            self.fsm.fire(mapping[name])
+            self.fsm.fire_device(mapping[name], P.STALE_S)
         out = dict(msg)
         out["type"] = "device_event"
         self.push(out)
@@ -205,7 +252,10 @@ class Bridge(object):
                     continue
                 t = msg.get("type")
                 name = msg.get("name", "")
-                if t in ("intent", "event") and name:
+                if t in ("intent", "event") and name in DEVICE_OWNED and self.link.connected:
+                    await ws.send(json.dumps({"type": "rejected", "name": name, "node": self.fsm.node,
+                                              "allowed": self.fsm.allowed(), "reason": "device_owned"}))
+                elif t in ("intent", "event") and name:
                     ok = self.fsm.fire(name, msg.get("payload"))
                     self.log.event("ui", name)
                     if not ok:
@@ -217,6 +267,16 @@ class Bridge(object):
                             r["mcu"] = b["mcu"]
                             r["need"] = b["need"]
                         await ws.send(json.dumps(r))
+                elif t == "search":
+                    act = msg.get("action")
+                    self.log.event("ui", "SEARCH_" + str(act).upper())
+                    if act == "start" and self.fsm.node == "X_SEARCH":
+                        self.search.start(self.eapd_mm)
+                    elif act == "stop":
+                        self.search.cancel("USER_STOP")
+                    else:
+                        await ws.send(json.dumps({"type": "rejected", "name": "SEARCH_START",
+                                                  "node": self.fsm.node, "reason": "wrong_node"}))
                 elif t == "force" and msg.get("node"):       # 시연 패널 전용
                     self.fsm.force(msg["node"])
                 elif t == "cmd" and msg.get("cmd") in P.CMD:  # 진단용 직접 명령
@@ -233,6 +293,7 @@ class Bridge(object):
             ev = self.fsm.auto_due()
             if ev:
                 self.fsm.fire(ev)
+            self.search.tick()
             if self.link.connected and self.link.is_stale() and self.link.last_tel_at:
                 self.push({"type": "telemetry", "stale": True})
 

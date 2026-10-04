@@ -80,6 +80,18 @@ ck("복귀 대상의 장치 조건 검사(@return, FAULT면 탐색 복귀 거부
 mcu["s"] = "HOMED"
 ck("HOMED 복구 뒤 탐색 복귀", f5.fire("RECHECK") and f5.node == "X_SEARCH")
 
+# 장치 이벤트가 그 상태를 실은 tel 보다 먼저 오는 경우 (VACUUM_OK 직후 tel 은 아직 HOMED)
+mcu5 = {"s": "HOMED"}
+f5 = StateMachine(mcu_state=lambda: mcu5["s"]); f5.force("S5")
+ck("장치 이벤트가 상태 조건에 막히면 보류", f5.fire_device("VACUUM_OK", 0.5) is False and f5.node == "S5")
+ck("보류 중 tel 상태 그대로 → 전이 안 함", f5.retry_device() is None and f5.node == "S5")
+mcu5["s"] = "VACUUM_HOLD"
+ck("다음 tel 에서 상태 확인 → S6", f5.retry_device() == ("fired", "VACUUM_OK") and f5.node == "S6")
+f5.force("S5"); mcu5["s"] = "HOMED"; f5.fire_device("VACUUM_OK", 0.0); time.sleep(0.01); mcu5["s"] = "VACUUM_HOLD"
+ck("보류 마감 지나면 버림(오래된 이벤트로 전이 안 함)", f5.retry_device() == ("expired", "VACUUM_OK") and f5.node == "S5")
+f5.force("S5"); mcu5["s"] = "HOMED"; f5.fire_device("VACUUM_OK", 0.5); f5.fire("CANCEL"); mcu5["s"] = "VACUUM_HOLD"
+ck("보류 중 노드가 바뀌면 버림", f5.retry_device() == ("expired", "VACUUM_OK") and f5.node == "S2")
+
 # S13 조건: 음압이 남아 있으면 S2 대신 S12 (v1.1 합의 12번)
 flags = {"v": None}
 f4 = StateMachine(mcu_flags=lambda: flags["v"]); f4.force("S13")
@@ -218,7 +230,7 @@ ck("seq_start 지정 시 그 값 사용", TeensyLink(port="/nonexistent", seq_st
 
 print("\n== 7. 모의 Teensy v1.1 (주행, 제동, 헤드 높이, bid·aid) ==")
 SIMDIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "simulators")
-from fake_teensy_v11 import FakeTeensy11
+from fake_teensy_v11 import FakeTeensy11, Phantom
 SIM = dict((k, v) for k, v in json.load(open(os.path.join(SIMDIR, "teensy_settings.sim.json"))).items()
            if not k.startswith("_"))
 _opened = []
@@ -370,6 +382,7 @@ ck("ESTOP 중 DRIVE_STOP 은 ACK만, ARM 은 거부",
    ack(h.c("DRIVE_STOP")).get("ok") and ack(h.c("ARM")).get("why") == "ESTOP_ACTIVE")
 for ft_ in _opened:
     os.close(ft_.master); os.close(ft_.slave)
+del _opened[:]
 
 nl = TeensyLink(port="/nonexistent")
 ck("GET_INFO 확인 전: 비조회 명령은 보류, 조회·정지는 즉시",
@@ -421,6 +434,267 @@ ck("Jetson 재시작: INFO last_aid 다음부터 aid", l4.proto == "1.1" and l4.
    "last_aid=%s" % last_aid)
 l4.stop(); sim3.terminate(); sim3.wait()
 try: os.remove("/tmp/ttyFAKE_V11")
+except OSError: pass
+
+print("\n== 9. 압박점 탐색 판정과 지휘 (search.py) ==")
+from saver import search as S
+SCFG = dict((k, v) for k, v in json.load(open(os.path.join(os.path.dirname(SIMDIR), "config.sim.json"))).items()
+            if not k.startswith("_"))
+pp, bad = S.check_params({})
+ck("설정값 없음 → 탐색 키 전부 미설정", bad == list(S.PARAM_KEYS), ",".join(bad[:3]))
+pp, bad = S.check_params(SCFG)
+ck("시뮬레이션 설정은 통과", bad == [], ",".join(bad))
+ck("방향 부호 0, 판정 기준 1 이상, 간격 > ROI 는 거부",
+   S.check_params(dict(SCFG, scan_dir_sign=0))[1] == ["scan_dir_sign"]
+   and S.check_params(dict(SCFG, tip_drop_ratio=1.2))[1] == ["tip_drop_ratio"]
+   and S.check_params(dict(SCFG, scan_step_mm=200))[1] == ["scan_step_mm"]
+   and S.check_params(dict(SCFG, tip_ref_n=2.5))[1] == ["tip_ref_n"]
+   and S.check_params(dict(SCFG, press_mm=True))[1] == ["press_mm"])
+ck("D = 89.7 × EAPD / 205.8 (식 7)", abs(S.cp_distance(205.8, pp) - 89.7) < 1e-9
+   and abs(S.cp_distance(180.0, pp) - 89.7 * 180.0 / 205.8) < 1e-9)
+ck("D 상한 95 mm", S.cp_distance(250.0, pp) == 95.0)
+ck("EAPD 없음·0·음수·문자·NaN → None (대체 상수 없음)",
+   all(S.cp_distance(v, pp) is None for v in (None, 0, -10.0, "205.8", float("nan"), True)))
+
+xs = [5.0 * (i + 1) for i in range(16)]
+sharp = [40.0] * 8 + [12.0] * 8
+d1 = S.detect_tip(xs, sharp, 3, 0.3)
+ck("급감 → 처음 30 % 이상 감소한 점이 말단", d1["tip_index"] == 8 and d1["tip_x"] == 45.0, str(d1["tip_x"]))
+ck("판정식: r = 1 - F/Fref, Fref = 직전 N 점 평균", abs(d1["r"][8] - 0.7) < 1e-9 and d1["ref"][8] == 40.0
+   and d1["r"][2] is None)
+grad = [40.0 - 28.0 * i / 15.0 for i in range(16)]
+ck("완만한 감소는 판정하지 않음", S.detect_tip(xs, grad, 3, 0.3)["tip_index"] is None)
+rng = random.Random(5)
+noisy = [f + rng.gauss(0, 0.4) for f in sharp]
+ck("잡음 0.4 N 에서도 같은 점", S.detect_tip(xs, noisy, 3, 0.3)["tip_index"] == 8)
+ck("감소 없음 → 말단 없음", S.detect_tip(xs, [40.0] * 16, 3, 0.3)["tip_index"] is None)
+ck("샘플 부족(N 점 이하) → 판정 안 함", S.detect_tip(xs[:3], [40.0, 40.0, 12.0], 3, 0.3)["tip_index"] is None)
+ck("시작 N 점 안의 급감은 N 번째 점에서 늦게 잡힘(위치 오차, 시작점은 말단보다 N 간격 이상 머리 쪽)",
+   S.detect_tip(xs[:6], [40.0, 12.0, 12.0, 12.0, 12.0, 12.0], 3, 0.3)["tip_index"] == 3)
+two = [40.0] * 5 + [12.0] + [40.0] * 5 + [12.0] * 5
+d2 = S.detect_tip(xs, two, 3, 0.3)
+ck("후보 두 묶음 → 첫 후보를 쓰고 묶음 수를 남김", d2["tip_index"] == 5 and d2["groups"] == 2, str(d2["candidates"]))
+ck("반력 0(접촉 없음)은 판정에서 뺌", S.detect_tip(xs[:6], [0.0] * 6, 3, 0.3)["tip_index"] is None)
+
+
+class Link11(object):
+    """SearchRunner 시험용 링크. FakeTeensy11(수동 완료)에 직접 연결한다. pump() 로 응답을 넘긴다."""
+    def __init__(self, dev, proto="1.1"):
+        self.d, self.proto = dev, proto
+        self.caps = set(dev.ft.caps) if proto == "1.1" else set()
+        self.boot_id = dev.ft.boot_id
+        self.fresh, self.runner, self.log = True, None, []
+        self._sent, self._pair, self._tel, self.last_mot, self.drop, self.evts = {}, None, {}, {}, [], []
+    def mot_fresh(self): return self.fresh
+    def status_pair(self): return self._pair
+    def sent(self, seq): return dict(self._sent[seq]) if seq in self._sent else None
+    def send(self, cmd, **kw):
+        d = self.d
+        d.seq += 1
+        m = {"v": 1, "t": "cmd", "seq": d.seq, "cmd": cmd}
+        if cmd not in P.QUERY_CMDS:
+            d.aid += 1
+            m.update(bid=self.boot_id, aid=d.aid)
+        m.update(kw)
+        if cmd not in P.QUERY_CMDS:
+            self._sent[d.seq] = m
+        self.log.append(dict(m))
+        d.ft.handle(dict(m))
+        return d.seq
+    def resend(self, seq):
+        if seq not in self._sent: return False
+        self.log.append(dict(self._sent[seq], resent=True))
+        self.d.ft.handle(dict(self._sent[seq]))
+        return True
+    def pump(self):
+        while self.d.out:
+            m = self.d.out.pop(0)
+            t = m.get("t")
+            if t == "ack":
+                self.runner.on_ack(m)
+            elif t == "evt":
+                if m.get("evt") in self.drop:
+                    self.drop.remove(m.get("evt")); continue
+                self.evts.append(m)
+                self.runner.on_event(m)
+            elif t == "tel":
+                self._tel = m
+            elif t == "mot":
+                self.last_mot = m
+                if self._tel.get("tn") == m.get("tn"):
+                    self._pair = (self._tel, m, 0.0)
+    def cmds(self, name=None):
+        return [m for m in self.log if name is None or m["cmd"] == name]
+
+def rig(settings=None, cfg=None, proto="1.1", phantom=None, clock=None):
+    dv = V11(settings=settings, phantom=phantom) if phantom else V11(settings=settings)
+    dv.ft.vac_released = True
+    dv.c("ARM"); del dv.out[:]
+    lk = Link11(dv, proto)
+    done = []
+    kw = {"clock": clock} if clock else {}
+    rn = S.SearchRunner(lk, SCFG if cfg is None else cfg, on_done=lambda ok, s: done.append((ok, s)), **kw)
+    lk.runner = rn
+    return dv, lk, rn, done
+
+def drive(lk, rn, limit=500):
+    for _ in range(limit):
+        lk.pump()
+        if not rn.active:
+            break
+        if lk.d.ft.job:
+            lk.d.ft.finish_job()
+        else:
+            rn.tick()
+    lk.pump()
+
+dv, lk, rn, done = rig()
+ok = rn.start(205.8); drive(lk, rn)
+snap = rn.snapshot()
+names = [m["cmd"] for m in lk.log]
+ck("정상 탐색 → 완료", ok and done and done[-1][0] is True and snap["phase"] == "done", str(snap.get("reason")))
+ck("순서: HOME → HEAD_HOLD(10 mm, drv_zero) → DRIVE_STEP → HOME → 압박점 이동",
+   names[0] == "HOME" and names[1] == "HEAD_HOLD" and lk.log[1].get("drv_zero") is True
+   and lk.log[1].get("press_mm") == 10.0 and names[2] == "DRIVE_STEP"
+   and names.index("HOME", 1) == 2 + 24 and names[-1] == "DRIVE_STEP", "→".join(names[:4]))
+ck("ROI 끝까지 취득(첫 급감에서 멈추지 않음): 24 점", len(snap["points"]) == 24 and snap["points"][-1]["x"] == 120.0)
+ck("모의 말단 60 mm 를 찾음(간격 5 mm)", snap["tip_x"] is not None and abs(snap["tip_x"] - 60.0) <= 5.0, str(snap["tip_x"]))
+ck("압박점 = 말단 - D (머리 쪽, D = 89.7)", snap["D_mm"] == 89.7 and abs(snap["target_x"] - (snap["tip_x"] - 89.7)) < 0.01,
+   "target=%s" % snap["target_x"])
+ck("압박점 도달(허용 오차 안), 이동 1회 ≤ 20 mm",
+   abs(snap["pos_x"] - snap["target_x"]) <= 0.5
+   and all(abs(m["dist_mm"]) <= 20.0 for m in lk.log[2 + 24 + 1:]), "pos=%s" % snap["pos_x"])
+ck("이동 중 헤드는 올라가 있음", dv.ft.head_pos == 0.0 and not dv.ft.head_hold_active)
+ck("탐색은 Teensy 출력값을 지정하지 않음(목표 거리만)",
+   all(set(m) <= set(["v", "t", "seq", "cmd", "bid", "aid", "dist_mm", "press_mm", "drv_zero"]) for m in lk.log))
+
+dv, lk, rn, done = rig()
+ck("EAPD 없음 → 시작 안 함, 명령 없음", rn.start(None) is False and done[-1][1]["reason"] == "EAPD_MISSING"
+   and lk.log == [] and done[-1][1]["moved"] is False)
+dv, lk, rn, done = rig(cfg=dict(SCFG, tip_ref_n=None))
+ck("탐색 설정값 하나라도 없음 → 시작 안 함", rn.start(205.8) is False and done[-1][1]["reason"] == "PARAM_UNSET"
+   and "tip_ref_n" in done[-1][1]["detail"] and lk.log == [])
+dv, lk, rn, done = rig(proto="1.0")
+ck("v1.0 펌웨어 → 탐색 끔", rn.start(205.8) is False and done[-1][1]["reason"] == "UNSUPPORTED" and lk.log == [])
+dv, lk, rn, done = rig()
+rn.start(250.0); drive(lk, rn)
+ck("EAPD 250 → D 상한 95", rn.snapshot()["D_mm"] == 95.0 and rn.phase == "done")
+
+dv, lk, rn, done = rig(settings=dict(SIM, drv_avg_min_n=100))
+rn.start(205.8); drive(lk, rn)
+ck("반력 샘플 부족 → 실패, 0 으로 대신하지 않음", rn.snapshot()["reason"] == "FORCE_SAMPLES_SHORT"
+   and len(lk.cmds("DRIVE_STEP")) == 1 and rn.snapshot()["points"] == [])
+dv, lk, rn, done = rig(settings=dict(SIM, drv_speed_mm_s=None))
+rn.start(205.8); drive(lk, rn)
+ck("Teensy 거부(설정값 없음) → 실패, 사유 보존", rn.snapshot()["reason"] == "REJECTED"
+   and "LIMIT_UNSET" in rn.snapshot()["detail"], str(rn.snapshot()["detail"]))
+dv, lk, rn, done = rig(phantom=Phantom(k_hard=1.2, k_soft=1.2))
+rn.start(205.8); drive(lk, rn)
+ck("말단 없음 → ROI 끝까지 본 뒤 헤드 올리고 실패", rn.snapshot()["reason"] == "TIP_NOT_FOUND"
+   and lk.log[-1]["cmd"] == "HOME" and dv.ft.head_pos == 0.0 and not dv.ft.head_hold_active)
+
+dv, lk, rn, done = rig()
+rn.start(205.8)
+for _ in range(8):
+    lk.pump(); dv.ft.finish_job()
+lk.pump()
+n_before = len(lk.log)
+rn.cancel("USER_STOP"); lk.pump()
+ck("사용자 중지 → DRIVE_STOP, STOPPED 받고 실패, 다음 명령 없음",
+   lk.log[n_before]["cmd"] == "DRIVE_STOP" and len(lk.log) == n_before + 1 and rn.phase == "failed"
+   and rn.snapshot()["reason"] == "USER_STOP" and "STOPPED" in str(rn.snapshot()["detail"]))
+
+T = [100.0]
+dv, lk, rn, done = rig(clock=lambda: T[0])
+lk.fresh = False
+rn.start(205.8)
+ck("mot 오래됨 → 동작 명령 보류", lk.log == [] and rn.active)
+T[0] += 1.0; rn.tick(); lk.fresh = True; rn.tick(); lk.pump()
+ck("mot 회복 → 보류한 명령 송신", [m["cmd"] for m in lk.log] == ["HOME"])
+dv, lk, rn, done = rig(clock=lambda: T[0])
+lk.fresh = False; rn.start(205.8); T[0] += 2.5; rn.tick()
+ck("mot 오래됨 2 s 초과 → 실패", rn.snapshot()["reason"] == "MOT_STALE" and lk.log == [])
+
+# 완료 이벤트 유실(§4.4)
+dv, lk, rn, done = rig(clock=lambda: T[0])
+rn.start(205.8)
+for _ in range(3):
+    lk.pump(); dv.ft.finish_job()
+lk.pump()                                     # HOME, HEAD_HOLD, DRIVE_STEP 1 완료 → DRIVE_STEP 2 송신
+lk.drop.append("DRIVE_DONE"); dv.ft.finish_job(); lk.pump()
+lost = lk.log[-1]; x_before = dv.ft._x
+T[0] += 4.0; rn.tick()
+ck("한도 전에는 기다림", lk.log[-1] is lost)
+T[0] += 2.0; rn.tick(); lk.pump()
+ck("한도 초과 → GET_STATUS", lk.log[-1]["cmd"] == "GET_STATUS")
+rn.tick(); lk.pump()
+rs = [m for m in lk.log if m.get("resent")]
+ck("mot_last_aid 일치 → 같은 seq·aid·파라미터로 재요청, 재실행 없음",
+   len(rs) == 1 and rs[0]["seq"] == lost["seq"] and rs[0]["aid"] == lost["aid"]
+   and rs[0]["dist_mm"] == lost["dist_mm"] and dv.ft._x == x_before)
+ck("저장된 완료 이벤트로 이어서 진행", len(rn.snapshot()["points"]) == 2 and lk.log[-1]["cmd"] == "DRIVE_STEP"
+   and lk.log[-1]["seq"] != lost["seq"])
+pts, nlog = len(rn.snapshot()["points"]), len(lk.log)
+replay = [m for m in lk.evts if m.get("seq") == lost["seq"]]
+rn.on_event(dict(replay[-1])); lk.pump()
+ck("이미 처리한 완료 이벤트 중복 → 무시", replay and len(rn.snapshot()["points"]) == pts and len(lk.log) == nlog)
+
+dv, lk, rn, done = rig(clock=lambda: T[0])
+rn.start(205.8)
+for _ in range(2):
+    lk.pump(); dv.ft.finish_job()
+lk.pump()                                     # DRIVE_STEP 1 진행 중(완료 안 함)
+T[0] += 6.0; rn.tick(); lk.pump(); rn.tick(); lk.pump()
+ck("busy_aid 일치 → 한 번 더 기다림", rn.active and lk.log[-1]["cmd"] == "GET_STATUS")
+T[0] += 6.0; rn.tick(); lk.pump(); rn.tick(); lk.pump()
+ck("그래도 안 끝남 → DRIVE_STOP, STOPPED 받고 실패", rn.snapshot()["reason"] == "TIMEOUT"
+   and lk.cmds("DRIVE_STOP") and "STOPPED" in str(rn.snapshot()["detail"]))
+
+dv, lk, rn, done = rig(clock=lambda: T[0])
+rn.start(205.8)
+for _ in range(3):
+    lk.pump(); dv.ft.finish_job()
+lk.pump()
+lk.drop.append("DRIVE_DONE"); dv.ft.finish_job(); lk.pump()
+dv.ft.act_cur = None
+T[0] += 6.0; rn.tick(); lk.pump(); rn.tick()
+ck("동작 기록에 없음 → 상태 불일치로 실패", rn.snapshot()["reason"] == "STATE_MISMATCH")
+
+dv, lk, rn, done = rig(clock=lambda: T[0])
+rn.start(205.8); lk.pump(); lk.boot_id = 999; rn.tick()
+ck("재부팅(boot_id 변화) → 결과 불명, 재전송 없이 실패", rn.snapshot()["reason"] == "REBOOTED"
+   and not [m for m in lk.log if m.get("resent")])
+for ft_ in _opened:
+    try:
+        os.close(ft_.master); os.close(ft_.slave)
+    except OSError:
+        pass
+
+# 가상 포트: 실제 TeensyLink 와 모의 Teensy 프로세스
+sim5 = subprocess.Popen([sys.executable, "-u", os.path.join(SIMDIR, "fake_teensy.py"),
+    "--port", "/tmp/ttyFAKE_SRCH", "--hz", "20", "--seed", "4", "--quiet",
+    "--fw", "1.1", "--sim-settings", "--time-scale", "0.05"],
+    stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+time.sleep(1.2)
+holder, r5, d5 = {}, [], []
+l5 = TeensyLink(port="/tmp/ttyFAKE_SRCH", on_error=r5.append,
+                on_event=lambda m: holder["r"].on_event(m), on_ack=lambda m: holder["r"].on_ack(m))
+rn5 = S.SearchRunner(l5, SCFG, on_done=lambda ok, s: d5.append((ok, s)))
+holder["r"] = rn5
+l5.start(); time.sleep(1.2)
+l5.send("ARM"); time.sleep(0.3)
+rn5.start(180.0)
+end = time.monotonic() + 20.0
+while rn5.active and time.monotonic() < end:
+    rn5.tick(); time.sleep(0.02)
+s5 = rn5.snapshot()
+ck("가상 포트: 탐색 완료, 말단 60 mm 부근, 압박점 도달",
+   s5["phase"] == "done" and abs(s5["tip_x"] - 60.0) <= 5.0 and abs(s5["pos_x"] - s5["target_x"]) <= 0.5,
+   "%s tip=%s target=%s pos=%s" % (s5["phase"], s5["tip_x"], s5["target_x"], s5["pos_x"]))
+ck("가상 포트: EAPD 180 → D = 78.45", abs(s5["D_mm"] - 78.45) < 0.01, str(s5["D_mm"]))
+ck("가상 포트: 오류 없음", not r5, str(r5[:2]))
+l5.stop(); sim5.terminate(); sim5.wait()
+try: os.remove("/tmp/ttyFAKE_SRCH")
 except OSError: pass
 
 print("\n%s  (통과 %d / 실패 %d)\n" % ("전체 통과" if P_["fail"] == 0 else "실패 있음", P_["pass"], P_["fail"]))

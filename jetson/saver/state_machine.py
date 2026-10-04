@@ -33,6 +33,7 @@ class StateMachine(object):
         # dict 안의 값이 None 이면 값이 없거나 오래된 것이다.
         self.mcu_flags = mcu_flags or (lambda: None)
         self.blocked_reason = None
+        self._held = None                # (event, node, 마감 시각) 장치 이벤트 보류
 
         self.node = self.spec["initial"]
         self.error_return = "S2"
@@ -127,6 +128,33 @@ class StateMachine(object):
 
         self.on_change(self.snapshot(), event)
         return True
+
+    def fire_device(self, event, ttl_s):
+        """장치(Teensy)가 보낸 이벤트. 장치 상태 조건(requires_mcu)에 막히면 ttl_s 동안 보류하고
+        다음 텔레메트리에서 retry_device() 로 한 번 더 확인한다.
+        장치는 상태가 바뀌는 순간 이벤트를 보내고, 바뀐 상태는 다음 tel 에 실린다.
+        이벤트가 tel 보다 먼저 오면 직전 tel 의 상태로 검사해 막히기 때문이다(예: VACUUM_OK)."""
+        with self._lock:
+            ok = self._fire(event)
+            if not ok and self.blocked_reason and self.blocked_reason["event"] == event:
+                self._held = (event, self.node, time.monotonic() + ttl_s)
+            return ok
+
+    def retry_device(self):
+        """보류한 장치 이벤트를 다시 확인한다. ("fired"|"expired", 이벤트) 또는 None.
+        노드가 바뀌었거나 마감이 지나면 버린다(오래된 이벤트로 전이하지 않는다)."""
+        with self._lock:
+            h = self._held
+            if not h:
+                return None
+            event, node, deadline = h
+            if self.node != node or time.monotonic() > deadline:
+                self._held = None
+                return ("expired", event)
+            if self._fire(event):
+                self._held = None
+                return ("fired", event)
+            return None
 
     def _redirect(self, event):
         """현재 노드의 redirect 규칙에 걸리면 바뀐 목적지를, 아니면 None 을 돌려준다."""

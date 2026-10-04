@@ -10,11 +10,14 @@
   - 하트비트 PING 1 s
   - v1.1 초안: 연결마다 GET_INFO 먼저, 비조회 명령에 bid·aid, mot 수신과 tel 짝 맞춤,
     재부팅(boot_id 변화) 감지, tn 역전 폐기, 장치 플래그(mcu_flags)
+  - 완료 이벤트 유실 때 같은 seq·aid 재전송(resend, 초안 §4.4)
+  - 경과 시간은 단조 시계(time.monotonic)
 
 담당하지 않는 것
   - 상태머신 판단 (state_machine.py)
   - 실시간 제어 (Teensy)
 """
+import collections
 import threading
 import time
 
@@ -79,10 +82,11 @@ class _RawPort(object):
 class TeensyLink(object):
 
     DEFER_MAX_S = 2.0       # GET_INFO 응답 전 보류한 명령의 유효 시간. 넘으면 보내지 않는다
+    SENT_KEEP = 64
 
     def __init__(self, port=None, baud=115200,
                  on_telemetry=None, on_event=None, on_error=None, on_link=None,
-                 logger=None, seq_start=None, on_mot=None):
+                 logger=None, seq_start=None, on_mot=None, on_ack=None):
         self.port_hint = port
         self.baud = baud
         self.on_telemetry = on_telemetry or (lambda m: None)
@@ -90,6 +94,7 @@ class TeensyLink(object):
         self.on_error = on_error or (lambda m: None)
         self.on_link = on_link or (lambda connected, port: None)
         self.on_mot = on_mot or (lambda m: None)
+        self.on_ack = on_ack or (lambda m: None)
         self.log = logger
 
         self._ser = None
@@ -119,6 +124,7 @@ class TeensyLink(object):
         self.last_mot_at = 0.0
         self._tn_last = {}              # "tel"/"mot" -> (boot_id, tn)
         self._pair = None               # (tel, mot, 수신 시각): 같은 tn 의 짝
+        self._sent = collections.OrderedDict()   # seq -> 보낸 비조회 명령(재전송용, 최근 SENT_KEEP 개)
 
     # ── 연결 ────────────────────────────────────────────────
     def _open(self):
@@ -143,7 +149,7 @@ class TeensyLink(object):
 
     def _handshake(self):
         self.proto = None
-        self._info_at = time.time()
+        self._info_at = time.monotonic()
         self._info_seq = self.send("GET_INFO")
 
     def _set_proto(self, proto, info=None):
@@ -158,7 +164,7 @@ class TeensyLink(object):
             self._aid = P.AidCounter(int(info.get("last_aid", 0)) + 1)
         if self.log:
             self.log.event("sys", "PROTO_" + proto)
-        now = time.time()
+        now = time.monotonic()
         pend, self._deferred = self._deferred, []
         for cmd, kw, at in pend:
             if now - at <= self.DEFER_MAX_S:
@@ -187,7 +193,7 @@ class TeensyLink(object):
         펌웨어 판(GET_INFO)을 확인하기 전에는 조회·정지 명령만 바로 보내고 나머지는 보류한다
         (bid·aid 없이 보내면 v1.1 펌웨어가 AID_REQUIRED 로 거부한다). 보류 중이면 None."""
         if self.proto is None and cmd not in P.QUERY_CMDS and cmd not in P.STOP_CMDS:
-            self._deferred.append((cmd, kw, time.time()))
+            self._deferred.append((cmd, kw, time.monotonic()))
             return None
         if self.uses_aid() and cmd not in P.QUERY_CMDS:
             aid = self._aid.next()
@@ -200,11 +206,38 @@ class TeensyLink(object):
         seq = self._seq.next()
         msg = P.build_cmd(seq, cmd, **kw)
         with self._lock:
-            self._pending[seq] = [msg, time.time(), 0]
+            self._pending[seq] = [msg, time.monotonic(), 0]
+            if cmd not in P.QUERY_CMDS:
+                self._sent[seq] = msg
+                while len(self._sent) > self.SENT_KEEP:
+                    self._sent.popitem(last=False)
         self._write(msg)
         if self.log:
             self.log.event("cmd", cmd, seq=seq)
         return seq
+
+    def sent(self, seq):
+        """보낸 비조회 명령(사본). 없으면 None."""
+        with self._lock:
+            m = self._sent.get(seq)
+        return dict(m) if m else None
+
+    def resend(self, seq):
+        """같은 seq·aid·파라미터로 다시 보낸다(초안 §4.4-3). Teensy 는 재실행하지 않고
+        원래 ACK 와 저장된 완료 이벤트를 다시 보낸다. 재부팅 전 명령은 남아 있지 않다."""
+        with self._lock:
+            msg = self._sent.get(seq)
+            if msg is None:
+                return False
+            self._pending[seq] = [msg, time.monotonic(), 0]
+        self._write(msg)
+        if self.log:
+            self.log.event("cmd", "RESEND:" + str(msg.get("cmd")), seq=seq)
+        return True
+
+    def status_pair(self):
+        """같은 tn 의 (tel, mot, 수신 시각). 없으면 None."""
+        return self._pair
 
     def _write(self, msg):
         if not self._ser:
@@ -235,12 +268,13 @@ class TeensyLink(object):
                                "why": msg.get("why", ""), "seq": seq})
             if msg.get("state"):
                 self.mcu_state = msg["state"]
+            self.on_ack(msg)
 
         elif t == "tel":
             if not self._in_order("tel", msg):
                 return
             self.last_tel = msg
-            self.last_tel_at = time.time()
+            self.last_tel_at = time.monotonic()
             self.mcu_state = msg.get("state", self.mcu_state)
             self.on_telemetry(msg)
 
@@ -248,7 +282,7 @@ class TeensyLink(object):
             if not self._in_order("mot", msg):
                 return
             self.last_mot = msg
-            self.last_mot_at = time.time()
+            self.last_mot_at = time.monotonic()
             if self.last_tel.get("tn") is not None and self.last_tel.get("tn") == msg.get("tn"):
                 self._pair = (self.last_tel, msg, self.last_mot_at)
             self.on_mot(msg)
@@ -281,7 +315,7 @@ class TeensyLink(object):
 
     # ── ACK 감시 / 하트비트 ─────────────────────────────────
     def _tick(self):
-        now = time.time()
+        now = time.monotonic()
         # INFO 응답이 유실되면 GET_INFO 를 다시 보낸다(조회라 같은 seq 가 아니어도 안전)
         if self._ser and self.proto is None and now - self._info_at > 1.0:
             self._handshake()
@@ -330,6 +364,7 @@ class TeensyLink(object):
         self._tn_last = {}
         with self._lock:
             self._pending.clear()       # 재부팅 전에 만든 요청은 재전송하지 않는다
+            self._sent.clear()
         self._handshake()
 
     @property
@@ -339,18 +374,18 @@ class TeensyLink(object):
         if self.proto != "1.1" or "MOT" not in self.caps:
             return None
         pair = self._pair
-        if not pair or time.time() - pair[2] > P.STALE_S:
+        if not pair or time.monotonic() - pair[2] > P.STALE_S:
             return {"rearm_lock": None, "vac_released": None}
         mot = pair[1]
         return {"rearm_lock": mot.get("rearm_lock"), "vac_released": mot.get("vac_released")}
 
     def mot_fresh(self):
         """mot 이 오래되면 새 동작 명령을 보내지 않는다(§3.3-2)."""
-        return (time.time() - self.last_mot_at) <= P.STALE_S
+        return (time.monotonic() - self.last_mot_at) <= P.STALE_S
 
     def is_stale(self):
         """텔레메트리가 오래됐으면 표시값으로 쓰지 않는다 (명세 §9)."""
-        return (time.time() - self.last_tel_at) > P.STALE_S
+        return (time.monotonic() - self.last_tel_at) > P.STALE_S
 
     # ── 루프 ────────────────────────────────────────────────
     def _loop(self):
@@ -365,7 +400,7 @@ class TeensyLink(object):
                     backoff = min(backoff * 1.6, 5.0)
                     continue
             self._read_once()
-            now = time.time()
+            now = time.monotonic()
             if now - last_ping >= P.HEARTBEAT_S:
                 last_ping = now
                 self.send("PING")

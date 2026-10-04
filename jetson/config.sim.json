@@ -4,5 +4,25 @@
   "target_bpm": 110,
   "target_depth_mm": 50,
   "force_max_N": 600,
-  "vacuum_target_kPa": -30
+  "vacuum_target_kPa": -22.5,
+
+  "_search": "압박점 탐색(saver/search.py). press_mm, cp_dist_ref_mm, eapd_ref_mm, cp_dist_max_mm, tip_drop_ratio 는 제출 보고서 6.2 값이며 인체 검증 없음. 나머지는 모의 Teensy(simulators/teensy_settings.sim.json, Phantom)에 맞춘 시뮬레이션 값이다.",
+  "press_mm": 10.0,
+  "cp_dist_ref_mm": 89.7,
+  "eapd_ref_mm": 205.8,
+  "cp_dist_max_mm": 95,
+  "tip_drop_ratio": 0.3,
+  "tip_ref_n": 3,
+  "scan_step_mm": 5.0,
+  "scan_roi_mm": 120.0,
+  "scan_dir_sign": 1,
+  "move_step_mm": 20.0,
+  "move_tol_mm": 0.5,
+  "drv_timeout_ms": 3000,
+  "drv_settle_max_ms": 1000,
+  "drv_avg_ms": 200,
+  "head_timeout_ms": 10000,
+
+  "_sim_eapd_mm": "레이더 대신 쓰는 모의 EAPD(mm). 시뮬레이션 설정에서만 받아들인다.",
+  "sim_eapd_mm": 205.8
 }
