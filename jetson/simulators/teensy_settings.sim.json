@@ -1,0 +1,11 @@
+{
+  "_README": "모의 Teensy(fake_teensy_v11.py) 전용 설정입니다. 의학적·공학적 근거가 없는 시뮬레이션 값이며 실기 펌웨어나 실제 장비에 쓰면 안 됩니다. 실기 값은 프로토콜 v1.1 초안 §7.1 순서대로 10/6 벤치값으로 한건민이 정합니다.",
+  "_simulation_only": true,
+  "limit_top_ok": 1,
+  "drv_speed_mm_s": 20, "drv_speed_max_mm_s": 40, "drv_step_max_mm": 20,
+  "drv_timeout_ms": 3000, "drv_settle_ms": 100, "drv_settle_max_ms": 1000,
+  "drv_avg_ms": 200, "drv_avg_min_n": 10, "drv_pos_tol_mm": 0.5,
+  "force_stale_ms": 100, "scan_force_max_N": 150, "contact_force_N": 5, "contact_confirm_ms": 50,
+  "head_search_speed_mm_s": 10, "head_search_max_mm": 80, "head_timeout_ms": 10000, "head_press_max_mm": 15,
+  "vac_release_kPa": 1.0, "vac_release_ms": 300, "vac_release_timeout_ms": 5000
+}

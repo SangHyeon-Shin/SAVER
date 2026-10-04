@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""SAVER USB 프로토콜 v1.0 — Jetson 측 구현
+"""SAVER USB 프로토콜 v1.0 + v1.1 초안(docs/protocol_v1.1_draft.md) — Jetson 측 구현
 
 명세: protocol/teensy_usb_protocol_v1.md
 Teensy 측 대응 구현: teensy/saver_proto.h
@@ -12,6 +12,7 @@ import random
 
 PROTO_VERSION = 1
 MAX_LINE = 512
+MAX_BODY = MAX_LINE - 1     # 줄 끝 LF 를 뺀 본문 한도 (v1.1 §3.4)
 
 # ── 명령 (명세 §5) ───────────────────────────────────────────────
 CMD = [
@@ -19,7 +20,15 @@ CMD = [
     "VACUUM_ON", "VACUUM_OFF", "STIFFNESS_SCAN", "SET_CP_POINT",
     "TRIAL_COMPRESSION", "START_CPR", "PAUSE_CPR", "RESUME_CPR",
     "STOP_CPR", "RESET_FAULT", "SET_TEL_RATE",
+    # v1.1 초안 §2
+    "GET_INFO", "GET_FAULTS", "DRIVE_STEP", "DRIVE_STOP", "HEAD_HOLD",
 ]
+
+# v1.1 §2.5 명령 분류. 조회는 bid·aid 없이 보내고, 나머지는 bid·aid 를 싣는다.
+QUERY_CMDS = ("PING", "GET_STATUS", "GET_INFO", "GET_FAULTS")
+STOP_CMDS = ("DRIVE_STOP", "STOP_CPR", "PAUSE_CPR", "DISARM")
+ACTION_CMDS = ("HOME", "HEAD_HOLD", "DRIVE_STEP", "SET_CP_POINT", "TRIAL_COMPRESSION", "STIFFNESS_SCAN")
+AID_MAX = 4294967295
 
 # ── Teensy 내부 상태 (명세 §7) — Jetson의 S1~S13과 별개 ──────────
 MCU_STATES = [
@@ -55,6 +64,18 @@ ERR = {
     "2-MU-011": "구동부 온도 경고",
     "3-MU-001": "전원 전압 하한 미달",
     "3-MU-002": "비상정지 작동",
+    # v1.1 초안 §6 (운반 유닛 TU, 음압 해제)
+    "2-TU-001": "주행 방향 이탈",
+    "2-TU-002": "기울기 초과",
+    "3-TU-003": "탐색 반력 상한 초과",
+    "2-TU-004": "주행 거리 미달·시간 초과",
+    "3-TU-005": "주행 엔코더 무효",
+    "2-TU-006": "접촉 실패",
+    "2-TU-007": "자이로 수신 끊김",
+    "2-TU-008": "설정값 미설정으로 명령 거부",
+    "3-TU-009": "로드셀 데이터 상실·정체",
+    "3-TU-010": "리니어 센서 상실·범위 이탈",
+    "2-VU-008": "음압 해제 시간 초과",
 }
 
 
@@ -77,7 +98,7 @@ def encode(msg):
     """dict → 한 줄 JSON(bytes). 명세 §3"""
     msg.setdefault("v", PROTO_VERSION)
     line = json.dumps(msg, ensure_ascii=True, separators=(",", ":"))
-    if len(line) + 1 > MAX_LINE:
+    if len(line) > MAX_BODY:
         raise ProtocolError("line too long: %d byte" % (len(line) + 1))
     return (line + "\n").encode("ascii")
 
@@ -93,7 +114,7 @@ def decode(line):
         except Exception:
             return None
     line = line.strip()
-    if not line or len(line) > MAX_LINE:
+    if not line or len(line) > MAX_BODY:
         return None
     try:
         msg = json.loads(line)
@@ -119,6 +140,20 @@ class SeqCounter(object):
     def next(self):
         n = self._n
         self._n = 1 if self._n >= 65535 else self._n + 1
+        return n
+
+
+class AidCounter(object):
+    """v1.1 aid: 부팅 세션 안에서 1부터 늘리고 순환하지 않는다(§2.5). 한도에 이르면 None."""
+
+    def __init__(self, start=1):
+        self._n = max(1, int(start))
+
+    def next(self):
+        if self._n > AID_MAX:
+            return None
+        n = self._n
+        self._n += 1
         return n
 
 

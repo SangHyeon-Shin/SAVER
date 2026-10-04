@@ -99,6 +99,7 @@ class Bridge(object):
                                on_event=self._on_evt,
                                on_error=self._on_err,
                                on_link=self._on_link,
+                               on_mot=self._on_mot,
                                logger=self.log)
 
     # ── 브로드캐스트 ────────────────────────────────────────
@@ -151,6 +152,12 @@ class Bridge(object):
         out = dict(msg)
         out["type"] = "telemetry"
         out["stale"] = False
+        self.push(out)
+
+    def _on_mot(self, msg):
+        """v1.1 mot(동작 상태): 표시용. 판단은 완료 이벤트로 한다(초안 §3.3-6)."""
+        out = dict(msg)
+        out["type"] = "motion"
         self.push(out)
 
     def _on_evt(self, msg):

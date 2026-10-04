@@ -8,11 +8,13 @@
 
 명세: protocol/teensy_usb_protocol_v1.md v1.0
 Teensy 실물 구현과 동작이 일치해야 합니다. 다르면 명세를 고치고 양쪽을 맞추세요.
+v1.1 초안(주행 탐색, bid·aid, mot)은 fake_teensy_v11.py 에 있습니다(--fw 1.1).
 
 실행
   python3 fake_teensy.py                      # 포트 경로를 출력하고 대기
   python3 fake_teensy.py --port /tmp/ttyFAKE  # 심볼릭 링크까지 생성
   python3 fake_teensy.py --scenario overcurrent@15
+  python3 fake_teensy.py --fw 1.1 --sim-settings      # v1.1 초안, 시뮬레이션 설정으로 탐색 명령 허용
 
 ※ 백그라운드(&)로 돌리려면 stdin 을 끊어야 합니다. 터미널을 읽는 백그라운드
    프로세스는 SIGTTIN 으로 정지됩니다. 아래 중 하나를 쓰세요.
@@ -118,7 +120,8 @@ class FakeTeensy(object):
         if latched is None:
             latched = sev >= 3
         if sev >= 3:
-            self.state = "FAULT"          # 명세 §4.5: 정지가 먼저, 보고가 나중
+            if self.state != "ESTOP":     # 비상정지가 우선한다(ESTOP 을 FAULT 로 덮어쓰지 않음)
+                self.state = "FAULT"      # 명세 §4.5: 정지가 먼저, 보고가 나중
             self.fault = code
         self._send({"t": "err", "ms": self.ms(), "code": code,
                     "sev": sev, "latched": latched, "why": why})
@@ -373,9 +376,26 @@ def main():
     ap.add_argument("--fifo", default=None,
                     help="고장 주입용 FIFO 경로. 백그라운드 실행 시 사용")
     ap.add_argument("--quiet", action="store_true")
+    ap.add_argument("--fw", choices=("1.0", "1.1"), default="1.0",
+                    help="1.1: 프로토콜 v1.1 초안 모의(fake_teensy_v11.py)")
+    ap.add_argument("--sim-settings", nargs="?", const="__default__", default=None,
+                    help="v1.1 설정값 JSON(시뮬레이션 전용). 값 없이 쓰면 teensy_settings.sim.json")
+    ap.add_argument("--time-scale", type=float, default=1.0, help="v1.1 동작 소요 시간 배율")
     a = ap.parse_args()
 
-    fake = FakeTeensy(tel_hz=a.hz, seed=a.seed)
+    if a.fw == "1.1":
+        from fake_teensy_v11 import FakeTeensy11
+        settings = None
+        if a.sim_settings:
+            path = a.sim_settings
+            if path == "__default__":
+                path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "teensy_settings.sim.json")
+            with open(path) as f:
+                settings = dict((k, v) for k, v in json.load(f).items() if not k.startswith("_"))
+            print("[주의] 시뮬레이션 설정을 불러왔습니다(%s). 실기에 쓰지 마세요." % path)
+        fake = FakeTeensy11(tel_hz=a.hz, seed=a.seed, settings=settings, time_scale=a.time_scale)
+    else:
+        fake = FakeTeensy(tel_hz=a.hz, seed=a.seed)
     link = None
     if a.port:
         try:
