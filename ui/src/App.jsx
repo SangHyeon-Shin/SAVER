@@ -36,7 +36,8 @@ function useStageScale() {
 
 /* 오프라인 시연 옵션 (주소 뒤 ?start=X_SEARCH&eapd=none&phantom=flat&speed=2)
    브리지에 연결되면 쓰지 않는다. 체험판·스모크 시험용 */
-const QS = new URLSearchParams(typeof location !== 'undefined' ? location.search : '')
+const QS = new URLSearchParams(typeof location === 'undefined' ? ''
+  : (location.search || location.hash.replace(/^#/, '')))      // 체험판은 #start=... 로도 받는다
 const qEapd = () => {
   const e = QS.get('eapd')
   if (e === 'none') return null
