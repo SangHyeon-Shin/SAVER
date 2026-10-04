@@ -383,7 +383,7 @@ class TeensyLink(object):
 
     @property
     def drv_enc_mode(self):
-        """주행 엔코더 모드(초안 8차 제안 §4.7): 1 = 단일 엔코더 + 자이로, 2 = 좌우.
+        """주행 엔코더 모드(초안 8차 §4.7): 1 = 단일 엔코더 + 자이로, 2 = 좌우.
         v1.1 이 아니면 None, INFO 에 없으면 2(기존 조건)."""
         if self.proto != "1.1":
             return None

@@ -412,7 +412,7 @@ for ft_ in _opened:
     os.close(ft_.master); os.close(ft_.slave)
 del _opened[:]
 
-# 8차 제안: 단일 엔코더 + 자이로 모드 (§4.7)
+# 8차: 단일 엔코더 + 자이로 모드 (§4.7)
 e1 = V11(); info_e = ev(e1.q("GET_INFO"), "INFO") or {}
 ck("INFO: 엔코더 모드 미설정이면 2(좌우)", info_e.get("drv_enc_mode") == 2 and "drv_enc_side" not in info_e)
 e2 = V11(settings=dict(SIM, drv_enc_mode=1, drv_enc_side="L")); e2.ft.vac_released = True
@@ -421,7 +421,7 @@ e2.c("ARM"); e2.c("HOME"); e2.finish(); e2.c("HEAD_HOLD", press_mm=10.0, drv_zer
 ck("모드 1: INFO 에 모드와 엔코더 쪽", info_e2.get("drv_enc_mode") == 1 and info_e2.get("drv_enc_side") == "L")
 ck("모드 1: 바퀴 간격 등 필수 설정 없으면 DRIVE_STEP 거부(LIMIT_UNSET)",
    ack(e2.c("DRIVE_STEP", dist_mm=5.0)).get("why") == "LIMIT_UNSET")
-e3 = V11(settings=dict(SIM, drv_enc_mode=1, drv_enc_side="L", drv_track_mm=400, drv_settle_yaw_deg=0.5,
+e3 = V11(settings=dict(SIM, drv_enc_mode=1, drv_enc_side="L", drv_track_mm=400, drv_settle_delta_yaw_deg=0.5,
                        drv_imu_timeout_ms=100, drv_yaw_max_deg=5)); e3.ft.vac_released = True
 e3.c("ARM"); e3.c("HOME"); e3.finish(); e3.c("HEAD_HOLD", press_mm=10.0, drv_zero=True); e3.finish()
 e3.c("DRIVE_STEP", dist_mm=5.0); dd3 = ev(e3.finish(), "DRIVE_DONE") or {}
@@ -620,7 +620,7 @@ ck("탐색은 Teensy 출력값을 지정하지 않음(목표 거리만)",
    all(set(m) <= set(["v", "t", "seq", "cmd", "bid", "aid", "dist_mm", "press_mm", "drv_zero"]) for m in lk.log))
 
 ck("탐색 기록에 엔코더 모드(기본 2)", snap.get("enc_mode") == 2)
-dv, lk, rn, done = rig(settings=dict(SIM, drv_enc_mode=1, drv_enc_side="L", drv_track_mm=400, drv_settle_yaw_deg=0.5,
+dv, lk, rn, done = rig(settings=dict(SIM, drv_enc_mode=1, drv_enc_side="L", drv_track_mm=400, drv_settle_delta_yaw_deg=0.5,
                                      drv_imu_timeout_ms=100, drv_yaw_max_deg=5))
 rn.start(205.8); drive(lk, rn)
 ck("단일 엔코더 모드에서도 탐색 완료, 기록에 모드 1", rn.phase == "done" and rn.snapshot()["enc_mode"] == 1)
