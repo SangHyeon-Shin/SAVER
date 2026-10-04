@@ -4,10 +4,13 @@
     "Jetson(Python)과 UI(React)가 같은 파일을 읽습니다. 한쪽만 고치면 안 됩니다.",
     "출처: 「UI-상태머신 연동 명세서 v2」(한성윤, 2026-05-30)",
     "requires_mcu: 그 노드로 들어가려면 Teensy가 이 상태여야 합니다. 아니면 전이를 거부합니다.",
-    "std=연동표 v2 수록 / ext=디자인 정의서 화면용 확장(명칭 확정 필요)"
+    "std=연동표 v2 수록 / ext=디자인 정의서 화면용 확장(명칭 확정 필요)",
+    "v2.1(2026-10-04): 탐색 후 고정(DECISIONS D-11). X_PPG → X_SEARCH(바퀴 위 주행 탐색) → X_PIN(안전핀 해제, 바퀴 수납) → S5(음압 고정) → S6(압박 접촉 영점, 목표 설정) → S7.",
+    "redirect: 이벤트의 목적지를 장치 플래그(mot)에 따라 바꿉니다. when_mcu 의 값 목록 중 하나와 같으면 to 로 갑니다. null 은 값이 없거나 오래된 경우입니다. 장치가 플래그를 보내지 않으면(v1.0, caps 에 MOT 없음) 검사하지 않습니다.",
+    "error_return 이 있는 노드로 @return 할 때도 그 노드의 requires_mcu 를 검사합니다."
   ],
-  "version": "2.0",
-  "updated": "2026-07-26",
+  "version": "2.1",
+  "updated": "2026-10-04",
 
   "events": {
     "INIT_DONE": "std", "INIT_ERROR": "std", "POWER_ON": "std", "POWER_OFF": "std",
@@ -19,7 +22,8 @@
     "RECHECK": "std", "MANUAL_RELEASE": "std", "RELEASE_DONE": "std", "BACK_TO_IDLE": "std",
 
     "WHEELS_DONE": "ext", "MOVE_DONE": "ext", "CLOTHES_OK": "ext", "PPG_ATTACHED": "ext",
-    "INFO_CONFIRMED": "ext", "POSITION_DRIFT": "ext", "REALIGN_DONE": "ext",
+    "SEARCH_DONE": "ext", "SEARCH_FAIL": "ext", "PIN_RELEASED": "ext",
+    "POSITION_DRIFT": "ext", "REALIGN_DONE": "ext",
     "VENT_GUIDE": "ext", "VENT_DONE": "ext", "BATTERY_LOW": "ext", "BATTERY_OK": "ext"
   },
 
@@ -62,24 +66,29 @@
     },
     "X_PPG": {
       "state": null, "ui": "(정의서)", "screen": 7, "name": "PPG 센서 착용", "alarm": "normal",
-      "on": { "PPG_ATTACHED": "S5" }
+      "on": { "PPG_ATTACHED": "X_SEARCH" }
+    },
+    "X_SEARCH": {
+      "state": null, "ui": "(정의서)", "screen": 9, "name": "압박점 탐색", "alarm": "normal",
+      "error_return": "X_SEARCH",
+      "requires_mcu": ["HOMED"],
+      "on": { "SEARCH_DONE": "X_PIN", "SEARCH_FAIL": "S10", "CANCEL": "S2" }
+    },
+    "X_PIN": {
+      "state": null, "ui": "(정의서)", "screen": 20, "name": "바퀴 수납 · 안전핀 해제", "alarm": "normal",
+      "requires_mcu": ["HOMED"],
+      "on": { "PIN_RELEASED": "S5", "CANCEL": "S2" }
     },
     "S5": {
       "state": "S5", "ui": "UI-05", "screen": 8, "name": "흡착 · 고정 확인", "alarm": "normal",
       "error_return": "S5",
       "enter_cmds": ["VACUUM_ON"],
-      "on": { "VACUUM_OK": "X_SEARCH", "VACUUM_ERROR": "S10", "CANCEL": "S2" }
-    },
-    "X_SEARCH": {
-      "state": null, "ui": "(정의서)", "screen": 9, "name": "압박점 검색 · 환자 정보", "alarm": "normal",
-      "requires_mcu": ["VACUUM_HOLD"],
-      "enter_cmds": ["STIFFNESS_SCAN"],
-      "on": { "INFO_CONFIRMED": "S6" }
+      "on": { "VACUUM_OK": "S6", "VACUUM_ERROR": "S10", "CANCEL": "S2" }
     },
     "S6": {
       "state": "S6", "ui": "UI-06", "screen": 10, "name": "압박 준비 · 손 떼기", "alarm": "normal",
-      "requires_mcu": ["CPR_READY"],
-      "enter_cmds": ["SET_TARGET"],
+      "requires_mcu": ["VACUUM_HOLD", "CPR_READY"],
+      "enter_cmds": ["SET_CP_POINT", "SET_TARGET"],
       "on": { "CPR_START": "S7", "CANCEL": "S2" }
     },
     "S7": {
@@ -125,7 +134,10 @@
     "S13": {
       "state": "S13", "ui": "UI-13", "screen": 18, "name": "종료 · 기록 저장", "alarm": "normal",
       "enter_cmds": ["DISARM"],
-      "on": { "BACK_TO_IDLE": "S2", "POWER_OFF": "S0" }
+      "on": { "BACK_TO_IDLE": "S2", "POWER_OFF": "S0" },
+      "redirect": {
+        "BACK_TO_IDLE": { "to": "S12", "when_mcu": { "rearm_lock": [true, null], "vac_released": [false, null] } }
+      }
     },
     "X_VENT": {
       "state": null, "ui": "(정의서)", "screen": 19, "name": "인공호흡 가이드", "alarm": "caution",
