@@ -33,6 +33,7 @@ export function Screen09({ fire, ctx, search, searchCtl, setPatient }) {
       <Header title="압박점 탐색" titleSize={28} right={
         <span style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
           {!live && <SimBadge />}
+          {v.encMode === 1 && <EncBadge />}
           <span style={{ display: 'flex', alignItems: 'center', gap: 8, color: status[1], fontWeight: 700 }}>
             <span style={{ width: 12, height: 12, borderRadius: '50%', background: status[1],
               animation: v.running ? 'pulsedot 1.4s infinite' : 'none' }} />
@@ -59,6 +60,16 @@ export function Screen09({ fire, ctx, search, searchCtl, setPatient }) {
         </div>
       </div>
     </Light>
+  )
+}
+
+/** 주행 엔코더 한쪽 + 자이로로 움직이는 임시 모드(초안 §4.7). 결과 표기에 남겨야 한다 */
+function EncBadge() {
+  return (
+    <span data-enc1 style={{ fontSize: 15, fontWeight: 700, color: '#7a3e00', background: '#ffeedd',
+      border: `1px solid ${C.warning}`, borderRadius: 999, padding: '4px 12px' }}>
+      단일 엔코더 + 자이로 (임시)
+    </span>
   )
 }
 

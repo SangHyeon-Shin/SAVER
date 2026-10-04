@@ -46,7 +46,10 @@ SETTING_KEYS = (
     "force_stale_ms", "scan_force_max_N", "contact_force_N", "contact_confirm_ms",
     "head_search_speed_mm_s", "head_search_max_mm", "head_timeout_ms", "head_press_max_mm",
     "vac_release_kPa", "vac_release_ms", "vac_release_timeout_ms",
+    # 8차 제안: 단일 엔코더 + 자이로 모드(§4.7). drv_enc_mode 미설정이면 2
+    "drv_enc_mode", "drv_enc_side", "drv_track_mm", "drv_settle_yaw_deg", "drv_imu_timeout_ms", "drv_yaw_max_deg",
 )
+ENC1_KEYS = ("drv_enc_side", "drv_track_mm", "drv_settle_yaw_deg", "drv_imu_timeout_ms", "drv_yaw_max_deg")
 HEAD_KEYS = ("scan_force_max_N", "contact_force_N", "contact_confirm_ms", "head_search_speed_mm_s",
              "head_search_max_mm", "head_timeout_ms", "force_stale_ms")
 DRIVE_KEYS = ("drv_speed_mm_s", "drv_speed_max_mm_s", "drv_step_max_mm", "drv_timeout_ms", "drv_settle_ms",
@@ -328,6 +331,9 @@ class FakeTeensy11(FakeTeensy):
                 m["last_seq"] = self.last_seq
             if self.aid_max:
                 m["last_aid"] = self.aid_max
+            m["drv_enc_mode"] = self._enc_mode()
+            if m["drv_enc_mode"] == 1 and self.settings.get("drv_enc_side"):
+                m["drv_enc_side"] = self.settings["drv_enc_side"]
             self.evt("INFO", **m)
         else:                                      # GET_FAULTS 는 구현하지 않음
             self._ack(seq, False, "1-CM-005", "UNKNOWN_COMMAND")
@@ -335,6 +341,12 @@ class FakeTeensy11(FakeTeensy):
     # ── 동작 명령 ───────────────────────────────────────────
     def _unset(self, keys):
         return [k for k in keys if not self.settings.get(k)]
+
+    def _enc_mode(self):
+        try:
+            return int(self.settings.get("drv_enc_mode") or 2)
+        except (TypeError, ValueError):
+            return 2
 
     def _head_home(self):
         return self.head_pos == 0.0 and not self.head_hold_active
@@ -364,7 +376,7 @@ class FakeTeensy11(FakeTeensy):
         elif cmd == "DRIVE_STEP":
             if self.state != "HOMED":
                 return ("2-CU-011", "NOT_HOMED")
-            if self._unset(DRIVE_KEYS):
+            if self._unset(DRIVE_KEYS) or (self._enc_mode() == 1 and self._unset(ENC1_KEYS)):
                 return ("2-TU-008", "LIMIT_UNSET")
             if not (self._head_home() or self.head_hold_active):
                 return ("2-CU-011", "HEAD_NOT_READY")
@@ -498,6 +510,8 @@ class FakeTeensy11(FakeTeensy):
                 if n >= s["drv_avg_min_n"]:
                     ev["cp_force_N"] = round(sum(samples) / float(n), 2)
                 ev["force_n"] = n
+            if self._enc_mode() == 1:
+                ev["drv_enc_mode"] = 1                  # §4.7 기록용
         elif result == "STOPPED" and cmd == "HOME" and self.state in ("ARMED", "HOMED"):
             self.state = "ARMED"                    # 중단된 HOME → ARMED(§4.5)
         ev["result"] = result

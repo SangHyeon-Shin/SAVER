@@ -412,6 +412,27 @@ for ft_ in _opened:
     os.close(ft_.master); os.close(ft_.slave)
 del _opened[:]
 
+# 8차 제안: 단일 엔코더 + 자이로 모드 (§4.7)
+e1 = V11(); info_e = ev(e1.q("GET_INFO"), "INFO") or {}
+ck("INFO: 엔코더 모드 미설정이면 2(좌우)", info_e.get("drv_enc_mode") == 2 and "drv_enc_side" not in info_e)
+e2 = V11(settings=dict(SIM, drv_enc_mode=1, drv_enc_side="L")); e2.ft.vac_released = True
+info_e2 = ev(e2.q("GET_INFO"), "INFO") or {}
+e2.c("ARM"); e2.c("HOME"); e2.finish(); e2.c("HEAD_HOLD", press_mm=10.0, drv_zero=True); e2.finish()
+ck("모드 1: INFO 에 모드와 엔코더 쪽", info_e2.get("drv_enc_mode") == 1 and info_e2.get("drv_enc_side") == "L")
+ck("모드 1: 바퀴 간격 등 필수 설정 없으면 DRIVE_STEP 거부(LIMIT_UNSET)",
+   ack(e2.c("DRIVE_STEP", dist_mm=5.0)).get("why") == "LIMIT_UNSET")
+e3 = V11(settings=dict(SIM, drv_enc_mode=1, drv_enc_side="L", drv_track_mm=400, drv_settle_yaw_deg=0.5,
+                       drv_imu_timeout_ms=100, drv_yaw_max_deg=5)); e3.ft.vac_released = True
+e3.c("ARM"); e3.c("HOME"); e3.finish(); e3.c("HEAD_HOLD", press_mm=10.0, drv_zero=True); e3.finish()
+e3.c("DRIVE_STEP", dist_mm=5.0); dd3 = ev(e3.finish(), "DRIVE_DONE") or {}
+ck("모드 1: 필수 설정이 있으면 주행, DRIVE_DONE 에 모드 1 기록", dd3.get("result") == "OK" and dd3.get("drv_enc_mode") == 1)
+lk_e = TeensyLink(port="/nonexistent")
+mode_none = lk_e.drv_enc_mode
+lk_e.proto, lk_e.info = "1.1", {"drv_enc_mode": 1, "drv_enc_side": "L"}
+mode_1 = lk_e.drv_enc_mode
+lk_e.info = {}
+ck("링크: v1.1 전 None, INFO 의 모드, 없으면 2", mode_none is None and mode_1 == 1 and lk_e.drv_enc_mode == 2)
+
 nl = TeensyLink(port="/nonexistent")
 ck("GET_INFO 확인 전: 비조회 명령은 보류, 조회·정지는 즉시",
    nl.send("ARM") is None and len(nl._deferred) == 1 and nl.send("PING") is not None
@@ -514,6 +535,8 @@ class Link11(object):
         self.fresh, self.runner, self.log = True, None, []
         self._sent, self._pair, self._tel, self.last_mot, self.drop, self.evts = {}, None, {}, {}, [], []
     def mot_fresh(self): return self.fresh
+    @property
+    def drv_enc_mode(self): return self.d.ft._enc_mode() if self.proto == "1.1" else None
     def status_pair(self): return self._pair
     def sent(self, seq): return dict(self._sent[seq]) if seq in self._sent else None
     def send(self, cmd, **kw):
@@ -595,6 +618,12 @@ ck("압박점 도달(허용 오차 안), 이동 1회 ≤ 20 mm",
 ck("이동 중 헤드는 올라가 있음", dv.ft.head_pos == 0.0 and not dv.ft.head_hold_active)
 ck("탐색은 Teensy 출력값을 지정하지 않음(목표 거리만)",
    all(set(m) <= set(["v", "t", "seq", "cmd", "bid", "aid", "dist_mm", "press_mm", "drv_zero"]) for m in lk.log))
+
+ck("탐색 기록에 엔코더 모드(기본 2)", snap.get("enc_mode") == 2)
+dv, lk, rn, done = rig(settings=dict(SIM, drv_enc_mode=1, drv_enc_side="L", drv_track_mm=400, drv_settle_yaw_deg=0.5,
+                                     drv_imu_timeout_ms=100, drv_yaw_max_deg=5))
+rn.start(205.8); drive(lk, rn)
+ck("단일 엔코더 모드에서도 탐색 완료, 기록에 모드 1", rn.phase == "done" and rn.snapshot()["enc_mode"] == 1)
 
 dv, lk, rn, done = rig()
 ck("EAPD 없음 → 시작 안 함, 명령 없음", rn.start(None) is False and done[-1][1]["reason"] == "EAPD_MISSING"

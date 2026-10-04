@@ -164,6 +164,8 @@ class TeensyLink(object):
             self._aid = P.AidCounter(int(info.get("last_aid", 0)) + 1)
         if self.log:
             self.log.event("sys", "PROTO_" + proto)
+            if info is not None and str(info.get("drv_enc_mode")) == "1":
+                self.log.event("sys", "DRV_ENC_MODE_1:" + str(info.get("drv_enc_side")))
         now = time.monotonic()
         pend, self._deferred = self._deferred, []
         for cmd, kw, at in pend:
@@ -378,6 +380,17 @@ class TeensyLink(object):
             return {"rearm_lock": None, "vac_released": None}
         mot = pair[1]
         return {"rearm_lock": mot.get("rearm_lock"), "vac_released": mot.get("vac_released")}
+
+    @property
+    def drv_enc_mode(self):
+        """주행 엔코더 모드(초안 8차 제안 §4.7): 1 = 단일 엔코더 + 자이로, 2 = 좌우.
+        v1.1 이 아니면 None, INFO 에 없으면 2(기존 조건)."""
+        if self.proto != "1.1":
+            return None
+        try:
+            return int(self.info.get("drv_enc_mode") or 2)
+        except (TypeError, ValueError):
+            return 2
 
     def mot_fresh(self):
         """mot 이 오래되면 새 동작 명령을 보내지 않는다(§3.3-2)."""

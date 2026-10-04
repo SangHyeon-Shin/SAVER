@@ -136,6 +136,7 @@ export function searchView(snap) {
     D: num(s.D_mm) ? s.D_mm : null,
     eapd: num(s.eapd_mm) ? s.eapd_mm : null,
     eapdSim: !!(s.simulated || s.eapd_sim),      // 레이더가 아닌 모의 EAPD
+    encMode: num(s.enc_mode) ? s.enc_mode : null, // 1 = 단일 엔코더 + 자이로 임시 모드(초안 §4.7)
     groups: num(s.candidate_groups) ? s.candidate_groups : 0,
     domain: { u0, u1, y1: niceMax(Math.max(0, ...ys)) },
   }

@@ -437,7 +437,8 @@ class SearchRunner(object):
              "candidates_x": [self.points[i]["x"] for i in cands],
              "candidate_groups": det.get("groups", 0),
              "target_x": round(self.target_x, 2) if self.target_x is not None else None,
-             "pos_x": self.pos_x, "head": dict(self.head), "moved": self.moved}
+             "pos_x": self.pos_x, "head": dict(self.head), "moved": self.moved,
+             "enc_mode": getattr(self.link, "drv_enc_mode", None)}   # 1 이면 단일 엔코더 + 자이로(§4.7)
         if self.p:
             s["rule"] = {"drop_ratio": self.p["tip_drop_ratio"], "ref_n": self.p["tip_ref_n"],
                          "press_mm": self.p["press_mm"], "dir": self.p["scan_dir_sign"],

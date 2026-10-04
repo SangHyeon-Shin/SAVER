@@ -187,6 +187,8 @@ const check = (name, ok, detail = '') => {
   check('표시: 방향 부호 -1 이어도 머리 쪽이 왼쪽', ng.tipU === 60 && ng.targetU === -29.7 && ng.pts[0].u === 5)
   check('표시: 브리지가 모의 EAPD 라고 알리면 모의 표시', S.searchView({ phase: 'scan', eapd_mm: 205.8, eapd_sim: true }).eapdSim
     && !S.searchView({ phase: 'scan', eapd_mm: 205.8 }).eapdSim)
+  check('표시: 단일 엔코더 모드면 표시, 없으면 표시 안 함', S.searchView({ phase: 'scan', enc_mode: 1 }).encMode === 1
+    && S.searchView({ phase: 'scan', enc_mode: 2 }).encMode === 2 && S.searchView({ phase: 'scan' }).encMode === null)
   check('사유: EAPD 없음 안내에 대체값 미사용 명시', S.reasonText('EAPD_MISSING').sub.includes('대체값'))
 
   // 실패 시나리오 (오프라인 시연)
