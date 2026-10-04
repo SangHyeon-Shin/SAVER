@@ -38,6 +38,8 @@ function useStageScale() {
    브리지에 연결되면 쓰지 않는다. 체험판·스모크 시험용 */
 const QS = new URLSearchParams(typeof location === 'undefined' ? ''
   : (location.search || location.hash.replace(/^#/, '')))      // 체험판은 #start=... 로도 받는다
+// 체험판 빌드(VITE_DEMO=1)에서만: 감싼 페이지와 상태·이벤트를 주고받는다. 실기 빌드에는 들어가지 않는다
+const DEMO_BUILD = import.meta.env.VITE_DEMO === '1'
 const qEapd = () => {
   const e = QS.get('eapd')
   if (e === 'none') return null
@@ -46,9 +48,18 @@ const qEapd = () => {
 }
 
 export default function App() {
-  const [ctx, setCtx] = useState(() => (NODES[QS.get('start')] ? { ...INITIAL, node: QS.get('start') } : INITIAL))
-  const [demo, setDemo] = useState({ positionError: false, vacuumError: false, clothesStuck: false,
-                                     searchEapd: qEapd(), searchFlat: QS.get('phantom') === 'flat' })
+  const [ctx, setCtx] = useState(() => ({
+    ...INITIAL,
+    node: NODES[QS.get('start')] ? QS.get('start') : INITIAL.node,
+    battery: QS.get('battery') === '1' ? 'popup' : false,
+  }))
+  const [demo, setDemo] = useState({
+    positionError: QS.get('pos_err') === '1', vacuumError: QS.get('vac_err') === '1',
+    clothesStuck: QS.get('clothes') === 'stuck',
+    vacResidual: QS.get('vac_residual') === '1',          // 종료 때 음압이 남은 경우(S13 → S12)
+    searchEapd: qEapd(), searchFlat: QS.get('phantom') === 'flat',
+  })
+  const demoRef = useRef(demo); demoRef.current = demo
   const [devOpen, setDevOpen] = useState(() => new URLSearchParams(location.search).has('dev'))
   const scale = useStageScale()
   const waves = useWaves()
@@ -78,6 +89,11 @@ export default function App() {
      미연결 시: 로컬 전이 (오프라인 시연 전용)                        */
   const fire = useCallback((event, payload = {}) => {
     if (bridgeRef.current && bridgeRef.current(event, payload)) return
+    // 오프라인 시연: 음압 잔존이면 장치 플래그를 붙여 S13 → S12 redirect 를 보인다(redirect.js)
+    if (event === EV.BACK_TO_IDLE && demoRef.current.vacResidual) {
+      payload = { ...payload, mcuFlags: { rearm_lock: true, vac_released: false } }
+    }
+    if (event === EV.RELEASE_DONE && demoRef.current.vacResidual) setDemo((d) => ({ ...d, vacResidual: false }))
     setCtx((prev) => {
       const { next, changed } = transition(prev, event, payload)
       if (!changed) { console.debug('[무시된 이벤트]', prev.node, event); return prev }
@@ -110,6 +126,30 @@ export default function App() {
     if (ctx.node !== 'X_SEARCH' && was === 'X_SEARCH') sdemo.stop('LEFT_NODE')
   }, [ctx.node])
   const setPatient = useCallback((patient) => setCtx((c) => ({ ...c, patient })), [])
+
+  /* ---------- 체험판 연동 (VITE_DEMO=1 빌드, iframe 안에서만) ----------
+     감싼 페이지 → {type:'saver-demo', fire, payload, demo, battery}
+     이 화면  → {type:'saver-state', node, screen, name, allowed, errorCause}
+     브리지에 연결돼 있으면 받지 않는다. */
+  useEffect(() => {
+    if (!DEMO_BUILD || window.parent === window) return undefined
+    const onMsg = (e) => {
+      const m = e.data
+      if (e.source !== window.parent || !m || m.type !== 'saver-demo' || bridgeRef.current) return
+      if (m.demo) setDemo((d) => ({ ...d, ...m.demo }))
+      if (m.battery) setCtx((c) => ({ ...c, battery: 'popup' }))
+      if (m.fire) fire(m.fire, m.payload || {})
+    }
+    window.addEventListener('message', onMsg)
+    return () => window.removeEventListener('message', onMsg)
+  }, [fire])
+  useEffect(() => {
+    if (!DEMO_BUILD || window.parent === window) return
+    const n = NODES[ctx.node]
+    window.parent.postMessage({ type: 'saver-state', node: ctx.node, screen: n.screen, name: n.name,
+      allowed: Object.keys(n.on || {}), errorCause: ctx.errorCause,
+      demo: { ...demo }, search: search ? { phase: search.phase, reason: search.reason } : null }, '*')
+  }, [ctx.node, ctx.errorCause, demo, search && search.phase])
 
   const vitals = useVitals(!!node.running, bridge.telemetry, bridge.stale)
 
@@ -247,6 +287,7 @@ function DevPanel({ ctx, node, demo, setDemo, setCtx, fire, bridge, scale, onClo
         <button style={btn(demo.vacuumError)} onPointerDown={() => toggle('vacuumError')}>흡착 오류 (화면08)</button>
         <button style={btn(demo.clothesStuck)} onPointerDown={() => toggle('clothesStuck')}>겉옷 인식 실패 (화면05)</button>
         <button style={btn(!!ctx.battery)} onPointerDown={() => setCtx((c) => ({ ...c, battery: c.battery ? false : 'popup' }))}>배터리 부족 (화면20)</button>
+        <button style={btn(demo.vacResidual)} onPointerDown={() => toggle('vacResidual')}>음압 잔존 (화면18 대기로 → 17)</button>
       </div>
 
       <div style={h}>탐색 시연 <span style={{ color: '#5b6470' }}>(장치 미연결 전용 · 모의값)</span></div>

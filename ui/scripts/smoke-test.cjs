@@ -189,6 +189,15 @@ const check = (name, ok, detail = '') => {
     && T3().includes('압박점 탐색이 중단'))
   tap([...d3.querySelectorAll('#root button')].find((b) => b.textContent.includes('재확인')))
   check('재확인 → 탐색 화면 복귀, 이전 곡선 지움', await until(() => T3().includes('탐색 시작을 누르면'), 3000))
+  const d4 = openDom('?start=S13&vac_residual=1').window.document
+  const T4 = () => (d4.querySelector('#root')?.textContent || '')
+  await until(() => T4().includes('대기로'), 3000)
+  tap([...d4.querySelectorAll('#root button')].find((b) => b.textContent.includes('대기로')))
+  check('음압 잔존 시연: 종료 → 대기로 누르면 수동 해제(S12)', await until(() => T4().includes('가슴에서 떼세요'), 3000))
+  tap([...d4.querySelectorAll('#root button')].find((b) => b.textContent.trim() === '완료'))
+  await until(() => T4().includes('대기로'), 3000)
+  tap([...d4.querySelectorAll('#root button')].find((b) => b.textContent.includes('대기로')))
+  check('해제 완료 뒤 대기로 → 시작 대기(S2)', await until(() => T4().includes('시작 대기'), 3000))
   check('런타임 오류 없음 (시나리오 포함)', errors.length === 0, errors[0] || '')
 
   console.log(`\n${fail === 0 ? '✅ 전체 통과' : '❌ 실패 있음'}  (통과 ${pass} / 실패 ${fail})\n`)
