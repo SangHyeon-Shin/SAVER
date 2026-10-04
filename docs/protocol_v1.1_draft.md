@@ -1,10 +1,10 @@
-# 프로토콜 v1.1 초안: 주행 탐색 명령 (검토용, 5차)
+# 프로토콜 v1.1 초안: 주행 탐색 명령 (6차, 합의본)
 
 | 항목 | 내용 |
 |---|---|
-| 상태 | **초안, 합의 전.** `protocol/`은 공동 영역이라 이 문서에서 먼저 합의한다 |
-| 작성 | 신상현 (2026-10-01 1차, 2026-10-01 2차, 2026-10-02 3차, 2026-10-03 4차, 2026-10-04 5차) |
-| 검토 | 한건민 (10/1 1차 회신, 10/1 2차 회신 §0.2, 10/2 3차 회신 §0.3, 10/3 4차 회신 §0.4, 10/4 5차 회신 §0.5) |
+| 상태 | **합의 완료(2026-10-04, 한건민 6차 회신 조건 반영).** `protocol/` v1.1 반영 대기. 반영은 신상현이 준비하고 한건민 검토 뒤 커밋한다 |
+| 작성 | 신상현 (2026-10-01 1차, 2026-10-01 2차, 2026-10-02 3차, 2026-10-03 4차, 2026-10-04 5차, 2026-10-04 6차) |
+| 검토 | 한건민 (10/1 1차 회신, 10/1 2차 회신 §0.2, 10/2 3차 회신 §0.3, 10/3 4차 회신 §0.4, 10/4 5차 회신 §0.5, 10/4 6차 회신 §0.6) |
 | 범위 | 탐색 후 고정 순서(제출 보고서 6.2~6.3)에 필요한 명령, 이벤트, 텔레메트리, 오류 코드 |
 | 반영 | 합의 후 `protocol/teensy_usb_protocol_v1.md`를 v1.1로 고치고 `jetson/tests/test_all.py`, `teensy/test_saver_proto.cpp`를 함께 고친다 |
 | 핀맵 기준 | **GitHub `main` 1f19e1c의 `teensy/pinmap.h`**(2026-09-08 판). 2차 초안은 그 이전 핀맵을 보고 썼다(§0.3-1) |
@@ -88,7 +88,7 @@
 | 1 | 핀·I²C 최종안은 58b90f7의 별도 버스. MAX30102 `Wire` 18/19, NAU7802 `Wire1` 17/16, 엔코더 #1 11/12, #2 20/21, VAC2 RUN/EN 32/37, WT901C `Serial8` RX 34/TX 35, `A9` 예비. 한건민 로컬에 반영(`test/test.ino` 상수와 `PINS` 출력 포함), 커밋 전 | §1 표와 같음을 확인. 핀 이동 묶음 상태를 "로컬 반영, 커밋 전"으로 바꿈 |
 | 2 | `DISARM → 항상 IDLE`은 상태와 하드웨어가 어긋난다(`motorsOff()`는 음압 유지). 음압 없는 `ARMED`/`HOMED`는 `IDLE`. 음압 유지 중이면 압박·주행 출력 차단, 음압 유지, `VACUUM_HOLD`, 원점·영점·유지 무효, 재가동 금지, `HOME`·`VACUUM_OFF`·조회만 허용, 복구는 `VACUUM_OFF → IDLE → ARM → HOME`. `FAULT`/ESTOP은 상태를 바꾸지 않고 `RESET_FAULT`·E-stop 해제 절차를 우회하지 않음. 음압 해제는 `VACUUM_OFF`나 수동 조작으로만. 한성윤 확인 필요 표시 유지 | §2.2 `DISARM` 행과 §4.5를 다시 씀. 재가동 금지는 상태 밖 플래그 `rearm_lock`으로 두고 `tel`에 싣는다(§3.1). 아래 확인 요청 1 |
 | 3 | `bid`·`aid`를 조회 4개(`PING`, `GET_STATUS`, `GET_INFO`, `GET_FAULTS`)를 뺀 모든 상태·출력·설정 변경 명령으로 넓힘. `aid`가 4,294,967,295에 이르면 순환하지 않고 새 명령을 거부, 재부팅으로 새 `boot_id` | §2.5를 다시 씀. 즉시 변경 명령의 기록 칸 `cmd_last`를 따로 둬서 진행 중인 동작 기록을 밀어내지 않게 함. `aid` 소진은 `AID_EXHAUSTED`. 일반 중복 기록 8개(v1.0 §4.1)는 v1.1 펌웨어에서 쓰지 않음. 아래 확인 요청 2 |
-| 4 | `tel`/`mot` 같은 `tn`·`boot_id`·`ms`, `mot` 매 주기, 생략 필드 재사용 금지, 메시지별 최신성, 본문 511 + LF, 범위 밖·NaN·Infinity 금지, 잘린 JSON 송신 금지. 길이는 실제 생성 함수와 Jetson 파서로 시험해야 구현 완료 | §3.3·§3.4 유지. §3.4에 완료 기준을 적음. `rearm_lock`을 더해 다시 잼(`tel` 481 byte, 여유 30) |
+| 4 | `tel`/`mot` 같은 `tn`·`boot_id`·`ms`, `mot` 매 주기, 생략 필드 재사용 금지, 메시지별 최신성, 본문 511 + LF, 범위 밖·NaN·Infinity 금지, 잘린 JSON 송신 금지. 길이는 실제 생성 함수와 Jetson 파서로 시험해야 구현 완료 | §3.3·§3.4 유지. §3.4에 완료 기준을 적음. `rearm_lock`을 더해 다시 잼(6차에서 `mot`로 옮김, §0.6) |
 | 5 | main 코드 3건 확인. v1.1에서 `FAULT`/ESTOP을 `DISARM`으로 풀지 않음, `Serial.write()`로 LF 하나만, 모든 생성 함수에서 길이·범위·유한값·`-0.00` 검사, 버퍼 초과 시 잘린 줄 대신 송신 실패, 위험 오류는 출력 차단 뒤 보고 | §10-11을 "수정 계획 합의"로 바꿈 |
 
 **한건민 확인 요청 2건** (정해지면 `protocol/`에 반영)
@@ -108,6 +108,25 @@
 - 조회를 뺀 모든 명령에 `bid`·`aid`. `GET_INFO` 뒤 seq·`aid`를 이어 간다. v1.0 펌웨어(`GET_INFO` 없음)와 연결할 때는 시작 seq를 무작위로 둔다(5f17985, Teensy 별도 전원 결정 반영).
 - Jetson `decode`의 본문 한도를 511 byte로 맞춘다(지금은 512).
 - 생략·stale 필드를 모의값이나 이전 값으로 채우지 않는 UI 규칙은 1639af7로 반영했다.
+
+### 0.6 6차 회신 반영과 합의 (10/4)
+
+한건민(10/4): §0.5 확인 요청 2건 모두 **조건부 동의**, 아래 보완을 반영하면 v1.1 반영에 동의. 보완을 모두 반영해 이 판을 합의본으로 한다.
+
+| # | 한건민 조건 | 반영 |
+|---|---|---|
+| 1 | `HOME`은 헤드를 떼어 상단 원점으로 복귀하는 동작만, `rearm_lock` 유지. 재가동 명령 8개 `REARM_LOCKED` | §0.5 그대로 확정 |
+| 2 | "음압 유지 중"을 블로워 출력만으로 보지 않는다. 체크밸브나 잔류 음압으로 흡착이 남을 수 있다. **음압 출력 켜짐 또는 음압 해제 미확인**으로 판정하고, 압력센서 무효·확인 불가도 유지로 본다 | §2.2 `DISARM`, §4.5. 해제 확인 조건 `VACUUM_RELEASED`를 새로 정의(§4.6), 판정 설정값 2개 추가(§7.1, 미설정이면 해제 확인 불가) |
+| 3 | `rearm_lock`은 `VACUUM_OFF` ACK가 아니라 **`VACUUM_RELEASED` 성립 후 `IDLE`이 될 때** 해제 | §2.2, §4.6. `VACUUM_OFF`의 ACK는 수락일 뿐이고, 해제 확인 전에는 상태가 `VACUUM_HOLD`에 남는다 |
+| 4 | `VACUUM_ON` 직후 `DISARM`으로 들어간 `VACUUM_HOLD`는 `VACUUM_OK`나 목표 도달을 뜻하지 않는다. Jetson은 `rearm_lock`과 해제 확인을 같이 본다 | §3.3 Jetson 규칙 8. `rearm_lock`, `vac_released`를 `mot`에 싣는다(§3.2) |
+| 5 | `S13`은 상태명이 아니라 `rearm_lock = true` 또는 음압 미해제를 기준으로 `S12` 해제 절차로 보낸다 | §3.3 규칙 8, §10-12 |
+| 6 | 정지 방향 4개를 기록 사유로 막지 않음, `VACUUM_OFF`·`START_CPR`·`RESUME_CPR`·`RESET_FAULT` 예외 제외 | §2.5 확정 |
+| 7 | "상태 검사는 그대로" 때문에 물리 정지가 거부되면 안 된다. 네 명령을 식별하면 **상태·`bid`·`aid` 검사보다 먼저 해당 구동 출력을 OFF로 재확인**한다. 상태가 맞으면 정상 전이, 맞지 않으면 전이 없이 출력 OFF 뒤 기존 상태 오류 응답 | §2.5 판단 순서 0번을 다시 씀 |
+| 8 | 같은 `aid` 재수신은 새로 기록하지 않고 기존 ACK를 재전송하되, PWM 0·EN LOW 같은 멱등 정지 출력은 다시 인가 | §2.5 0번 |
+| 9 | 잘못된 `bid`·누락된 `aid`·오래된 `aid`로 실행한 정지는 `aid_max`, `cmd_last`, 진행 중 동작 기록을 갱신하지 않는다 | §2.5 0번. 다만 정지로 **끝난 동작 자신의** 결과(`STOPPED`)는 그 동작의 `act_cur`에 저장한다(§4.4 복구에 필요) |
+| 10 | 의학적 타당성은 한성윤 확인 필요 표시 유지 | §2.2, §10-9 유지 |
+
+**이 판에서 더한 것**(한건민 확인 필요, 합의를 막지 않음): §4.6 해제 확인 설정값 2개는 이름만 두고 값은 비운다(10/6 벤치값). 정지 출력이 진행 중인 동작의 구동과 겹치면 그 동작은 `STOPPED`로 끝난다(§2.5 0번). 부팅 직후 잔류 음압(§10-13)과 해제 대기 시간 상한(§10-14)은 남긴다.
 
 ---
 
@@ -190,7 +209,7 @@
 | `START_CPR`, `TRIAL_COMPRESSION` | `CPR_READY` | 변경 없음에 더해, 압박 접촉 영점이 없으면 `CP_ZERO_UNSET`으로 거부한다. 상태 전이가 이미 막지만 Teensy가 한 번 더 확인한다 |
 | `SET_CP_POINT` | `idx` 또는 `offset_mm` | 탐색 후 고정에서는 `VACUUM_HOLD`에서 `offset_mm = 0`을 보낸다. 뜻은 "현재 위치가 압박점"이다. Teensy는 **현재 위치를 접촉점으로 간주하지 않고** §2.3 절차로 헤드를 내려 **압박 접촉 영점**을 새로 잡는다. 헤드가 HOME 위치가 아니면 `HEAD_NOT_READY`, 시작 시 접촉 중이면 `IN_CONTACT`. 실패하면 `2-TU-006`. `CP_ZERO_SET`에 seq와 `result`를 싣는다 |
 | `RESET_FAULT` | 원인 해소 확인 후 `IDLE` | 변경 없음. 재시작은 **`IDLE → ARM → HOME → 새 탐색(HEAD_HOLD drv_zero:true)`**이다. 오류 전의 탐색 좌표는 버린다 |
-| `DISARM` | `ARMED` 이후. 모터 차단, `IDLE` | 동작 명령 실행 중에도 허용하고 진행 중인 명령은 `result = STOPPED`로 끝낸다. 결과는 **음압 출력에 따라** 나뉜다(한건민 10/4). **음압 출력 꺼짐**(`ARMED`·`HOMED`): 모든 출력 차단, `IDLE`. **음압 출력 켜짐**(`VACUUM_ON` 이후, `VACUUM_HOLD`·`CPR_READY`·`CPR_RUNNING`·`CPR_PAUSED` 포함): 압박 축과 주행 출력 차단, **음압 유지**, 상태 `VACUUM_HOLD`, 기구 HOME 원점·압박 접촉 영점·주행 원점·헤드 유지 무효, **`rearm_lock = true`**. 이때 허용은 `HOME`(헤드 복귀만), `VACUUM_OFF`, 정지 방향 명령, 조회뿐이고 나머지는 `REARM_LOCKED`. 복구는 `VACUUM_OFF → IDLE → ARM → HOME`. **`FAULT`·ESTOP**: 출력 차단 유지, 상태 불변(`FAULT_ACTIVE`·`ESTOP_ACTIVE`), `RESET_FAULT`나 물리 E-stop 해제 절차를 우회하지 않는다. 음압 해제는 `DISARM`에 묶지 않고 `VACUUM_OFF`나 수동 조작으로만 한다 — **한성윤 확인 필요** |
+| `DISARM` | `ARMED` 이후. 모터 차단, `IDLE` | 동작 명령 실행 중에도 허용하고 진행 중인 명령은 `result = STOPPED`로 끝낸다. 결과는 **음압 유지 판정**에 따라 나뉜다(한건민 10/4). 판정은 **음압 출력 켜짐 또는 음압 해제 미확인**(`vac_released = false`, 압력센서 무효·확인 불가 포함, §4.6)이다. **유지 아님**(음압 출력 꺼짐이고 `vac_released = true`): 모든 출력 차단, `IDLE`. **유지**(`VACUUM_ON` 직후, `VACUUM_HOLD`·`CPR_READY`·`CPR_RUNNING`·`CPR_PAUSED`, 출력은 꺼졌지만 해제 미확인 포함): 압박 축과 주행 출력 차단, **음압 유지**, 상태 `VACUUM_HOLD`, 기구 HOME 원점·압박 접촉 영점·주행 원점·헤드 유지 무효, **`rearm_lock = true`**. 이때 허용은 `HOME`(헤드 복귀만), `VACUUM_OFF`, 정지 방향 명령, 조회뿐이고 나머지는 `REARM_LOCKED`. 복구는 `VACUUM_OFF → VACUUM_RELEASED 성립 → IDLE → ARM → HOME`. `rearm_lock`은 `VACUUM_OFF`의 ACK가 아니라 `VACUUM_RELEASED` 성립 뒤 `IDLE`이 될 때 풀린다(§4.6). 이 `VACUUM_HOLD`는 `VACUUM_OK`나 목표 음압 도달을 뜻하지 않는다. **`FAULT`·ESTOP**: 출력 차단 유지, 상태 불변(`FAULT_ACTIVE`·`ESTOP_ACTIVE`), `RESET_FAULT`나 물리 E-stop 해제 절차를 우회하지 않는다. 음압 해제는 `DISARM`에 묶지 않고 `VACUUM_OFF`나 수동 조작으로만 한다 — **한성윤 확인 필요** |
 | `STIFFNESS_SCAN` | 고정 후 탐색 | 변경 없음. 결선 C안에서는 쓰지 않는다 |
 | ESTOP 중 허용 명령 | `PING`, `GET_STATUS` | **`GET_INFO`, `GET_FAULTS`, `DRIVE_STOP` 추가**(`DRIVE_STOP`은 ACK만, 출력 상태 변화 없음) |
 
@@ -280,7 +299,19 @@ seq는 v1.0대로 1~65535 순환이고 ACK 짝 맞추기에만 쓴다. 오래된
 
 **판단 순서**(조회가 아닌 모든 명령)
 
-0. 정지 방향 명령이면 아래 1·2·5·7번 사유가 생겨도 **거부하지 않고** 6번처럼 평가·실행한다. 이때 `aid`가 유효하고 `aid_max`보다 크면 `aid_max`를 올리고, 아니면 `aid_max`와 기록 칸은 그대로 둔다.
+0. **정지 방향 명령**(`DRIVE_STOP`, `STOP_CPR`, `PAUSE_CPR`, `DISARM`): JSON을 읽어 명령명이 이 넷 중 하나로 식별되면 **버전·상태·`bid`·`aid` 검사보다 먼저** 해당 정지 출력을 인가·재확인한다(한건민 10/4).
+
+   | 명령 | 먼저 하는 정지 출력 |
+   |---|---|
+   | `DRIVE_STOP` | 주행 PWM 0, EN LOW(제동 가능하면 제동). 헤드 하강·상승 목표 취소(§2.1) |
+   | `STOP_CPR`, `PAUSE_CPR` | 압박 축 구동 정지(v1.0 정의의 정지 출력) |
+   | `DISARM` | 압박 축과 주행 출력 차단. 음압 출력은 바꾸지 않는다(§2.2) |
+
+   그 뒤 순서:
+   - 같은 `aid`가 `cmd_last`에 있으면 새로 기록하지 않고 원래 ACK를 다시 보낸다. 정지 출력은 위에서 이미 다시 인가했다.
+   - 상태가 맞으면 정상 상태 전이를 한다. 맞지 않으면 상태 전이 없이 기존 상태 오류(`ack ok:false`, v1.0 §8 상태 오류 코드와 `why`)를 보낸다. 출력은 이미 꺼져 있다.
+   - 정지 출력이 진행 중인 동작의 구동과 겹치면 그 동작은 원래 seq·`aid`로 `result = STOPPED`가 되고, 그 결과는 그 동작의 `act_cur`에 저장한다(§4.4 복구에 필요).
+   - 1·2·5·7번 사유(`AID_REQUIRED`, `BOOT_MISMATCH`, `STALE_SEQ`, `AID_EXHAUSTED`)로는 거부하지 않는다. 이런 정지 명령은 `aid_max`, `cmd_last`, 진행 중 동작 기록을 **갱신하지 않는다**. `bid`가 맞고 `aid`가 `aid_max`보다 큰 유효한 정지 명령일 때만 `aid_max`와 `cmd_last`를 갱신한다.
 1. `bid` 또는 `aid`가 없거나 `aid = 0`이면 `AID_REQUIRED`. 실행하지 않고 기록하지 않는다.
 2. `bid ≠ boot_id`면 `BOOT_MISMATCH`. 실행하지 않고 기록하지 않는다.
 3. `aid`가 `act_cur.aid` 또는 `cmd_last.aid`와 같으면 seq·명령명·정규화 파라미터를 대조한다.
@@ -317,8 +348,9 @@ seq는 v1.0대로 1~65535 순환이고 ACK 짝 맞추기에만 쓴다. 오래된
 | 메시지 | 최악값 길이 | 여유(511 기준) |
 |---|---:|---:|
 | v1.0 `tel`(`faults` 6개) | 411 byte | 100 |
-| **5차 `tel`** = v1.0 + `tn`, `boot_id`, `faults_more`, `rearm_lock` | **481 byte** | 30 |
-| **5차 `mot`**(4차와 같음) | **423 byte** | 88 |
+| **6차 `tel`** = v1.0 + `tn`, `boot_id`, `faults_more` | **462 byte** | 49 |
+| **6차 `mot`** = 4차 + `rearm_lock`, `vac_released` | **463 byte** | 48 |
+| `VACUUM_RELEASED` | 105 byte | 406 |
 | `DRIVE_DONE` | 225 byte | 286 |
 | `HEAD_HELD`, `HOMING_DONE`, `CP_ZERO_SET` | 194 byte | 317 |
 | `INFO` | 211 byte | 300 |
@@ -335,7 +367,6 @@ seq는 v1.0대로 1~65535 순환이고 ACK 짝 맞추기에만 쓴다. 오래된
 | `tn` | int | 텔레메트리 주기 번호. 부팅 때 1부터 주기마다 1씩 늘린다(0~4,294,967,295). **같은 주기의 `tel`과 `mot`는 같은 `tn`과 같은 `ms`를 싣는다** |
 | `boot_id` | int | §2.4 |
 | `faults_more` | bool | `faults`를 6개로 잘랐을 때만 `true`로 싣는다. 자르지 않았으면 생략 |
-| `rearm_lock` | bool | 음압 유지 중 `DISARM` 뒤 재가동 금지(§2.2). **항상 싣는다.** `VACUUM_OFF`로 `IDLE`이 될 때 `false`. 재부팅 뒤 `false`(상태 `IDLE`) |
 
 **`faults` 순서**: 심각도 3 → 2 → 1, 같은 심각도 안에서는 먼저 생긴 것부터. 6개를 넘으면 앞의 6개만 싣는다. 그래서 위험 오류가 먼저 보인다. 나머지는 `GET_FAULTS`로 받는다(§3.5).
 
@@ -365,6 +396,8 @@ seq는 v1.0대로 1~65535 순환이고 ACK 짝 맞추기에만 쓴다. 오래된
 | `mot_last_seq`, `mot_last_aid` | int | `act_cur`의 seq와 `aid`(가장 최근에 수락된 동작). 끝나지 않았으면 생략 |
 | `mot_last_cmd` | string | 그 명령명 |
 | `mot_last_result` | string | 그 `result`(§4) |
+| `rearm_lock` | bool | 음압 유지 판정 중 `DISARM` 뒤 재가동 금지(§2.2). **항상 싣는다.** `VACUUM_RELEASED` 성립 뒤 `IDLE`이 될 때 `false`. 재부팅 뒤 `false` |
+| `vac_released` | bool | 음압 해제 확인(§4.6). **항상 싣는다.** 음압 출력이 켜져 있거나, 압력센서가 무효하거나, 판정 설정값이 없으면 `false` |
 
 1차의 `drv_busy`, `homing`, `drv_last_seq`, `drv_last_result`는 위 `busy`, `busy_seq`, `mot_last_*`로 합친다.
 
@@ -379,6 +412,7 @@ seq는 v1.0대로 1~65535 순환이고 ACK 짝 맞추기에만 쓴다. 오래된
 5. **순서**: `tn`이 건너뛰면 기록만 한다. 같은 `boot_id`에서 `tn`이 줄어들면 순서가 뒤바뀐 것으로 보고 그 메시지를 버린다.
 6. **판단 근거**: 동작 결과(이동 거리, 반력)는 완료 이벤트의 값을 쓴다. `mot`는 표시와 §4.4 복구에 쓴다.
 7. `state = HOMED`만 보고 정지로 판단하지 않는다. 동작 종료는 `busy = NONE`과 완료 이벤트로, 헤드 상태는 `head_hold_active`로 판단한다.
+8. **음압과 재가동 금지**: `state = VACUUM_HOLD`만 보고 흡착 완료나 해제 여부를 판단하지 않는다. 같은 `tn`의 `tel`·`mot` 짝에서 `rearm_lock`과 `vac_released`를 함께 본다. `mot`가 오래됐거나 짝이 없으면 `rearm_lock = true`, `vac_released = false`로 간주한다. `S13`에서 `rearm_lock = true`이거나 `vac_released = false`면 `S12` 해제 절차로 보내고 `S2`로 돌아가지 않는다.
 
 ### 3.4 줄 길이와 숫자 형식 (양쪽 생성 시험의 기준)
 
@@ -515,11 +549,31 @@ Jetson의 대기 한도는 다음과 같다.
 | `HEAD_HOLD` 접촉 뒤 `press_mm` 하강 중 | 위와 같음 | 위와 같음. 접촉점은 기록하지만 유지는 성립하지 않음 | `HOME` | 위와 같음 |
 | `DRIVE_STEP` | `DRIVE_DONE result=STOPPED` 등 | `HOMED`, 헤드 유지는 그대로 | 정지 확인 뒤(`drv_settled`) `DRIVE_STEP`, `HOME` | 정지 확인 전 `DRIVE_STEP`(`NOT_SETTLED`) |
 | `SET_CP_POINT` | `CP_ZERO_SET result≠OK` | `VACUUM_HOLD`, 압박 접촉 영점 없음 | `HOME`(헤드 복귀) 뒤 `SET_CP_POINT` | `START_CPR`·`TRIAL_COMPRESSION`(`CP_ZERO_UNSET`), 헤드가 HOME이 아니면 `SET_CP_POINT`(`HEAD_NOT_READY`) |
-| **어느 동작이든 `DISARM`으로 중단** | 원래 seq·`aid`로 `result = STOPPED` | **음압 출력 꺼짐**: `IDLE`, 모든 출력 차단. **음압 출력 켜짐**: `VACUUM_HOLD`, 압박·주행 출력 차단, 음압 유지, `rearm_lock = true`. 두 경우 모두 기구 HOME 원점, 탐색 접촉점, 압박 접촉 영점, 주행 원점, 헤드 유지를 무효로 한다 | `IDLE`: `ARM`. `VACUUM_HOLD`: `HOME`(헤드 복귀만), `VACUUM_OFF` | `IDLE`: 모든 동작 명령(`NOT_HOMED`). `VACUUM_HOLD`: 재가동 명령(`REARM_LOCKED`) |
+| **어느 동작이든 `DISARM`으로 중단** | 원래 seq·`aid`로 `result = STOPPED` | **음압 유지 아님**(출력 꺼짐, `vac_released = true`): `IDLE`, 모든 출력 차단. **음압 유지**(출력 켜짐 또는 해제 미확인, §4.6): `VACUUM_HOLD`, 압박·주행 출력 차단, 음압 유지, `rearm_lock = true`. 두 경우 모두 기구 HOME 원점, 탐색 접촉점, 압박 접촉 영점, 주행 원점, 헤드 유지를 무효로 한다 | `IDLE`: `ARM`. `VACUUM_HOLD`: `HOME`(헤드 복귀만), `VACUUM_OFF` | `IDLE`: 모든 동작 명령(`NOT_HOMED`). `VACUUM_HOLD`: 재가동 명령(`REARM_LOCKED`) |
 
 - **우선순위**: `FAULT`·ESTOP > `DISARM` > 위 명령별 행. `FAULT`(심각도 3)로 끝났으면 §6 복구 순서(`RESET_FAULT → IDLE → ARM → HOME`)를 따른다. `DISARM`으로 끝났으면 명령별 행과 관계없이 `DISARM` 행을 따른다(한건민 10/3 지적 4, 10/4 음압 구분). 같은 동작이 `DRIVE_STOP`과 `DISARM`을 함께 받으면 `DISARM` 행을 따른다.
 - Jetson은 `STOPPED`를 받으면 같은 `tn`의 `tel`·`mot`로 실제 상태를 확인한다. `STOPPED`만으로 `HOMED`가 남았다고 보지 않는다.
 - "임시 정지"는 §6 `2-TU-002`의 유지 조건을 모두 만족할 때만 하는 정지 위치 유지이며, `head_hold_active`를 켜지 않는다.
+
+### 4.6 음압 해제 확인 `VACUUM_RELEASED` (6차, 한건민 10/4)
+
+**성립 조건**(모두 만족):
+1. 음압 출력(블로워 #1, #2) 꺼짐
+2. 압력센서 유효(범위 안, 신규 샘플이 끊기지 않음)
+3. `|vac_kPa| ≤ vac_release_kPa`가 `vac_release_ms` 동안 이어짐
+
+**판정할 수 없으면 해제 아님**: 압력센서가 무효하거나 `vac_release_kPa`·`vac_release_ms`가 미설정(0)이면 `vac_released = false`로 둔다. 체크밸브나 잔류 음압으로 흡착이 남을 수 있으므로 출력이 꺼진 것만으로 해제로 보지 않는다.
+
+**`VACUUM_OFF` 뒤 흐름**
+- ACK는 수락만 뜻한다. 음압 출력을 끄고, 상태는 성립 전까지 `VACUUM_HOLD`에 그대로 둔다(`rearm_lock`도 그대로).
+- 성립하면 `evt VACUUM_RELEASED`(그 `VACUUM_OFF`의 seq·`aid`, `vac_kPa`)를 보내고 상태를 `IDLE`, `rearm_lock = false`로 둔다.
+
+```json
+{"v":1,"t":"evt","ms":201900,"evt":"VACUUM_RELEASED","seq":1302,"aid":88,"vac_kPa":-0.40}
+```
+
+- 설정값이 없거나 센서가 무효해 성립하지 않으면 `IDLE`로 가지 않는다. Jetson은 `S12`(수동 해제)에 머물러 수동 해제와 확인을 안내한다. 성립을 기다리는 시간 상한과 그 오류 코드는 §10-14.
+- `DISARM`이 아닌 경로(`S11 → S12`의 일반 `VACUUM_OFF`)에도 같은 규칙을 쓴다.
 
 ---
 
@@ -601,6 +655,7 @@ Jetson은 **새 탐색의 첫 `HEAD_HOLD`에만** `drv_zero:true`를 보낸다.
 | `contact_force_N`, `contact_confirm_ms` | N, ms | 접촉 판정 | 무부하 잡음, 영점 드리프트 | **실제 접촉, 모터 작동 중 잡음** 확인 | 한건민 |
 | `head_search_speed_mm_s`, `head_search_max_mm`, `head_timeout_ms` | mm/s, mm, ms | 접촉 탐색 | 기구와 마네킹 치수 | 확인 | 서정준(치수), 한건민 |
 | `head_press_max_mm` | mm | `press_mm` 상한 | 기구 | 확인 | 서정준, 한건민 |
+| `vac_release_kPa`, `vac_release_ms` | kPa, ms | 음압 해제 확인(§4.6). **미설정이면 해제를 확인할 수 없어 `rearm_lock`이 풀리지 않는다** | 압력센서 영점 잡음과 대기압 변동 | 블로워 정지 뒤 실제 해제 곡선(체크밸브 유무) 측정 | 한건민 |
 
 ### 7.2 Jetson (신상현)
 
@@ -644,9 +699,10 @@ Jetson `tests/test_all.py` + 모의 Teensy:
 - 반력 평균 중 로드셀 정체 → `OK`가 아니라 `FAULT`(`3-TU-009`). 샘플 수만 부족 → `OK`, `cp_force_N` 생략
 - 기울기 초과: 유지 조건 5개 중 하나라도 어긋나면 출력 차단, 심각도 3·ESTOP이 겹치면 차단
 - `DRIVE_STOP` 중단: 원래 seq·`aid`로 `STOPPED`, STOP 자체는 ACK만
-- **`DISARM`**(5차): 음압 출력 꺼짐 → `IDLE`. 음압 출력 켜짐(`VACUUM_ON` 직후 포함, `CPR_RUNNING` 포함) → `VACUUM_HOLD`, 음압 유지, `rearm_lock = true`, 원점·영점·유지 무효. 그 뒤 `SET_CP_POINT`·`SET_TARGET`·`START_CPR`·`RESUME_CPR`·`HEAD_HOLD`·`DRIVE_STEP` → `REARM_LOCKED`. `HOME`은 헤드 복귀만 하고 `rearm_lock` 유지. `VACUUM_OFF` → `IDLE`, `rearm_lock = false`. `FAULT`·ESTOP에서 `DISARM` → 상태·출력 불변
+- **`DISARM`**(5차, 6차 판정): 음압 유지 아님 → `IDLE`. 음압 유지(출력 켜짐 또는 해제 미확인, `VACUUM_ON` 직후·`CPR_RUNNING` 포함) → `VACUUM_HOLD`, 음압 유지, `rearm_lock = true`, 원점·영점·유지 무효. 그 뒤 `SET_CP_POINT`·`SET_TARGET`·`START_CPR`·`RESUME_CPR`·`HEAD_HOLD`·`DRIVE_STEP` → `REARM_LOCKED`. `HOME`은 헤드 복귀만 하고 `rearm_lock` 유지. `VACUUM_OFF` ACK만으로는 그대로, `VACUUM_RELEASED` 뒤 `IDLE`, `rearm_lock = false`. `FAULT`·ESTOP에서 `DISARM` → 상태·출력 불변
 - **`bid`·`aid` 확대**(5차): 즉시 변경 명령(`ARM`, `START_CPR`, `RESET_FAULT` 등)의 옛 `aid` → `STALE_SEQ`, 실행 안 함. 같은 `aid` 재전송 → `cmd_last`의 원래 ACK. 동작 실행 중 `SET_TEL_RATE`·`PAUSE_CPR`을 받아도 `act_cur`가 바뀌지 않아 동작 결과를 다시 받을 수 있음
-- **정지 방향 예외**: `bid` 틀림·`aid` 없음·옛 `aid`의 `PAUSE_CPR`·`STOP_CPR`·`DRIVE_STOP`·`DISARM`도 실행(상태 검사는 함). 같은 조건의 `RESUME_CPR`·`START_CPR`·`RESET_FAULT`·`VACUUM_OFF`는 거부
+- **정지 방향 예외**(6차): `bid` 틀림·`aid` 없음·옛 `aid`의 `PAUSE_CPR`·`STOP_CPR`·`DRIVE_STOP`·`DISARM`도 정지 출력이 **먼저** 인가됨. 이때 `aid_max`·`cmd_last`·진행 중 기록 불변. 상태가 맞지 않으면 출력은 꺼지고 상태 전이 없이 상태 오류 ACK. 같은 `aid` 재수신은 새 기록 없이 원래 ACK, 정지 출력은 다시 인가. 진행 중 동작과 겹치면 그 동작 `STOPPED`. 같은 조건의 `RESUME_CPR`·`START_CPR`·`RESET_FAULT`·`VACUUM_OFF`는 거부
+- **음압 해제 확인**(6차): `VACUUM_OFF` ACK 뒤에도 `VACUUM_RELEASED` 전에는 `VACUUM_HOLD`·`rearm_lock` 유지. 압력센서 무효·설정값 미설정이면 성립하지 않음. 출력 꺼짐이지만 해제 미확인 상태의 `DISARM`은 유지 경로. `mot` 오래됨이면 Jetson은 `rearm_lock = true`로 간주하고 `S13 → S2`를 막음
 - **`aid` 소진**: `aid_max = 4,294,967,295` 뒤 새 `aid` → `AID_EXHAUSTED`, 정지 방향 명령은 실행
 - 조회 명령은 `bid`·`aid` 없이 실행되고 기록에 남지 않음
 - **결과 우선순위**: 거리 미달만 → `SHORT`(`code` `2-TU-004`). 거리 미달과 방향 이탈이 함께 → `ABORTED`(`code` `2-TU-001`)
@@ -692,8 +748,8 @@ Teensy `test_saver_proto.cpp`(한건민):
 | 10/1 | 2차 초안 공유 | — |
 | 10/2 | 3차 초안 공유(3차 의견 반영) | 2차 초안 검토(완료), 3차 초안 검토 |
 | 10/3 | 4차 초안 공유(4차 의견 반영) | 3차 초안 검토(완료), 4차 초안 검토 |
-| 10/4 | 5차 초안 공유(5차 회신 반영) | 4차 초안 검토(완료), 5차 확인 요청 2건 회신 |
-| 10/5 | 합의 | 합의, 핀 이동 묶음 커밋 |
+| 10/4 | 5차 초안 공유, **6차 합의본** | 5차 확인 요청 2건 회신(완료, 조건부 동의 → 6차 반영으로 합의) |
+| 10/5 | — | 핀 이동 묶음 커밋 |
 | 10/5~6 | `protocol/` v1.1 반영(한건민 검토 뒤 커밋), `state_machine_v2.json` `S13` 조건, Jetson 모의 Teensy와 시험 | 펌웨어 구현과 시험, 후륜 비상정지 배선, **핀 이동 묶음**(§1 표 6개 파일, `test/test.ino` 포함) |
 | 10/6 | 7.1 벤치값 확정(팀, 근거·책임 기록) | 같이 |
 | 10/7 | — | Teensy 단독 주행·제동·헤드 유지 점검, 7.1 검증·조정 |
@@ -717,4 +773,6 @@ Teensy `test_saver_proto.cpp`(한건민):
 | 9 | `DISARM` 때 음압 처리: **한건민 안으로 정함(10/4)**. 음압 출력이 켜져 있으면 음압을 유지하고 `VACUUM_HOLD` + `rearm_lock`. 해제는 `VACUUM_OFF`나 수동 조작으로만. 남은 것: 확인 요청 1(§0.5), 의학적 타당성 **한성윤 확인 필요** | 한건민, 신상현, 한성윤 |
 | 10 | `bid`·`aid` 확대: **조회 4개 외 모든 명령으로 정함(10/4)**. 남은 것: 정지 방향 예외(§0.5 확인 요청 2) | 한건민, 신상현 |
 | 11 | main 코드 3건(§0.4): 한건민 확인(10/4), v1.1 구현 때 수정하기로 합의(§0.5-5) | 한건민 |
-| 12 | `S13`에서 `DISARM` 뒤 음압이 남으면 `S2`로 돌아가지 않고 해제 절차로 안내(`state_machine_v2.json` 변경, v1.1 묶음) | 신상현, 한건민 |
+| 12 | `S13`에서 `rearm_lock = true` 또는 `vac_released = false`면 `S2`로 돌아가지 않고 `S12` 해제 절차로 안내(`state_machine_v2.json` 변경, v1.1 묶음). **합의(10/4)** | 신상현, 한건민 |
+| 13 | 부팅 직후 잔류 음압: 부팅 상태 `IDLE`(= 음압 해제)과 실제가 어긋날 수 있다. `ARM` 조건에 `vac_released = true`를 넣을지 | 한건민 |
+| 14 | `VACUUM_RELEASED`를 기다리는 시간 상한과 넘겼을 때의 오류 코드(`VU`) | 한건민 |

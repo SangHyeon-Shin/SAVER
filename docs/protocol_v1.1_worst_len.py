@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""프로토콜 v1.1 초안 §3.4: 최악값 줄 길이 계산 (검토용, 5차: tel에 rearm_lock 추가).
+"""프로토콜 v1.1 초안 §3.4: 최악값 줄 길이 계산 (검토용, 6차: rearm_lock·vac_released는 mot).
 
 형식 규칙의 최댓값(실수 -9999.99, 정수 최댓값, 최장 문자열, faults 6개)으로
 메시지마다 한 줄을 만들어 본문 길이(LF 제외)를 잰다. 한도는 본문 511 byte.
@@ -49,7 +49,6 @@ def tel11():
     d['tn'] = U32
     d['boot_id'] = U16
     d['faults_more'] = True
-    d['rearm_lock'] = False       # 5차(§3.1). 항상 싣는 불리언, false가 더 길다
     return d
 
 
@@ -60,7 +59,8 @@ def mot():
                ('drv_pos_mm', F), ('drv_yaw_deg', F), ('drv_pitch_deg', F), ('drv_roll_deg', F),
                ('head_pos_mm', F), ('head_contact_mm', F),
                ('mot_last_seq', U16), ('mot_last_aid', U32),
-               ('mot_last_cmd', 'SET_CP_POINT'), ('mot_last_result', 'SETTLE_FAIL')])
+               ('mot_last_cmd', 'SET_CP_POINT'), ('mot_last_result', 'SETTLE_FAIL'),
+               ('rearm_lock', False), ('vac_released', False)])   # 6차(§3.2). 항상 싣는 불리언
 
 
 def evt(name, extra):
@@ -76,6 +76,7 @@ MESSAGES = [
     ('DRIVE_DONE', evt('DRIVE_DONE', OD([('seq', U16), ('aid', U32), ('result', 'SETTLE_FAIL'),
                                          ('code', '3-TU-010'), ('drive_mm', F), ('drv_pos_mm', F),
                                          ('drv_yaw_deg', F), ('cp_force_N', F), ('force_n', U16)]))),
+    ('VACUUM_RELEASED', evt('VACUUM_RELEASED', OD([('seq', U16), ('aid', U32), ('vac_kPa', F)]))),
     ('HOMING_DONE (HEAD_HELD, CP_ZERO_SET)', evt('HOMING_DONE', OD([('seq', U16), ('aid', U32),
                                          ('result', 'NO_CONTACT'), ('code', '3-TU-010'),
                                          ('head_contact_mm', F), ('head_pos_mm', F), ('cp_force_N', F)]))),
