@@ -3,6 +3,8 @@ import { C, SCREEN_W, SCREEN_H } from './tokens'
 import { EV, NODES, INITIAL, transition } from './stateMachine'
 import { useWaves, useVitals } from './vitals'
 import { useBridge } from './bridge'
+import { useSearchDemo, DEMO } from './searchDemo'
+import { Screen09 } from './screens/Search'
 import { Btn } from './ui'
 import * as A from './screens/SectionA'
 import * as B from './screens/SectionB'
@@ -13,7 +15,7 @@ import * as DE from './screens/SectionDE'
 const SCREEN = {
   S1: A.Screen01, X_WHEELS: A.Screen02, X_MOVE: A.Screen03, S2: A.Screen04,
   X_CLOTHES: A.Screen05, S3S4: A.Screen06, X_PPG: A.Screen07, S5: A.Screen08,
-  X_SEARCH: A.Screen09, X_PIN: A.Screen20, S6: A.Screen10,
+  X_SEARCH: Screen09, X_PIN: A.Screen20, S6: A.Screen10,
   S7: B.Screen11, S8: B.Screen12,
   S9: Cs.Screen13, S10: Cs.Screen14, X_POSOUT: Cs.Screen15, S11: Cs.Screen16,
   S12: DE.Screen17, S13: DE.Screen18, X_VENT: DE.Screen19,
@@ -32,9 +34,20 @@ function useStageScale() {
   return s
 }
 
+/* 오프라인 시연 옵션 (주소 뒤 ?start=X_SEARCH&eapd=none&phantom=flat&speed=2)
+   브리지에 연결되면 쓰지 않는다. 체험판·스모크 시험용 */
+const QS = new URLSearchParams(typeof location !== 'undefined' ? location.search : '')
+const qEapd = () => {
+  const e = QS.get('eapd')
+  if (e === 'none') return null
+  const n = parseFloat(e)
+  return Number.isFinite(n) ? n : DEMO.sim_eapd_mm
+}
+
 export default function App() {
-  const [ctx, setCtx] = useState(INITIAL)
-  const [demo, setDemo] = useState({ positionError: false, vacuumError: false, clothesStuck: false })
+  const [ctx, setCtx] = useState(() => (NODES[QS.get('start')] ? { ...INITIAL, node: QS.get('start') } : INITIAL))
+  const [demo, setDemo] = useState({ positionError: false, vacuumError: false, clothesStuck: false,
+                                     searchEapd: qEapd(), searchFlat: QS.get('phantom') === 'flat' })
   const [devOpen, setDevOpen] = useState(() => new URLSearchParams(location.search).has('dev'))
   const scale = useStageScale()
   const waves = useWaves()
@@ -73,6 +86,30 @@ export default function App() {
 
   bridgeRef.current = bridge.connected ? bridge.sendIntent : null
 
+  /* ---------- 압박점 탐색 ----------
+     연결 시  : 시작·중지 요청만 보내고 브리지의 search 메시지를 그린다.
+                SEARCH_DONE·SEARCH_FAIL 은 브리지가 정한다.
+     미연결 시: 모의 시연(searchDemo.js). 끝나면 로컬 전이                   */
+  const sdemo = useSearchDemo({
+    eapd: demo.searchEapd, flat: demo.searchFlat, speed: parseFloat(QS.get('speed')) || 1,
+    onDone: (ok, snap) => {
+      if (ok) fire(EV.SEARCH_DONE)
+      else if (snap && snap.moved && !['USER_STOP', 'LEFT_NODE'].includes(snap.reason)) fire(EV.SEARCH_FAIL, { cause: 'search' })
+    },
+  })
+  const search = bridge.connected ? bridge.search : sdemo.snap
+  const searchCtl = bridge.connected
+    ? { live: true, start: () => bridge.sendSearch('start'), stop: () => bridge.sendSearch('stop') }
+    : { live: false, start: sdemo.start, stop: () => sdemo.stop('USER_STOP') }
+  const prevNode = useRef(ctx.node)
+  useEffect(() => {
+    const was = prevNode.current
+    prevNode.current = ctx.node
+    if (ctx.node === 'X_SEARCH' && was !== 'X_SEARCH') { sdemo.reset(); bridge.clearSearch() }
+    if (ctx.node !== 'X_SEARCH' && was === 'X_SEARCH') sdemo.stop('LEFT_NODE')
+  }, [ctx.node])
+  const setPatient = useCallback((patient) => setCtx((c) => ({ ...c, patient })), [])
+
   const vitals = useVitals(!!node.running, bridge.telemetry, bridge.stale)
 
   /* ---------- 자동 전이 (부팅 · 바퀴 전개) ----------
@@ -98,7 +135,7 @@ export default function App() {
   const holdEnd = () => clearTimeout(holdRef.current)
 
   const Screen = SCREEN[ctx.node]
-  const props = { fire, ctx, demo, vitals, waves }
+  const props = { fire, ctx, demo, vitals, waves, search, searchCtl, setPatient }
 
   return (
     <div style={{ position: 'fixed', inset: 0, background: '#0a0d12', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -209,6 +246,18 @@ function DevPanel({ ctx, node, demo, setDemo, setCtx, fire, bridge, scale, onClo
         <button style={btn(demo.vacuumError)} onPointerDown={() => toggle('vacuumError')}>흡착 오류 (화면08)</button>
         <button style={btn(demo.clothesStuck)} onPointerDown={() => toggle('clothesStuck')}>겉옷 인식 실패 (화면05)</button>
         <button style={btn(!!ctx.battery)} onPointerDown={() => setCtx((c) => ({ ...c, battery: c.battery ? false : 'popup' }))}>배터리 부족 (화면20)</button>
+      </div>
+
+      <div style={h}>탐색 시연 <span style={{ color: '#5b6470' }}>(장치 미연결 전용 · 모의값)</span></div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 5 }}>
+        {[['없음', null], ['180', 180], ['205.8', 205.8], ['250', 250]].map(([label, val]) => (
+          <button key={label} style={{ ...btn(demo.searchEapd === val), fontSize: 11, textAlign: 'center' }}
+            onPointerDown={() => setDemo((d) => ({ ...d, searchEapd: val }))}>EAPD {label}</button>
+        ))}
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 5, marginTop: 5 }}>
+        <button style={btn(!demo.searchFlat)} onPointerDown={() => setDemo((d) => ({ ...d, searchFlat: false }))}>모사체 정상</button>
+        <button style={btn(demo.searchFlat)} onPointerDown={() => setDemo((d) => ({ ...d, searchFlat: true }))}>말단 없음(균일)</button>
       </div>
 
       <div style={h}>이벤트 강제 발생 <span style={{ color: '#5b6470' }}>(현재 상태 허용분만 활성)</span></div>

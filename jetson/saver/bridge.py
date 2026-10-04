@@ -106,6 +106,7 @@ class Bridge(object):
         # 환자 EAPD(mm). 레이더 모듈이 채운다. 시뮬레이션 설정의 sim_eapd_mm 만 예외다.
         # 없으면 탐색을 시작하지 않는다(대체 상수 없음, 초안 §0.1-3).
         self.eapd_mm = CONFIG.get("sim_eapd_mm")
+        self.eapd_sim = self.eapd_mm is not None       # 화면에 '모의'로 표시
         self.fsm = StateMachine(spec_path=args.spec,
                                 on_change=self._on_state,
                                 on_command=self._on_command,
@@ -193,6 +194,7 @@ class Bridge(object):
     def _on_search(self, snap):
         out = dict(snap)
         out["type"] = "search"
+        out["eapd_sim"] = self.eapd_sim
         self.push(out)
 
     def _on_search_done(self, ok, snap):
@@ -203,7 +205,7 @@ class Bridge(object):
             self.cp_point_ready = True              # S6 에서 SET_CP_POINT(offset_mm=0)
             self.fsm.fire("SEARCH_DONE")
         elif snap.get("moved") and snap.get("reason") not in ("USER_STOP", "LEFT_NODE"):
-            self.fsm.fire("SEARCH_FAIL")            # 동작 뒤 실패 → 오류 화면, RECHECK 로 다시 탐색
+            self.fsm.fire("SEARCH_FAIL", {"cause": "search"})   # 동작 뒤 실패 → 오류 화면, RECHECK 로 다시 탐색
         # 시작 전 거부(설정 없음, EAPD 없음, 미지원 펌웨어)는 탐색 화면에 사유만 표시한다
 
     def _on_evt(self, msg):

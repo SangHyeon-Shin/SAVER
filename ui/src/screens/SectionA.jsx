@@ -217,54 +217,8 @@ export function Screen08({ fire, demo }) {
   )
 }
 
-/* ================= 09 · 압박점 탐색 (X_SEARCH) =================
-   v2.1 순서: 정렬 → 탐색(바퀴 위 주행) → 핀 해제 → 음압 고정.
-   반력 곡선 표시는 4단계에서 이 화면을 교체한다. */
-export function Screen09({ fire, ctx }) {
-  const [sex, setSex] = useState(ctx.patient.sex)
-  const [age, setAge] = useState(ctx.patient.age)
+/* 09 · 압박점 탐색 · X_SEARCH → screens/Search.jsx */
 
-  const pick = (on) => ({
-    flex: 1, height: 56, borderRadius: 6, fontSize: 21, fontFamily: 'inherit',
-    border: on ? 'none' : `1.5px solid ${C.lightLine}`,
-    background: on ? C.primary : '#fff', color: on ? '#fff' : '#000', fontWeight: on ? 600 : 400,
-  })
-
-  return (
-    <Light>
-      <Header title="압박점 탐색 / 환자 정보" right="정보 입력" titleSize={26} />
-      <div style={{ flex: 1, position: 'relative', display: 'flex', flexDirection: 'column', gap: 18, padding: '22px 28px 24px' }}>
-        <div style={{ flex: 1, display: 'flex', gap: 24, minHeight: 0 }}>
-          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 16 }}>
-            <div style={{ width: '100%', height: 220, border: `1px solid ${C.lightLine}`, borderRadius: 10, overflow: 'hidden', background: '#0e1116', position: 'relative' }}>
-              <img src={IMG.patient_angled} alt="환자" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
-              <div style={{ position: 'absolute', left: '22%', top: '43%', width: 30, height: 30, border: `3px solid ${C.primary}`, borderRadius: '50%', background: 'rgba(36,107,235,.18)', transform: 'translate(-50%,-50%)', boxShadow: '0 0 10px rgba(36,107,235,.7)', animation: 'scanmove 5s ease-in-out infinite, sblink 1s infinite' }} />
-            </div>
-            <div style={{ fontSize: 22, fontWeight: 700, color: C.primary, animation: 'sblink 1.1s infinite' }}>압박 위치 찾는 중…</div>
-          </div>
-
-          <div style={{ flex: 1, border: `1px solid ${C.lightLine}`, borderRadius: 10, padding: 18, display: 'flex', flexDirection: 'column' }}>
-            <div style={{ fontSize: 20, fontWeight: 700, marginBottom: 14 }}>환자 정보</div>
-            <div style={{ fontSize: 17, color: C.lightSub, marginBottom: 7 }}>성별</div>
-            <div style={{ display: 'flex', gap: 10, marginBottom: 16 }}>
-              <button style={pick(sex === 'male')} onPointerDown={() => setSex('male')}>남성</button>
-              <button style={pick(sex === 'female')} onPointerDown={() => setSex('female')}>여성</button>
-            </div>
-            <div style={{ fontSize: 17, color: C.lightSub, marginBottom: 7 }}>연령</div>
-            <div style={{ display: 'flex', gap: 10 }}>
-              <button style={{ ...pick(age === 'child'), fontSize: 20 }} onPointerDown={() => setAge('child')}>어린이</button>
-              <button style={{ ...pick(age === 'adult'), fontSize: 20 }} onPointerDown={() => setAge('adult')}>성인</button>
-              <button style={{ ...pick(age === 'elder'), fontSize: 20 }} onPointerDown={() => setAge('elder')}>노인</button>
-            </div>
-            <div style={{ fontSize: 14, color: '#8a929c', marginTop: 14 }}>입력값은 구급대원에게 전송됩니다.</div>
-          </div>
-        </div>
-        <Btn w="100%" h={78} fs={27} fw={700}
-          onPress={() => fire(EV.SEARCH_DONE, { patient: { sex, age } })}>확인</Btn>
-      </div>
-    </Light>
-  )
-}
 
 /* ================= 20 · 바퀴 수납 · 안전핀 해제 (X_PIN) =================
    탐색으로 압박점 위에 선 뒤, 구조자가 안전핀을 빼 바퀴를 수납하고 패드를 바닥에 닿게 한다.

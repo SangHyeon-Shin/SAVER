@@ -16,11 +16,18 @@ import { useEffect, useRef, useState, useCallback } from 'react'
      {type:'device_event', evt}
      {type:'link',         connected, port}
      {type:'rejected',     name, node, allowed, reason, mcu, need}
+     {type:'search',       phase, reason, points[{x,F,ref,r}], tip_x, D_mm, target_x, pos_x, rule, ...}
+
+   보내는 메시지 (intent, force 외)
+     {type:'search', action:'start'|'stop'}   압박점 탐색 시작·중지 (X_SEARCH 에서만)
+
+   VITE_WS_URL=off 로 빌드하면 연결하지 않는다(브라우저만으로 보는 체험판).
    ============================================================ */
 
 const WS_URL =
   import.meta.env.VITE_WS_URL ||
   `ws://${typeof location !== 'undefined' ? location.hostname : 'localhost'}:8765`
+const DISABLED = WS_URL === 'off'
 
 export function useBridge({ onState, onRejected } = {}) {
   const [connected, setConnected] = useState(false)
@@ -29,12 +36,14 @@ export function useBridge({ onState, onRejected } = {}) {
   const [linkUp, setLinkUp] = useState(false)     // 젯슨↔Teensy 링크
   const [lastError, setLastError] = useState(null)
   const [rejected, setRejected] = useState(null)
+  const [search, setSearch] = useState(null)       // 브리지가 보낸 마지막 탐색 진행
 
   const wsRef = useRef(null)
   const cbState = useRef(onState); cbState.current = onState
   const cbReject = useRef(onRejected); cbReject.current = onRejected
 
   useEffect(() => {
+    if (DISABLED) return undefined
     let closed = false
     let retry
 
@@ -67,6 +76,8 @@ export function useBridge({ onState, onRejected } = {}) {
             setLinkUp(!!m.connected)
             if (!m.connected) setStale(true)        // 링크가 끊기면 브리지가 stale 을 따로 보내지 않는다
             break
+          case 'search':
+            setSearch(m); break
           case 'rejected':
             setRejected(m)
             cbReject.current && cbReject.current(m)
@@ -97,6 +108,16 @@ export function useBridge({ onState, onRejected } = {}) {
     return true
   }, [])
 
-  return { connected, linkUp, telemetry, stale, lastError, rejected,
-           sendIntent, sendForce, url: WS_URL }
+  /** 압박점 탐색 시작·중지 요청. 동작 판단은 브리지와 Teensy 가 한다. */
+  const sendSearch = useCallback((action) => {
+    const ws = wsRef.current
+    if (!ws || ws.readyState !== WebSocket.OPEN) return false
+    ws.send(JSON.stringify({ type: 'search', action }))
+    return true
+  }, [])
+
+  const clearSearch = useCallback(() => setSearch(null), [])
+
+  return { connected, linkUp, telemetry, stale, lastError, rejected, search,
+           sendIntent, sendForce, sendSearch, clearSearch, url: DISABLED ? '(연결 안 함)' : WS_URL }
 }

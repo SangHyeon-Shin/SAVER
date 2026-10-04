@@ -54,6 +54,9 @@ f2 = StateMachine(); f2.force("S5")
 f2.fire("VACUUM_ERROR")
 ck("오류 진입", f2.node == "S10" and f2.error_cause == "vacuum")
 f2.fire("RECHECK"); ck("RECHECK 복귀 S10→S5", f2.node == "S5")
+f2.force("X_SEARCH"); f2.fire("SEARCH_FAIL", {"cause": "search"})
+ck("탐색 실패 → S10, 원인 search, RECHECK 로 탐색 화면 복귀",
+   f2.node == "S10" and f2.error_cause == "search" and f2.fire("RECHECK") and f2.node == "X_SEARCH")
 
 # 장치 상태 조건 (requires_mcu)
 mcu = {"s": "ARMED"}

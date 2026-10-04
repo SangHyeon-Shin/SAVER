@@ -4,6 +4,7 @@ import { EV } from '../stateMachine'
 import { Dark, AlarmRed, Header, Btn, WavePanel } from '../ui'
 
 import { IMG } from '../images'
+import { reasonText } from '../search'
 
 /* ================= 13 · ROSC 의심 · S9 · UI-09 · ★핵심·경고 ================= */
 export function Screen13({ fire, waves }) {
@@ -46,10 +47,13 @@ const CAUSES = {
   position: [{ t: '압박 위치를 확인하세요',   s: '→ 초록색 유도선에 맞춰 환자를 정렬하세요.' },
              { t: '장치가 흉부 중앙에서 벗어났습니다', s: '→ 장치를 들어 다시 배치하세요.' }],
   sensor:   [{ t: '센서 신호가 불안정합니다', s: '→ PPG 센서 착용 상태를 확인하세요.' }],
+  search:   [{ t: '압박점 탐색이 중단되었습니다', s: '→ 환자 정렬을 확인한 뒤 재확인을 누르면 탐색 화면으로 돌아갑니다.' }],
 }
 
-export function Screen14({ fire, ctx }) {
-  const list = CAUSES[ctx.errorCause] || CAUSES.tubing
+export function Screen14({ fire, ctx, search }) {
+  let list = CAUSES[ctx.errorCause] || CAUSES.tubing
+  const why = ctx.errorCause === 'search' && search ? reasonText(search.reason) : null
+  if (why) list = [...list, { t: why.title, s: '→ ' + why.sub + ' (' + why.code + ')' }]
   return (
     <Dark band={C.warning} bandH={14}>
       <Header dark h={72} titleSize={26} title="장치 상태 확인" right="경고" rightColor={C.warning} />

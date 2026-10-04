@@ -15,10 +15,13 @@ const errors = []
 const vc = new VirtualConsole()
 vc.on('jsdomError', (e) => errors.push(String(e.message || e).slice(0, 300)))
 
-const dom = new JSDOM(readFileSync(FILE, 'utf8'), {
+const HTML = readFileSync(FILE, 'utf8')
+// speed: 탐색 시연 배속(시험 시간 단축). 화면 흐름은 같다
+const openDom = (qs) => new JSDOM(HTML, {
   runScripts: 'dangerously', pretendToBeVisual: true,
-  url: 'file:///SAVER_UI.html', virtualConsole: vc,
+  url: 'file:///SAVER_UI.html' + qs, virtualConsole: vc,
 })
+const dom = openDom('?speed=6')
 const d = dom.window.document
 
 const T = () => (d.querySelector('#root')?.textContent || '').replace(/\s+/g, ' ').trim()
@@ -63,9 +66,15 @@ const check = (name, ok, detail = '') => {
 
   tap(B('다음'))
   check('09 압박점 탐색 (v2.1: 고정 전에 탐색)', await until(has('압박점 탐색')))
+  check('09 미연결이면 모의 데이터로 표시', has('모의 데이터')())
+  check('09 어린이 선택지 없음 (성인 대상)', !T().includes('어린이') && has('성인')())
+  check('09 진입만으로 탐색 시작 안 함', d.querySelectorAll('[data-pt]').length === 0 && has('탐색 시작을 누르면')())
 
-  tap(B('확인'))
-  check('20 바퀴 수납 · 안전핀 해제', await until(has('안전핀을 뽑아')))
+  tap(BX('탐색 시작'))
+  check('09 반력 곡선 그려짐', await until(() => d.querySelectorAll('[data-pt]').length >= 10, 6000),
+    d.querySelectorAll('[data-pt]').length + '점')
+  check('09 EAPD·보정 거리 D 표시', has('205.8 mm')() && has('89.7 mm')())
+  check('20 탐색 완료 → 바퀴 수납 · 안전핀 해제', await until(has('안전핀을 뽑아'), 9000))
 
   tap(B('핀을 뺐습니다'))
   check('08 흡착·고정 확인 (핀 해제 뒤)', await until(has('흡착·고정')))
@@ -125,6 +134,62 @@ const check = (name, ok, detail = '') => {
   check('redirect: 해제 확인되면 그대로', redirectTarget(rule, { rearm_lock: false, vac_released: true }) === null)
   check('redirect: vac_released 없음 → S12', redirectTarget(rule, { rearm_lock: false }) === 'S12')
   check('redirect: rearm_lock 값 없음(오래됨) → S12', redirectTarget(rule, { rearm_lock: null, vac_released: true }) === 'S12')
+
+  // 압박점 탐색 판정 (jetson/saver/search.py 와 같은 합성 곡선, tests/test_all.py 9절)
+  const S = await import('../src/search.js')
+  const SD = await import('../src/searchDemo.js')
+  const xs = Array.from({ length: 16 }, (_, i) => 5 * (i + 1))
+  const sharp = [...Array(8).fill(40), ...Array(8).fill(12)]
+  const t1 = S.detectTip(xs, sharp, 3, 0.3)
+  check('판정: 급감 → 처음 30 % 감소 점 (Python 과 같음)', t1.tipIndex === 8 && t1.tipX === 45 && Math.abs(t1.r[8] - 0.7) < 1e-9)
+  check('판정: 완만한 감소는 판정 안 함', S.detectTip(xs, xs.map((_, i) => 40 - 28 * i / 15), 3, 0.3).tipIndex === null)
+  const two = S.detectTip(xs, [...Array(5).fill(40), 12, ...Array(5).fill(40), ...Array(5).fill(12)], 3, 0.3)
+  check('판정: 후보 두 묶음 → 첫 후보, 묶음 수 2', two.tipIndex === 5 && two.groups === 2)
+  check('판정: 시작 N 점 안 급감은 N 번째 점', S.detectTip(xs.slice(0, 6), [40, 12, 12, 12, 12, 12], 3, 0.3).tipIndex === 3)
+  const P7 = { cp_dist_ref_mm: 89.7, eapd_ref_mm: 205.8, cp_dist_max_mm: 95 }
+  check('D: 식 (7), 상한, EAPD 없으면 null',
+    Math.abs(S.cpDistance(205.8, P7) - 89.7) < 1e-9 && S.cpDistance(250, P7) === 95
+    && [null, 0, -1, NaN, '205.8'].every((e) => S.cpDistance(e, P7) === null))
+
+  const cfg = JSON.parse(readFileSync('../jetson/config.sim.json', 'utf8'))
+  check('시연 값 = jetson/config.sim.json', Object.entries(SD.DEMO).every(([k, v]) => cfg[k] === v),
+    Object.entries(SD.DEMO).filter(([k, v]) => cfg[k] !== v).map(([k]) => k).join(','))
+  const run = (o) => { let last = null; for (const it of SD.demoSearch(o)) last = it.snap; return last }
+  const r0 = run({ eapd: 205.8 })
+  check('시연: 말단 60 mm 부근, 압박점 = 말단 - D, 도달',
+    r0.phase === 'done' && Math.abs(r0.tip_x - 60) <= 5 && Math.abs(r0.target_x - (r0.tip_x - 89.7)) < 0.01
+    && Math.abs(r0.pos_x - r0.target_x) <= 0.5 && r0.points.length === 24, `tip=${r0.tip_x} target=${r0.target_x}`)
+  const rn = run({ eapd: null })
+  check('시연: EAPD 없음 → 동작 없이 거부', rn.reason === 'EAPD_MISSING' && !rn.moved && rn.points.length === 0)
+  check('시연: EAPD 250 → D 상한 95', run({ eapd: 250 }).D_mm === 95)
+  check('시연: 말단 없음 → TIP_NOT_FOUND', run({ eapd: 205.8, flat: true }).reason === 'TIP_NOT_FOUND')
+
+  const lv = S.searchView({ phase: 'scan', points: [{ x: 5, F: 40 }], rule: { dir: 1, drop_ratio: 0.3, ref_n: 3, roi_mm: 120, step_mm: 5 } })
+  check('표시: 연결 시 받은 값만 (모의 아님, 기준 없음)', lv.pts.length === 1 && !lv.simulated && lv.pts[0].ref === null && lv.tipU === null)
+  check('표시: 반력 생략·비숫자 점은 그리지 않음', S.searchView({ phase: 'scan', points: [{ x: 5 }, { x: 10, F: 'x' }] }).pts.length === 0)
+  const ng = S.searchView({ phase: 'move', points: [{ x: -5, F: 40 }], tip_x: -60, target_x: 29.7, rule: { dir: -1 } })
+  check('표시: 방향 부호 -1 이어도 머리 쪽이 왼쪽', ng.tipU === 60 && ng.targetU === -29.7 && ng.pts[0].u === 5)
+  check('표시: 브리지가 모의 EAPD 라고 알리면 모의 표시', S.searchView({ phase: 'scan', eapd_mm: 205.8, eapd_sim: true }).eapdSim
+    && !S.searchView({ phase: 'scan', eapd_mm: 205.8 }).eapdSim)
+  check('사유: EAPD 없음 안내에 대체값 미사용 명시', S.reasonText('EAPD_MISSING').sub.includes('대체값'))
+
+  // 실패 시나리오 (오프라인 시연)
+  const d2 = openDom('?start=X_SEARCH&eapd=none').window.document
+  const T2 = () => (d2.querySelector('#root')?.textContent || '')
+  await until(() => T2().includes('탐색 시작'), 3000)
+  tap([...d2.querySelectorAll('#root button')].find((b) => b.textContent.trim() === '탐색 시작'))
+  check('EAPD 없음: 안내 표시, 장치 동작·곡선 없음, 화면 유지',
+    await until(() => T2().includes('측정값이 없습니다'), 3000) && T2().includes('미측정')
+    && d2.querySelectorAll('[data-pt]').length === 0 && T2().includes('압박점 탐색'))
+  const d3 = openDom('?start=X_SEARCH&phantom=flat&speed=8').window.document
+  const T3 = () => (d3.querySelector('#root')?.textContent || '')
+  await until(() => T3().includes('탐색 시작'), 3000)
+  tap([...d3.querySelectorAll('#root button')].find((b) => b.textContent.trim() === '탐색 시작'))
+  check('말단 없음: 오류 화면(S10)에 탐색 사유', await until(() => T3().includes('찾지 못했습니다'), 9000)
+    && T3().includes('압박점 탐색이 중단'))
+  tap([...d3.querySelectorAll('#root button')].find((b) => b.textContent.includes('재확인')))
+  check('재확인 → 탐색 화면 복귀, 이전 곡선 지움', await until(() => T3().includes('탐색 시작을 누르면'), 3000))
+  check('런타임 오류 없음 (시나리오 포함)', errors.length === 0, errors[0] || '')
 
   console.log(`\n${fail === 0 ? '✅ 전체 통과' : '❌ 실패 있음'}  (통과 ${pass} / 실패 ${fail})\n`)
   dom.window.close()
