@@ -1,5 +1,6 @@
-import React from 'react'
+import React, { useContext } from 'react'
 import { C, SCREEN_W, SCREEN_H } from './tokens'
+import { VoiceCtx } from './voice/VoiceContext'
 
 /* ============================================================
    공통 UI 컴포넌트
@@ -54,11 +55,45 @@ export function Header({ title, titleEn, right, rightColor, dark = false, h = 80
         {title}
         {titleEn && <span style={{ fontSize: 18, fontWeight: 500, color: C.darkSub }}> / {titleEn}</span>}
       </div>
-      {right && (
-        <div style={{ fontSize: 20, fontWeight: rightColor ? 700 : 400, color: rightColor || (dark ? C.darkSub : C.lightSub) }}>
-          {right}
-        </div>
-      )}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+        <VoiceButtons dark={dark} />
+        {right && (
+          <div style={{ fontSize: 20, fontWeight: rightColor ? 700 : 400, color: rightColor || (dark ? C.darkSub : C.lightSub) }}>
+            {right}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+/** 헤더의 음성 버튼: 다시 듣기, 소리 끄기/켜기 (음성은 보조. 재생 실패는 제어와 무관) */
+function VoiceButtons({ dark }) {
+  const vc = useContext(VoiceCtx)
+  if (!vc) return null
+  const fg = dark ? C.darkText : '#1a1f29'
+  const line = dark ? '#4a5563' : C.lightLine
+  const b = { height: 40, display: 'flex', alignItems: 'center', gap: 6, padding: '0 10px', borderRadius: 8,
+    border: `1.5px solid ${line}`, background: 'transparent', color: fg, fontSize: 15, fontWeight: 600, fontFamily: 'inherit' }
+  const spk = (
+    <path d="M3 9 H7 L12 5 V19 L7 15 H3 Z" fill="currentColor" />
+  )
+  return (
+    <div data-voice style={{ display: 'flex', gap: 6 }}>
+      <button aria-label="음성 다시 듣기" style={b} disabled={vc.muted}
+        onPointerDown={(e) => { e.stopPropagation(); vc.voice.replay() }}>
+        <svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true">{spk}
+          <path d="M15.5 8.5 a5 5 0 0 1 0 7 M18 6 a8.5 8.5 0 0 1 0 12" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" /></svg>
+        다시 듣기
+      </button>
+      <button aria-label={vc.muted ? '소리 켜기' : '소리 끄기'} aria-pressed={vc.muted} style={{ ...b, width: 44, justifyContent: 'center', padding: 0,
+        ...(vc.muted ? { background: dark ? '#3a4250' : '#eef1f5' } : {}) }}
+        onPointerDown={(e) => { e.stopPropagation(); vc.toggleMute() }}>
+        <svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true">{spk}
+          {vc.muted
+            ? <path d="M16 9 L22 15 M22 9 L16 15" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+            : <path d="M15.5 8.5 a5 5 0 0 1 0 7" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />}</svg>
+      </button>
     </div>
   )
 }

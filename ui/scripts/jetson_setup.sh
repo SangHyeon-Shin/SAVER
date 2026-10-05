@@ -66,7 +66,8 @@ ExecStart=/usr/bin/chromium-browser \\
   --touch-events=enabled --enable-features=OverlayScrollbar \\
   --noerrdialogs --disable-infobars --disable-session-crashed-bubble \\
   --disable-pinch --overscroll-history-navigation=0 \\
-  --check-for-update-interval=31536000 --disable-translate
+  --check-for-update-interval=31536000 --disable-translate \\
+  --autoplay-policy=no-user-gesture-required
 Restart=always
 RestartSec=5
 

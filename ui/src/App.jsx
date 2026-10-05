@@ -7,6 +7,9 @@ import { useSearchDemo, DEMO } from './searchDemo'
 import { Screen09 } from './screens/Search'
 import { Screen21, Screen22 } from './screens/Aed'
 import { Btn } from './ui'
+import VOICE from './voice/prompts.json'
+import { createVoice } from './voice/player'
+import { VoiceCtx } from './voice/VoiceContext'
 import * as A from './screens/SectionA'
 import * as B from './screens/SectionB'
 import * as Cs from './screens/SectionC'
@@ -117,10 +120,31 @@ export default function App() {
       else if (snap && snap.moved && !['USER_STOP', 'LEFT_NODE'].includes(snap.reason)) fire(EV.SEARCH_FAIL, { cause: 'search' })
     },
   })
+  /* ---------- 음성 안내 (voice/plan.js 규칙, voice/<ID>.mp3) ----------
+     화면이 바뀌면 그 화면 문구를 말한다. 파일이 없거나 재생이 막히면 조용히 건너뛴다 */
+  const voiceRef = useRef(null)
+  if (!voiceRef.current) voiceRef.current = createVoice({ prompts: VOICE.prompts, log: (...a) => console.debug('[음성]', ...a) })
+  const voice = voiceRef.current
+  const [muted, setMuted] = useState(false)
+  const toggleMute = useCallback(() => { const m = !voice.muted; voice.setMuted(m); setMuted(m) }, [voice])
+  const voiceValue = React.useMemo(() => ({ voice, muted, toggleMute }), [voice, muted, toggleMute])
+  useEffect(() => {
+    voice.enter(ctx.node, { cause: ctx.errorCause, positionError: demoRef.current.positionError })
+  }, [ctx.node])
+  useEffect(() => { if (ctx.battery === 'popup') voice.event('battery_low') }, [ctx.battery])
+  useEffect(() => () => voice.stop(), [])
+
   const search = bridge.connected ? bridge.search : sdemo.snap
-  const searchCtl = bridge.connected
-    ? { live: true, start: () => bridge.sendSearch('start'), stop: () => bridge.sendSearch('stop') }
-    : { live: false, start: sdemo.start, stop: () => sdemo.stop('USER_STOP') }
+  const startSearch = bridge.connected ? () => bridge.sendSearch('start') : sdemo.start
+  const searchCtl = {
+    live: bridge.connected,
+    start: () => { voice.event('search_start'); startSearch() },   // 장치가 움직이기 전에 손 떼기 안내
+    stop: bridge.connected ? () => bridge.sendSearch('stop') : () => sdemo.stop('USER_STOP'),
+  }
+  const searchReason = search && search.reason
+  useEffect(() => {
+    if (ctx.node === 'X_SEARCH' && searchReason) voice.event('search_fail:' + searchReason)
+  }, [searchReason])
   const prevNode = useRef(ctx.node)
   useEffect(() => {
     const was = prevNode.current
@@ -192,9 +216,11 @@ export default function App() {
         transform: `scale(${scale})`, transformOrigin: 'center center', flexShrink: 0,
         boxShadow: '0 0 0 1px rgba(255,255,255,.06)',
       }}>
-        {ctx.node === 'S0'
-          ? <PowerOff onPress={() => fire(EV.POWER_ON)} />
-          : <Screen {...props} />}
+        <VoiceCtx.Provider value={voiceValue}>
+          {ctx.node === 'S0'
+            ? <PowerOff onPress={() => fire(EV.POWER_ON)} />
+            : <Screen {...props} />}
+        </VoiceCtx.Provider>
 
         {/* 장치가 아직 준비되지 않아 전이가 거부됨 */}
         {bridge.rejected && bridge.rejected.reason === 'device_not_ready' && (

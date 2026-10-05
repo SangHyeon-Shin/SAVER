@@ -1,7 +1,8 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useState, useContext } from 'react'
 import { C } from '../tokens'
 import { EV } from '../stateMachine'
 import { Light, Dark, Header, Btn, Dot } from '../ui'
+import { VoiceCtx } from '../voice/VoiceContext'
 
 /* ============================================================
    AED 병행 (state_machine_v2.json v2.2)
@@ -65,6 +66,9 @@ export function Screen22({ fire, ctx, aedWarnS }) {
   const warnSet = typeof aedWarnS === 'number' && aedWarnS > 0
   const over = warnSet && sec >= aedWarnS
   const padsOn = ctx.aedPads === true
+  // 장치 음성은 진입 1회 뒤 끈다. 경고 기준이 정해져 있고 넘었을 때만 V39 (voice/plan.js)
+  const vc = useContext(VoiceCtx)
+  useEffect(() => { if (over && vc) vc.voice.event('aed_pause_warn') }, [over])
 
   return (
     <Dark band={over ? C.danger : C.caution} bandH={14}>

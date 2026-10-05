@@ -1,9 +1,10 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useContext } from 'react'
 import { C } from '../tokens'
 import { EV } from '../stateMachine'
 import { Light, Dark, Header, Btn } from '../ui'
 
 import { IMG } from '../images'
+import { VoiceCtx } from '../voice/VoiceContext'
 
 /* ================= 17 · 수동 해제 · S12 · UI-12 · 주의 ================= */
 export function Screen17({ fire }) {
@@ -69,8 +70,10 @@ const VENT_STEPS = [
 export function Screen19({ fire }) {
   const [i, setI] = useState(0)
   const [left, setLeft] = useState(VENT_STEPS[0].sec)
+  const vc = useContext(VoiceCtx)
 
   useEffect(() => {
+    if (vc) vc.voice.event('step:' + (i + 1))   // 단계 음성 V29~V34 (앞 문구를 끊지 않고 잇는다)
     setLeft(VENT_STEPS[i].sec)
     const tick = setInterval(() => setLeft((v) => Math.max(0, v - 1)), 1000)
     const advance = setTimeout(() => {

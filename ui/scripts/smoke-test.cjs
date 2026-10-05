@@ -263,6 +263,40 @@ const check = (name, ok, detail = '') => {
     dn.window.close()
   }
   check('화면 문구: 전문용어 없음(일반인 기준)', jhits.length === 0, jhits.join(' '))
+  // 음성 재생 규칙과 재생기 (voice/plan.js, voice/player.js)
+  const VPl = await import('../src/voice/plan.js')
+  const VPP = VP.prompts
+  check('재생 규칙: 시작 대기는 헤드셋 → 눕히기 → 119 순서', VPl.planEnter(VPP, 'S2').join() === 'V40,V04,V36', VPl.planEnter(VPP, 'S2').join())
+  check('재생 규칙: S10 은 진입 문구 뒤 원인 문구, 위치 오류는 V09',
+    VPl.planEnter(VPP, 'S10', { cause: 'vacuum' }).join() === 'V20,V22' && VPl.planEnter(VPP, 'S3S4', { positionError: true }).join() === 'V09'
+    && VPl.planEnter(VPP, 'S3S4').join() === 'V07,V08')
+  check('재생 규칙: 압박 중 사건 음성 없음, AED 화면은 경고(V39)만, 배터리는 어느 화면에서나',
+    VPl.planEvent(VPP, 'S7', 'battery_low').length === 0 && VPl.planEvent(VPP, 'X_AED', 'battery_low').length === 0
+    && VPl.planEvent(VPP, 'X_AED', 'aed_pause_warn').join() === 'V39' && VPl.planEvent(VPP, 'S3S4', 'battery_low').join() === 'V35'
+    && VPl.planEvent(VPP, 'X_VENT', 'step:3').join() === 'V31' && VPl.planEvent(VPP, 'X_SEARCH', 'search_fail:EAPD_MISSING').join() === 'V13')
+  const { createVoice } = await import('../src/voice/player.js')
+  const fake = [], objs = []   // 가짜 Audio: play 하면 기록. V04 는 파일 없음(오류)
+  const mk = (src) => { const a = { src, onended: null, onerror: null, paused: false,
+    play() { fake.push(src); if (src.includes('V04')) setTimeout(() => a.onerror && a.onerror(), 0); return Promise.resolve() },
+    pause() { a.paused = true } }; objs.push(a); return a }
+  const pv = createVoice({ prompts: VPP, makeAudio: mk })
+  pv.enter('S2')
+  check('재생기: 한 번에 하나만 재생', fake.join() === 'voice/V40.mp3', fake.join())
+  objs[0].onended()
+  await wait(10)
+  check('재생기: 끝나면 다음, 없는 파일은 건너뜀', fake.join() === 'voice/V40.mp3,voice/V04.mp3,voice/V36.mp3', fake.join())
+  pv.enter('S6')
+  check('재생기: 화면이 바뀌면 끊고 새 문구', objs[2].paused && fake[fake.length - 1] === 'voice/V16.mp3')
+  pv.setMuted(true); pv.enter('S2'); pv.event('battery_low')
+  check('재생기: 소리 끄면 재생 안 함', fake[fake.length - 1] === 'voice/V16.mp3')
+  pv.setMuted(false); pv.enter('X_AED'); pv.event('battery_low')
+  check('재생기: AED 화면은 진입 1회 뒤 무음, 다시 듣기는 마지막 묶음',
+    fake[fake.length - 1] === 'voice/V38.mp3' && (pv.replay(), fake[fake.length - 1] === 'voice/V38.mp3') && pv.lastIds.join() === 'V38')
+  const pv2 = createVoice({ prompts: VPP, makeAudio: () => { throw new Error('x') } })
+  pv2.enter('S2')
+  check('재생기: 장치 오류는 건너뛰고 멈추지 않음', pv2.played.join() === 'V40,V04,V36')
+  const vb = d.querySelector('#root [data-voice]')
+  check('화면: 헤더에 다시 듣기와 소리 끄기 버튼', !!vb && vb.textContent.includes('다시 듣기') && vb.querySelectorAll('button').length === 2)
   check('런타임 오류 없음 (시나리오 포함)', errors.length === 0, errors[0] || '')
 
   console.log(`\n${fail === 0 ? '✅ 전체 통과' : '❌ 실패 있음'}  (통과 ${pass} / 실패 ${fail})\n`)
