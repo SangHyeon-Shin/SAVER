@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import React from 'react'
 import { C } from '../tokens'
 import { EV } from '../stateMachine'
 import { Light, Header, Btn, Dot, Progress, PressArea } from '../ui'
@@ -88,57 +88,35 @@ export function Screen04({ fire }) {
   )
 }
 
-/* ================= 05 · 겉옷 제거 (카메라 인식) =================
-   원본 디자인은 clothes.png 를 좌/우 2분할 스프라이트로 가정해
-   background-size:200% auto 로 패닝했으나, 실제 파일은 한 장짜리 사진이라
-   2배 확대되어 세로 27% 만 보였습니다. 사진 전체를 보여주고
-   상태 표시는 테두리·라벨·배지로 처리합니다. */
-export function Screen05({ fire, demo }) {
-  const [done, setDone] = useState(false)
-  useEffect(() => {
-    if (demo.clothesStuck) return               // 데모: 인식 실패 상태 유지
-    const t = setTimeout(() => setDone(true), 4000)
-    return () => clearTimeout(t)
-  }, [demo.clothesStuck])
-
-  const col = done ? C.success : C.danger
+/* ================= 05 · 겉옷 제거 =================
+   겉옷 제거는 인식하지 않는다(D-38). 제거하라고 안내만 하고,
+   구조자가 [겉옷을 벗겼습니다]를 누르면 다음 화면으로 간다.
+   그림은 벗기기 전과 뒤를 나란히 보여 주는 안내용이다. */
+export function Screen05({ fire }) {
+  const pic = (src, alt, label) => (
+    <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8 }}>
+      <div style={{ width: '100%', flex: 1, minHeight: 0, borderRadius: 12, overflow: 'hidden', background: '#0e1116', border: '2px solid #d7dce2' }}>
+        <img src={src} alt={alt} style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'center', display: 'block' }} />
+      </div>
+      <div style={{ fontSize: 19, color: '#3a4250', fontWeight: 600 }}>{label}</div>
+    </div>
+  )
   return (
     <Light>
-      <Header title="겉옷 정리 단계" right="카메라 인식" />
+      <Header title="겉옷 정리 단계" right="5 / 8" />
       <div style={{ flex: 1, padding: '16px 28px 18px', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
-        <div style={{ fontSize: 24, fontWeight: 600, textAlign: 'center', marginBottom: 12, flexShrink: 0 }}>
+        <div style={{ fontSize: 26, fontWeight: 700, textAlign: 'center', marginBottom: 12, flexShrink: 0 }}>
           CPR을 수행할 수 있도록 겉옷을 제거해 주세요
         </div>
-
-        <div data-safety-blink style={{
-          flex: 1, minHeight: 0, position: 'relative', borderRadius: 12, overflow: 'hidden',
-          border: `3px solid ${col}`, background: '#0e1116',
-          animation: done ? 'none' : 'sblink 1.1s infinite',
-        }}>
-          <img src={done ? IMG.clothes_off : IMG.clothes_on}
-            alt={done ? '겉옷이 제거된 환자 상체' : '겉옷을 착용한 환자 상체'}
-            style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'center', display: 'block' }} />
-
-          {/* 상태 배지 — 화면 상단에 겹쳐 표시 */}
-          <div style={{
-            position: 'absolute', left: 14, top: 12,
-            display: 'flex', alignItems: 'center', gap: 9,
-            background: 'rgba(0,0,0,.62)', borderRadius: 8, padding: '8px 14px',
-          }}>
-            <span style={{
-              width: 12, height: 12, borderRadius: '50%', background: col, display: 'inline-block',
-              animation: done ? 'none' : 'sblink 1s infinite',
-            }} />
-            <span style={{ fontSize: 20, fontWeight: 700, color: col }}>
-              {done ? '제거 인식됨' : '인식 중…'}
-            </span>
-          </div>
+        <div style={{ flex: 1, minHeight: 0, display: 'flex', alignItems: 'stretch', gap: 18 }}>
+          {pic(IMG.clothes_on, '겉옷을 입은 환자 상체', '지금')}
+          <div style={{ alignSelf: 'center', fontSize: 40, color: C.success, fontWeight: 800, flexShrink: 0 }}>→</div>
+          {pic(IMG.clothes_off, '겉옷을 벗긴 환자 상체', '벗긴 뒤')}
         </div>
-
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 14, flexShrink: 0 }}>
           <Btn variant="ghost" w={160} fs={23} onPress={() => fire(EV.CANCEL)}>취소</Btn>
-          <Btn variant={done ? 'success' : 'ghost'} w={280} h={70} fs={26} fw={700}
-            onPress={() => fire(EV.CLOTHES_OK)}>{done ? '다음' : '건너뛰기'}</Btn>
+          <Btn variant="success" w={300} h={70} fs={26} fw={700}
+            onPress={() => fire(EV.CLOTHES_OK)}>겉옷을 벗겼습니다</Btn>
         </div>
       </div>
     </Light>

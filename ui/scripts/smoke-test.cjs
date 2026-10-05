@@ -57,9 +57,10 @@ const check = (name, ok, detail = '') => {
   check('04 119 신고·AED 요청 먼저 안내', has('119 신고와 AED 요청을 먼저')())
 
   tap(B('시작'))
-  check('05 겉옷 인식 완료 전환', await until(has('제거 인식됨')))
+  check('05 겉옷 제거 안내(인식 없음, D-38)', await until(has('겉옷을 제거해 주세요'))
+    && !has('인식')() && !!B('겉옷을 벗겼습니다'))
 
-  tap(B('다음'))
+  tap(B('겉옷을 벗겼습니다'))
   check('21 겉옷 뒤 AED 패드 부착 확인 (v2.2)', await until(has('지금 패드를 붙이세요')))
   tap(B('패드를 붙였습니다'))
   check('06 흉곽 정렬', await until(has('흉곽 정렬')))

@@ -57,7 +57,6 @@ export default function App() {
   }))
   const [demo, setDemo] = useState({
     positionError: QS.get('pos_err') === '1', vacuumError: QS.get('vac_err') === '1',
-    clothesStuck: QS.get('clothes') === 'stuck',
     vacResidual: QS.get('vac_residual') === '1',          // 종료 때 음압이 남은 경우(S13 → S12)
     searchEapd: qEapd(), searchFlat: QS.get('phantom') === 'flat',
   })
@@ -293,7 +292,6 @@ function DevPanel({ ctx, node, demo, setDemo, setCtx, fire, bridge, scale, onClo
       <div style={{ display: 'grid', gap: 6 }}>
         <button style={btn(demo.positionError)} onPointerDown={() => toggle('positionError')}>위치 오류 (화면06)</button>
         <button style={btn(demo.vacuumError)} onPointerDown={() => toggle('vacuumError')}>흡착 오류 (화면08)</button>
-        <button style={btn(demo.clothesStuck)} onPointerDown={() => toggle('clothesStuck')}>겉옷 인식 실패 (화면05)</button>
         <button style={btn(!!ctx.battery)} onPointerDown={() => setCtx((c) => ({ ...c, battery: c.battery ? false : 'popup' }))}>배터리 부족 (화면20)</button>
         <button style={btn(demo.vacResidual)} onPointerDown={() => toggle('vacResidual')}>음압 잔존 (화면18 대기로 → 17)</button>
       </div>
