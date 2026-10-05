@@ -54,38 +54,38 @@ const check = (name, ok, detail = '') => {
 
   tap(B('이동 완료'))
   check('04 시작 대기', await until(has('시작 대기')))
-  check('04 119 신고·AED 요청 먼저 안내', has('119 신고와 AED 요청을 먼저')())
+  check('04 119 신고·자동심장충격기 요청 먼저 안내', has('먼저 119에 신고하고 자동심장충격기')())
 
   tap(B('시작'))
-  check('05 겉옷 제거 안내(인식 없음, D-38)', await until(has('겉옷을 제거해 주세요'))
+  check('05 겉옷 제거 안내(인식 없음, D-38)', await until(has('겉옷을 벗겨 주세요'))
     && !has('인식')() && !!B('겉옷을 벗겼습니다'))
 
   tap(B('겉옷을 벗겼습니다'))
   check('21 겉옷 뒤 AED 패드 부착 확인 (v2.2)', await until(has('지금 패드를 붙이세요')))
   tap(B('패드를 붙였습니다'))
-  check('06 흉곽 정렬', await until(has('흉곽 정렬')))
+  check('06 몸 위치 맞추기 (흉곽 정렬)', await until(has('몸 위치 맞추기')))
 
-  tap(B('정렬 완료'))
-  check('07 PPG 착용', await until(has('PPG 센서')))
+  tap(B('맞췄습니다'))
+  check('07 손가락 센서 (PPG) 착용', await until(has('손가락 센서')))
 
   tap(B('다음'))
-  check('09 압박점 탐색 (v2.1: 고정 전에 탐색)', await until(has('압박점 탐색')))
+  check('09 압박 위치 찾기 (v2.1: 고정 전에 탐색)', await until(has('압박 위치 찾기')))
   check('09 미연결이면 모의 데이터로 표시', has('모의 데이터')())
   check('09 어린이 선택지 없음 (성인 대상)', !T().includes('어린이') && has('성인')())
-  check('09 진입만으로 탐색 시작 안 함', d.querySelectorAll('[data-pt]').length === 0 && has('탐색 시작을 누르면')())
+  check('09 진입만으로 탐색 시작 안 함', d.querySelectorAll('[data-pt]').length === 0 && has('찾기 시작을 누르면')())
 
-  tap(BX('탐색 시작'))
+  tap(BX('찾기 시작'))
   check('09 반력 곡선 그려짐', await until(() => d.querySelectorAll('[data-pt]').length >= 10, 6000),
     d.querySelectorAll('[data-pt]').length + '점')
-  check('09 EAPD·보정 거리 D 표시', has('205.8 mm')() && has('89.7 mm')())
+  check('09 가슴 두께(EAPD)·거리 D 표시', has('205.8 mm')() && has('89.7 mm')())
   check('20 탐색 완료 → 바퀴 수납 · 안전핀 해제', await until(has('안전핀을 뽑아'), 9000))
 
   tap(B('핀을 뺐습니다'))
-  check('08 흡착·고정 확인 (핀 해제 뒤)', await until(has('흡착·고정')))
+  check('08 바닥 고정 확인 (핀 해제 뒤)', await until(has('바닥 고정 확인')))
 
   tap(B('재확인'))
   check('10 압박 준비', await until(has('압박 준비')))
-  check('10 AED 패드 상태 표시', has('AED 패드: 붙임')())
+  check('10 자동심장충격기 패드 상태 표시', has('자동심장충격기 패드: 붙임')())
 
   tap(d.querySelector('#root [role="button"]'))
   check('11 압박 수행 진입', await until(has('압박 모니터링')))
@@ -96,12 +96,12 @@ const check = (name, ok, detail = '') => {
   check('11 압박 깊이/속도 표시', /[\d.]+ cm/.test(T()) && /\d+ \/min/.test(T()),
     T().match(/[\d.]+ cm|\d+ \/min/g)?.join(' '))
 
-  tap(BX('AED 사용'))
-  check('22 압박 중 AED 사용 → AED 화면 (압박 멈춤)', await until(has('AED 음성 안내를 따르세요')))
+  tap(BX('자동심장충격기 사용'))
+  check('22 압박 중 AED 사용 → AED 화면 (압박 멈춤)', await until(has('음성 안내를 따르세요')))
   const tm = () => d.querySelector('[data-aed-timer]')?.textContent
   const tm0 = tm()
   await wait(1600)
-  check('22 자동 재개 없음, 중단 경과 시간 증가', has('AED 음성 안내를 따르세요')() && tm() !== tm0, `${tm0} → ${tm()}`)
+  check('22 자동 재개 없음, 중단 경과 시간 증가', has('음성 안내를 따르세요')() && tm() !== tm0, `${tm0} → ${tm()}`)
   check('22 경고 기준 미설정이면 경고 없음', has('경고 기준 미설정')() && !has('길어지고 있습니다')())
   check('22 패드 붙임 확인 표시', has('패드: 붙임 확인됨')())
   tap(BX('압박 재개'))
@@ -109,7 +109,7 @@ const check = (name, ok, detail = '') => {
 
   tap(B('일시정지'))
   check('12 일시정지', await until(has('재개하려면')))
-  check('12 일시정지 중에도 AED 사용 버튼', !!BX('AED 사용'))
+  check('12 일시정지 중에도 AED 사용 버튼', !!BX('자동심장충격기 사용'))
 
   tap(BX('재개')); await until(has('압박 모니터링'))
   tap(BX('정지'))
@@ -190,24 +190,24 @@ const check = (name, ok, detail = '') => {
     && !S.searchView({ phase: 'scan', eapd_mm: 205.8 }).eapdSim)
   check('표시: 단일 엔코더 모드면 표시, 없으면 표시 안 함', S.searchView({ phase: 'scan', enc_mode: 1 }).encMode === 1
     && S.searchView({ phase: 'scan', enc_mode: 2 }).encMode === 2 && S.searchView({ phase: 'scan' }).encMode === null)
-  check('사유: EAPD 없음 안내에 대체값 미사용 명시', S.reasonText('EAPD_MISSING').sub.includes('대체값'))
+  check('사유: EAPD 없음 안내에 추정값 미사용 명시', S.reasonText('EAPD_MISSING').sub.includes('짐작한 값으로'))
 
   // 실패 시나리오 (오프라인 시연)
   const d2 = openDom('?start=X_SEARCH&eapd=none').window.document
   const T2 = () => (d2.querySelector('#root')?.textContent || '')
-  await until(() => T2().includes('탐색 시작'), 3000)
-  tap([...d2.querySelectorAll('#root button')].find((b) => b.textContent.trim() === '탐색 시작'))
+  await until(() => T2().includes('찾기 시작'), 3000)
+  tap([...d2.querySelectorAll('#root button')].find((b) => b.textContent.trim() === '찾기 시작'))
   check('EAPD 없음: 안내 표시, 장치 동작·곡선 없음, 화면 유지',
-    await until(() => T2().includes('측정값이 없습니다'), 3000) && T2().includes('미측정')
-    && d2.querySelectorAll('[data-pt]').length === 0 && T2().includes('압박점 탐색'))
+    await until(() => T2().includes('가슴 두께를 재지 못했습니다'), 3000) && T2().includes('측정 안 됨')
+    && d2.querySelectorAll('[data-pt]').length === 0 && T2().includes('압박 위치 찾기'))
   const d3 = openDom('?start=X_SEARCH&phantom=flat&speed=8').window.document
   const T3 = () => (d3.querySelector('#root')?.textContent || '')
-  await until(() => T3().includes('탐색 시작'), 3000)
-  tap([...d3.querySelectorAll('#root button')].find((b) => b.textContent.trim() === '탐색 시작'))
+  await until(() => T3().includes('찾기 시작'), 3000)
+  tap([...d3.querySelectorAll('#root button')].find((b) => b.textContent.trim() === '찾기 시작'))
   check('말단 없음: 오류 화면(S10)에 탐색 사유', await until(() => T3().includes('찾지 못했습니다'), 9000)
-    && T3().includes('압박점 탐색이 중단'))
+    && T3().includes('압박 위치 찾기가 중단'))
   tap([...d3.querySelectorAll('#root button')].find((b) => b.textContent.includes('재확인')))
-  check('재확인 → 탐색 화면 복귀, 이전 곡선 지움', await until(() => T3().includes('탐색 시작을 누르면'), 3000))
+  check('재확인 → 탐색 화면 복귀, 이전 곡선 지움', await until(() => T3().includes('찾기 시작을 누르면'), 3000))
   const d4 = openDom('?start=S13&vac_residual=1').window.document
   const T4 = () => (d4.querySelector('#root')?.textContent || '')
   await until(() => T4().includes('대기로'), 3000)
@@ -225,6 +225,10 @@ const check = (name, ok, detail = '') => {
     VP.prompts.filter((p) => p.node !== '*' && !spec.nodes[p.node]).map((p) => p.id).join(','))
   check('음성 문구: TTS 입력에 숫자·영문 없음(발음대로 한글)', VP.prompts.every((p) => !/[0-9A-Za-z]/.test(p.say)),
     VP.prompts.filter((p) => /[0-9A-Za-z]/.test(p.say)).map((p) => p.id).join(','))
+  const VB = VP.direction.plain.banned
+  check('음성 문구: TTS 입력에 어려운 말 없음(일반인 기준, direction.plain)', VB.length >= 10
+    && VP.prompts.every((p) => !VB.some((w) => p.say.includes(w))),
+    VP.prompts.filter((p) => VB.some((w) => p.say.includes(w))).map((p) => p.id).join(','))
   check('음성 문구: 시험 묶음이 목록에 있고 세 등급을 모두 포함', VP.pilot.every((i) => vids.includes(i))
     && ['안내', '주의', '경고'].every((lv) => VP.pilot.some((i) => VP.prompts.find((p) => p.id === i).level === lv)))
   check('음성 문구: 모든 등급에 보이스 태그(긴장 태그 없음), 목소리 필터와 생성 설정', VP.prompts.every((p) => VP.direction.levels[p.level]
@@ -234,6 +238,26 @@ const check = (name, ok, detail = '') => {
   check('음성 문구: S0 외 모든 화면에 문구', Object.keys(spec.nodes).filter((n) => n !== 'S0')
     .every((n) => VP.prompts.some((p) => p.node === n)),
     Object.keys(spec.nodes).filter((n) => n !== 'S0' && !VP.prompts.some((p) => p.node === n)).join(','))
+  // 화면 문구: 일반인 구조자가 보는 화면에 전문용어를 쓰지 않는다 (AED 는 '자동심장충격기(AED)' 병기만 허용)
+  const JARGON = ['자발순환', 'ROSC', '흡착', '튜빙', '유도선', '정렬', 'PPG', 'EAPD', '흉곽', '흉부', '반력', '탐색', '압박점',
+    '음압', '밀착', '말단', 'CPR', '엔코더', '로드셀', '펌웨어', '프로토콜']
+  const jhits = []
+  for (const n of Object.keys(spec.nodes).filter((k) => k !== 'S0')) {
+    const dn = openDom('?start=' + n)
+    // 글자 덩어리(텍스트 노드)마다 끊어 본다. 이어 붙이면 '찾음'+'압박'이 '음압'으로 잡힌다
+    const tx = () => {
+      const r = dn.window.document.querySelector('#root'); if (!r) return ''
+      const w = dn.window.document.createTreeWalker(r, 4); const out = []
+      while (w.nextNode()) out.push(w.currentNode.nodeValue)
+      return out.join('\n')
+    }
+    await until(() => tx().length > 0, 3000, 50)
+    const hit = tx().trim() ? JARGON.filter((w) => tx().includes(w)) : ['(빈 화면)']
+    const aed = tx().replace(/자동심장충격기\(AED\)|AED in use/g, '').includes('AED')
+    if (hit.length || aed) jhits.push(n + ':' + hit.concat(aed ? ['AED'] : []).join('/'))
+    dn.window.close()
+  }
+  check('화면 문구: 전문용어 없음(일반인 기준)', jhits.length === 0, jhits.join(' '))
   check('런타임 오류 없음 (시나리오 포함)', errors.length === 0, errors[0] || '')
 
   console.log(`\n${fail === 0 ? '✅ 전체 통과' : '❌ 실패 있음'}  (통과 ${pass} / 실패 ${fail})\n`)

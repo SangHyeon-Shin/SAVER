@@ -21,16 +21,16 @@ export function Screen09({ fire, ctx, search, searchCtl, setPatient }) {
 
   const tried = !!search
   let action
-  if (v.running) action = <Btn variant="warning" w={300} h={64} fs={25} onPress={() => searchCtl.stop()}>탐색 중지</Btn>
-  else if (v.done) action = <Btn variant="success" w={300} h={64} fs={22} onPress={() => {}}>압박점 도달 · 다음 단계</Btn>
-  else action = <Btn w={300} h={64} fs={25} fw={700} onPress={() => searchCtl.start()}>{tried ? '다시 탐색' : '탐색 시작'}</Btn>
+  if (v.running) action = <Btn variant="warning" w={300} h={64} fs={25} onPress={() => searchCtl.stop()}>찾기 중지</Btn>
+  else if (v.done) action = <Btn variant="success" w={300} h={64} fs={22} onPress={() => {}}>위치 도착 · 다음 단계</Btn>
+  else action = <Btn w={300} h={64} fs={25} fw={700} onPress={() => searchCtl.start()}>{tried ? '다시 찾기' : '찾기 시작'}</Btn>
 
   const status = v.done ? ['완료', C.success] : v.failed ? ['중단', C.warning]
     : v.running ? ['진행 중', C.primary] : ['대기', MUTED]
 
   return (
     <Light>
-      <Header title="압박점 탐색" titleSize={28} right={
+      <Header title="압박 위치 찾기" titleSize={28} right={
         <span style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
           {!live && <SimBadge />}
           {v.encMode === 1 && <EncBadge />}
@@ -53,8 +53,8 @@ export function Screen09({ fire, ctx, search, searchCtl, setPatient }) {
         <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
           <Btn variant="ghost" w={150} h={64} fs={23} onPress={() => fire(EV.CANCEL)}>취소</Btn>
           <div style={{ flex: 1, fontSize: 16, color: MUTED, lineHeight: 1.35, textAlign: 'center' }}>
-            헤드가 가슴을 {v.rule && v.rule.press_mm ? v.rule.press_mm : '—'} mm 누른 채 이동하며 반력을 잽니다.<br />
-            시작 전에 환자 정렬을 확인하세요. 탐색 결과는 인체에서 검증되지 않았습니다.
+            누르는 부분이 가슴을 {v.rule && v.rule.press_mm ? v.rule.press_mm : '—'} mm 누른 채 이동하며 힘을 잽니다.<br />
+            환자 몸 위치를 먼저 확인하세요. 사람 몸에서는 검증되지 않았습니다.
           </div>
           {action}
         </div>
@@ -68,7 +68,7 @@ function EncBadge() {
   return (
     <span data-enc1 style={{ fontSize: 15, fontWeight: 700, color: '#7a3e00', background: '#ffeedd',
       border: `1px solid ${C.warning}`, borderRadius: 999, padding: '4px 12px' }}>
-      단일 엔코더 + 자이로 (임시)
+      임시 방식 · 바퀴 센서 1개 + 회전 센서
     </span>
   )
 }
@@ -92,7 +92,7 @@ function ChartCard({ v }) {
     <div style={{ width: 620, border: `1px solid ${C.lightLine}`, borderRadius: 10, padding: '10px 10px 6px',
       display: 'flex', flexDirection: 'column', position: 'relative', minHeight: 0 }}>
       <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', padding: '0 4px' }}>
-        <div style={{ fontSize: 18, fontWeight: 700, color: INK }}>반력 F (N) · 주행 위치</div>
+        <div style={{ fontSize: 18, fontWeight: 700, color: INK }}>누르는 힘 F (N) · 장치 위치</div>
         <div style={{ fontSize: 14, color: MUTED }}>
           {sel ? `위치 ${sel.u.toFixed(0)} mm · F ${sel.F.toFixed(1)} N · 기준 ${sel.ref === null ? '—' : sel.ref.toFixed(1) + ' N'} · 감소 ${sel.r === null ? '—' : Math.round(sel.r * 100) + ' %'}`
             : '측정값 없음'}
@@ -115,11 +115,11 @@ function Legend({ v }) {
   )
   return (
     <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px 14px', fontSize: 13, color: SUB, padding: '6px 4px 2px' }}>
-      {item(<circle cx="11" cy="6" r="4.5" fill={C.primary} />, '반력 F')}
-      {item(<line x1="1" y1="6" x2="21" y2="6" stroke={SUB} strokeWidth="2" />, `기준 (직전 ${n}점 평균)`)}
-      {item(<line x1="1" y1="6" x2="21" y2="6" stroke={SUB} strokeWidth="1.5" strokeDasharray="4 3" />, `판정선 (기준${pct})`)}
-      {item(<line x1="11" y1="0" x2="11" y2="12" stroke={INK} strokeWidth="2" />, '말단')}
-      {item(<path d="M5 1 L17 1 L11 11 Z" fill={C.success} />, '압박점')}
+      {item(<circle cx="11" cy="6" r="4.5" fill={C.primary} />, '누르는 힘 F')}
+      {item(<line x1="1" y1="6" x2="21" y2="6" stroke={SUB} strokeWidth="2" />, `기준 (앞 ${n}점 평균)`)}
+      {item(<line x1="1" y1="6" x2="21" y2="6" stroke={SUB} strokeWidth="1.5" strokeDasharray="4 3" />, `판단선 (기준${pct})`)}
+      {item(<line x1="11" y1="0" x2="11" y2="12" stroke={INK} strokeWidth="2" />, '가슴뼈 끝')}
+      {item(<path d="M5 1 L17 1 L11 11 Z" fill={C.success} />, '압박 위치')}
     </div>
   )
 }
@@ -155,11 +155,11 @@ function Chart({ v, W, H, pick, setPick }) {
   return (
     <svg viewBox={`0 0 ${W} ${H}`} width={W} height={H} style={{ display: 'block', touchAction: 'none' }}
       onPointerMove={onPoint} onPointerDown={onPoint} onPointerLeave={() => setPick(null)}
-      role="img" aria-label="주행 위치에 따른 반력 곡선">
+      role="img" aria-label="장치 위치에 따른 누르는 힘 그래프">
       {v.roi !== null && (
         <g>
           <rect x={sx(0)} y={T} width={sx(v.roi) - sx(0)} height={ph} fill="#f3f6fa" />
-          <text x={sx(0) + 6} y={T + 14} fontSize="12" fill={MUTED}>탐색 구간</text>
+          <text x={sx(0) + 6} y={T + 14} fontSize="12" fill={MUTED}>찾는 구간</text>
         </g>
       )}
       {yt.map((y) => (
@@ -172,7 +172,7 @@ function Chart({ v, W, H, pick, setPick }) {
         <text key={'x' + u} x={sx(u)} y={T + ph + 17} fontSize="12" fill={MUTED} textAnchor="middle">{u}</text>
       ))}
       <text x={L} y={H - 6} fontSize="13" fill={SUB}>← 머리</text>
-      <text x={L + pw / 2} y={H - 6} fontSize="13" fill={SUB} textAnchor="middle">탐색 시작점에서 주행 거리 (mm)</text>
+      <text x={L + pw / 2} y={H - 6} fontSize="13" fill={SUB} textAnchor="middle">시작점에서 이동한 거리 (mm)</text>
       <text x={L + pw} y={H - 6} fontSize="13" fill={SUB} textAnchor="end">발 →</text>
 
       <path d={line(v.pts, 'thr')} fill="none" stroke={SUB} strokeWidth="1.5" strokeDasharray="5 4" />
@@ -190,7 +190,7 @@ function Chart({ v, W, H, pick, setPick }) {
           <line x1={tipX} x2={tipX} y1={T + 22} y2={T + ph} stroke={INK} strokeWidth="2"
             strokeDasharray={v.tipFinal ? 'none' : '4 3'} />
           <text x={tipX + 5} y={T + ph - 8} fontSize="13" fontWeight="700" fill={INK}
-            stroke="#fff" strokeWidth="3" paintOrder="stroke">{v.tipFinal ? '말단(추정)' : '첫 후보'}</text>
+            stroke="#fff" strokeWidth="3" paintOrder="stroke">{v.tipFinal ? '가슴뼈 끝(추정)' : '끝 후보'}</text>
         </g>
       )}
       {tgX !== null && tipX !== null && (
@@ -198,7 +198,7 @@ function Chart({ v, W, H, pick, setPick }) {
           <line x1={tgX} x2={tgX} y1={T + 22} y2={T + ph} stroke={C.success} strokeWidth="2" />
           <path d={`M${tgX - 7},${T + 8} L${tgX + 7},${T + 8} L${tgX},${T + 20} Z`} fill={C.success} />
           <text x={tgX - 6} y={T + ph - 8} fontSize="13" fontWeight="700" fill={INK} textAnchor="end"
-            stroke="#fff" strokeWidth="3" paintOrder="stroke">압박점</text>
+            stroke="#fff" strokeWidth="3" paintOrder="stroke">압박 위치</text>
           <line x1={tgX} x2={tipX} y1={T + 34} y2={T + 34} stroke={INK} strokeWidth="1.5" />
           <path d={`M${tgX},${T + 34} l7,-4 v8 Z M${tipX},${T + 34} l-7,-4 v8 Z`} fill={INK} />
           <text x={(tgX + tipX) / 2} y={T + 29} fontSize="13" fontWeight="700" fill={INK} textAnchor="middle"
@@ -215,8 +215,8 @@ function Chart({ v, W, H, pick, setPick }) {
 function EmptyOverlay({ v }) {
   let title, sub, warn = false
   if (v.reason) { title = v.reason.title; sub = v.reason.sub; warn = true }
-  else if (v.running) { title = '헤드를 내려 가슴에 접촉하는 중입니다'; sub = '접촉 뒤 정해진 깊이만큼 눌러 고정한 다음 주행합니다.' }
-  else { title = '탐색 시작을 누르면 반력 곡선이 그려집니다'; sub = '머리 쪽에서 발 쪽으로 주행하며 반력이 급감하는 지점을 찾습니다.' }
+  else if (v.running) { title = '누르는 부분을 내려 가슴에 대는 중입니다'; sub = '가슴에 닿으면 정해진 깊이만큼 누른 채로 이동합니다.' }
+  else { title = '찾기 시작을 누르면 힘 그래프가 그려집니다'; sub = '머리 쪽에서 발 쪽으로 이동하며 누르는 힘이 갑자기 줄어드는 곳(가슴뼈 끝)을 찾습니다.' }
   return (
     <div style={{ position: 'absolute', left: 64, right: 24, top: 120, display: 'flex', justifyContent: 'center' }}>
       <div data-overlay style={{ background: warn ? '#fff7ed' : 'rgba(255,255,255,.92)', border: `1px solid ${warn ? C.warning : C.lightLine}`,
@@ -265,13 +265,13 @@ function ValuesCard({ v }) {
     </div>
   )
   const eapd = v.eapd !== null ? mm(v.eapd) : (v.reason && v.reason.code === 'EAPD_MISSING'
-    ? <span style={{ color: C.warning }}>미측정</span> : '—')
+    ? <span style={{ color: C.warning }}>측정 안 됨</span> : '—')
   return (
     <div style={{ border: `1px solid ${C.lightLine}`, borderRadius: 10, padding: '8px 14px' }}>
-      {row('EAPD (흉곽 전후 직경)', eapd, v.eapd !== null && v.eapdSim ? '모의' : '', 'e')}
-      {row('보정 거리 D', mm(v.D), '', 'd')}
-      {row(v.tipFinal ? '말단 (추정)' : '첫 후보', mm(v.tipU), '', 't')}
-      {row('압박점', mm(v.targetU), v.targetU !== null ? '머리 쪽 D' : '', 'c')}
+      {row('가슴 두께', eapd, v.eapd !== null && v.eapdSim ? '모의' : '', 'e')}
+      {row('끝에서 거리 D', mm(v.D), '', 'd')}
+      {row(v.tipFinal ? '가슴뼈 끝 (추정)' : '끝 후보', mm(v.tipU), '', 't')}
+      {row('압박 위치', mm(v.targetU), v.targetU !== null ? '머리 쪽 D' : '', 'c')}
       {row('현재 위치', mm(v.posU), '', 'p')}
     </div>
   )

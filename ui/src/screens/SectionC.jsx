@@ -10,14 +10,14 @@ import { reasonText } from '../search'
 export function Screen13({ fire, waves }) {
   return (
     <Dark band={C.warning} bandH={14}>
-      <Header dark h={72} titleSize={25} title="자발순환 회복 확인" titleEn="ROSC Check"
+      <Header dark h={72} titleSize={25} title="회복 신호 확인" titleEn="Recovery check"
         right="경고 · WARNING" rightColor={C.warning} />
       <div style={{ flex: 1, display: 'flex', minHeight: 0 }}>
         <div style={{ width: '46%', background: 'linear-gradient(180deg,rgba(242,96,0,.22),rgba(242,96,0,.07))', padding: '24px 26px', display: 'flex', flexDirection: 'column' }}>
           <div style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', textAlign: 'center' }}>
             <div style={{ fontSize: 46, fontWeight: 800, color: '#FF8A3D', lineHeight: 1.25 }}>환자 상태를<br />확인하세요</div>
             <div style={{ fontSize: 25, color: '#eef1f6', marginTop: 18, lineHeight: 1.5 }}>
-              자발순환(ROSC) 의심.<br />맥박·호흡을 확인하세요.
+              심장이 다시 뛰는 것 같습니다.<br />숨쉬기와 맥박을 확인하세요.
             </div>
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
@@ -26,12 +26,12 @@ export function Screen13({ fire, waves }) {
               <Btn flex={1} fs={22} variant="warning" onPress={() => fire(EV.STOP_CPR)}>압박 중단</Btn>
             </div>
             {/* 장치는 ROSC를 확정하지 않는다 — 사용자 확인 기록용 (연동표 v2 §0) */}
-            <Btn variant="ghostDark" h={52} fs={20} fw={400} onPress={() => fire(EV.STOP_CPR)}>소생 확인</Btn>
+            <Btn variant="ghostDark" h={52} fs={20} fw={400} onPress={() => fire(EV.STOP_CPR)}>회복을 확인했습니다</Btn>
           </div>
         </div>
         <div style={{ flex: 1, padding: 16, display: 'flex', flexDirection: 'column', gap: 10, minHeight: 0 }}>
-          <WavePanel label="도플러 추정 호흡 / Resp." d={waves.breath} color={C.breath} dur="11s" pad="8px 12px" labelSize={14} />
-          <WavePanel label="PPG / PPG signal" d={waves.ppg2} color={C.ppg} dur="6s" pad="8px 12px" labelSize={14} />
+          <WavePanel label="숨쉬기 (레이더 추정) / Breathing" d={waves.breath} color={C.breath} dur="11s" pad="8px 12px" labelSize={14} />
+          <WavePanel label="손가락 센서 신호 / Finger sensor" d={waves.ppg2} color={C.ppg} dur="6s" pad="8px 12px" labelSize={14} />
         </div>
       </div>
     </Dark>
@@ -40,14 +40,15 @@ export function Screen13({ fire, waves }) {
 
 /* ================= 14 · 기기 오류 확인 · S10 · UI-10 · 경고 ================= */
 const CAUSES = {
-  tubing:   [{ t: '튜빙 연결을 확인하세요',   s: '→ 튜빙을 다시 끼운 뒤 재확인하세요.' },
-             { t: '흡착이 불안정합니다',      s: '→ 장치를 가슴 중앙에 다시 밀착하세요.' }],
-  vacuum:   [{ t: '흡착이 불안정합니다',      s: '→ 장치를 가슴 중앙에 다시 밀착하세요.' },
-             { t: '음압이 유지되지 않습니다', s: '→ 실링 패드와 바닥면 상태를 확인하세요.' }],
-  position: [{ t: '압박 위치를 확인하세요',   s: '→ 초록색 유도선에 맞춰 환자를 정렬하세요.' },
-             { t: '장치가 흉부 중앙에서 벗어났습니다', s: '→ 장치를 들어 다시 배치하세요.' }],
-  sensor:   [{ t: '센서 신호가 불안정합니다', s: '→ PPG 센서 착용 상태를 확인하세요.' }],
-  search:   [{ t: '압박점 탐색이 중단되었습니다', s: '→ 환자 정렬을 확인한 뒤 재확인을 누르면 탐색 화면으로 돌아갑니다.' }],
+  // 음압은 장치를 바닥에 붙인다(가슴이 아니다). 화면에는 '바닥 고정'으로 쓴다
+  tubing:   [{ t: '호스 연결을 확인하세요',   s: '→ 호스를 다시 끼운 뒤 재확인을 누르세요.' },
+             { t: '바닥 고정이 약합니다',     s: '→ 패드가 바닥에 닿아 있는지 확인하세요.' }],
+  vacuum:   [{ t: '바닥 고정이 약합니다',     s: '→ 패드가 바닥에 닿아 있는지 확인하세요.' },
+             { t: '바닥에 붙는 힘이 유지되지 않습니다', s: '→ 패드와 바닥면 상태를 확인하세요.' }],
+  position: [{ t: '압박 위치를 확인하세요',   s: '→ 초록색 선에 환자 몸을 맞춰 주세요.' },
+             { t: '장치가 가슴 가운데에서 벗어났습니다', s: '→ 장치를 들어 다시 놓으세요.' }],
+  sensor:   [{ t: '센서 신호가 불안정합니다', s: '→ 손가락 센서가 잘 끼워져 있는지 확인하세요.' }],
+  search:   [{ t: '압박 위치 찾기가 중단되었습니다', s: '→ 환자 몸 위치를 확인한 뒤 재확인을 누르면 찾기 화면으로 돌아갑니다.' }],
 }
 
 export function Screen14({ fire, ctx, search }) {
@@ -97,8 +98,8 @@ export function Screen15({ fire }) {
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 14, padding: '0 30px' }}>
         <div style={{ fontSize: 40, fontWeight: 800, textAlign: 'center' }}>⚠ 압박 위치가 어긋났습니다</div>
         <div style={{ fontSize: 22, color: 'rgba(255,255,255,.92)', textAlign: 'center' }}>
-          초록색 유도선에 맞춰 압박 지점을 조정해 주세요<br />
-          <span style={{ fontSize: 17, color: 'rgba(255,255,255,.7)' }}>Re-align the compression point to the green guide</span>
+          초록색 선에 환자 몸을 다시 맞춰 주세요<br />
+          <span style={{ fontSize: 17, color: 'rgba(255,255,255,.7)' }}>Re-align the patient to the green line</span>
         </div>
         <div style={{ position: 'relative', width: 420, height: 200, border: '1px solid #c4cbd4', borderRadius: 10, overflow: 'hidden', background: '#0e1116' }}>
           <img src={IMG.patient_topdown} alt="환자 (위에서 본 모습)" style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'center', display: 'block' }} />
@@ -109,7 +110,7 @@ export function Screen15({ fire }) {
           <div style={{ position: 'absolute', left: '55%', top: '15%', font: "600 12px 'Pretendard',sans-serif", color: '#ff8a8a' }}>현재 위치</div>
         </div>
         <div style={{ display: 'flex', gap: 14, marginTop: 4 }}>
-          <Btn variant="white" w={280} h={70} fs={26} onPress={() => fire(EV.REALIGN_DONE)}>재정렬 완료 · 압박 재개</Btn>
+          <Btn variant="white" w={320} h={70} fs={24} onPress={() => fire(EV.REALIGN_DONE)}>맞췄습니다 · 압박 재개</Btn>
           <Btn variant="outlineWhite" w={180} h={70} fs={26} onPress={() => fire(EV.STOP)}>정지</Btn>
         </div>
       </div>

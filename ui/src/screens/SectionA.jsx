@@ -73,13 +73,13 @@ export function Screen04({ fire }) {
     <Light band={C.success}>
       <Header title="시작 대기" right="4 / 8" />
       <div style={{ flex: 1, position: 'relative' }}>
-        <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 26 }}>
-          <div style={{ width: 540, height: 230, border: `1px solid ${C.lightLine}`, borderRadius: 10, overflow: 'hidden', background: '#0e1116' }}>
+        <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 20 }}>
+          <div style={{ width: 540, height: 190, border: `1px solid ${C.lightLine}`, borderRadius: 10, overflow: 'hidden', background: '#0e1116' }}>
             <img src={IMG.patient_angled} alt="환자를 바닥에 눕힌 모습" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
           </div>
           <div style={{ fontSize: 48, fontWeight: 800, color: '#1a1f29' }}>환자를 단단한 바닥에 눕히세요.</div>
-          {/* 119 신고와 AED 요청이 장치 사용보다 먼저다(119 현장경험자 인터뷰 권고, v2.2) */}
-          <div style={{ fontSize: 26, fontWeight: 700, color: C.danger }}>119 신고와 AED 요청을 먼저 하세요.</div>
+          {/* 119 신고와 자동심장충격기 요청이 장치 사용보다 먼저다(119 현장경험자 인터뷰 권고, v2.2) */}
+          <div style={{ fontSize: 26, fontWeight: 700, color: C.danger }}>먼저 119에 신고하고 자동심장충격기(AED)를 가져다 달라고 하세요.</div>
         </div>
         <Btn w={240} fs={24} onPress={() => fire(EV.START_PRESSED)}
           style={{ position: 'absolute', right: 28, bottom: 24 }}>시작</Btn>
@@ -106,7 +106,7 @@ export function Screen05({ fire }) {
       <Header title="겉옷 정리 단계" right="5 / 8" />
       <div style={{ flex: 1, padding: '16px 28px 18px', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
         <div style={{ fontSize: 26, fontWeight: 700, textAlign: 'center', marginBottom: 12, flexShrink: 0 }}>
-          CPR을 수행할 수 있도록 겉옷을 제거해 주세요
+          가슴 압박을 할 수 있도록 겉옷을 벗겨 주세요
         </div>
         <div style={{ flex: 1, minHeight: 0, display: 'flex', alignItems: 'stretch', gap: 18 }}>
           {pic(IMG.clothes_on, '겉옷을 입은 환자 상체', '지금')}
@@ -123,12 +123,12 @@ export function Screen05({ fire }) {
   )
 }
 
-/* ================= 06 · 흉곽 정렬 / 유도선 · S3·S4 · UI-03/04 ================= */
+/* ================= 06 · 몸 위치 맞추기 (흉곽 정렬) · S3·S4 · UI-03/04 ================= */
 export function Screen06({ fire, demo }) {
   const err = demo.positionError
   return (
     <Light band={err ? C.caution : null} bandH={12}>
-      <Header title="흉곽 정렬 단계" right={err ? '주의' : '6 / 8'} rightColor={err ? '#9a7000' : null} />
+      <Header title="몸 위치 맞추기" right={err ? '주의' : '6 / 8'} rightColor={err ? '#9a7000' : null} />
       <div style={{ flex: 1, position: 'relative', display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '22px 28px' }}>
         <div style={{ position: 'relative', width: 460, height: 230, border: '1px solid #c4cbd4', borderRadius: 10, overflow: 'hidden', background: '#0e1116' }}>
           <img src={IMG.patient_topdown} alt="환자 상체 (위에서 본 모습)" style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'center', display: 'block' }} />
@@ -137,17 +137,17 @@ export function Screen06({ fire, demo }) {
           <div style={{ position: 'absolute', left: '31%', top: '50%', width: 24, height: 24, border: `3px solid ${C.success}`, borderRadius: '50%', background: 'rgba(30,142,62,.15)', transform: 'translate(-50%,-50%)', boxShadow: '0 0 8px rgba(30,142,62,.6)' }} />
         </div>
         <div style={{ fontSize: 26, fontWeight: 700, marginTop: 18 }}>
-          {err ? '정렬 위치를 확인하세요' : '초록색 유도선을 따라 환자를 정렬해 주세요'}
+          {err ? '몸 위치를 확인하세요' : '초록색 선에 환자 몸을 맞춰 주세요'}
         </div>
         <div style={{ fontSize: 20, color: '#3a4250', marginTop: 8, textAlign: 'center' }}>
-          긴 유도선이 환자의 정중앙에 오도록 맞추세요. 환자를 들 필요는 없습니다.<br />
+          긴 초록색 선이 환자 몸 한가운데에 오도록 맞추세요. 환자를 들 필요는 없습니다.<br />
           바퀴가 지나가도록 팔과 다리를 몸에 붙여 차렷 자세로 해 주세요.
         </div>
         <div style={{ display: 'flex', gap: 12, marginTop: 22 }}>
           <Btn variant="ghost" w={150} h={80} fs={24} onPress={() => fire(EV.CANCEL)}>취소</Btn>
           <Btn variant={err ? 'warning' : 'success'} w={440} h={80} fs={30} fw={700}
             onPress={() => fire(err ? EV.POSITION_ERROR : EV.POSITION_OK)}>
-            {err ? '위치 오류 · 확인' : '정렬 완료'}
+            {err ? '위치 오류 · 확인' : '맞췄습니다'}
           </Btn>
         </div>
       </div>
@@ -155,17 +155,17 @@ export function Screen06({ fire, demo }) {
   )
 }
 
-/* ================= 07 · PPG 센서 착용 ================= */
+/* ================= 07 · 손가락 센서 (PPG) 끼우기 ================= */
 export function Screen07({ fire }) {
   return (
     <Light>
-      <Header title="PPG 센서 착용" right="7 / 8" />
+      <Header title="손가락 센서 끼우기" right="7 / 8" />
       <div style={{ flex: 1, position: 'relative', display: 'flex', alignItems: 'center', gap: 30, padding: '0 40px' }}>
         <div style={{ width: 360, height: 300, background: '#fff', border: `1px solid ${C.lightLine}`, borderRadius: 10, overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <img src={IMG.ppg_sensor} alt="PPG 센서" style={{ width: '100%', height: '100%', objectFit: 'contain', display: 'block' }} />
+          <img src={IMG.ppg_sensor} alt="손가락 센서" style={{ width: '100%', height: '100%', objectFit: 'contain', display: 'block' }} />
         </div>
         <div style={{ flex: 1 }}>
-          <div style={{ fontSize: 40, fontWeight: 700, lineHeight: 1.3 }}>PPG 센서를<br />환자의 손가락에<br />착용시켜 주세요</div>
+          <div style={{ fontSize: 40, fontWeight: 700, lineHeight: 1.3 }}>센서를<br />환자의 손가락에<br />끼워 주세요</div>
           <div style={{ marginTop: 28 }}><Dot color={C.success} label="자동 인식 중…" size={14} fontSize={24} /></div>
         </div>
         <Btn w={240} fs={24} onPress={() => fire(EV.PPG_ATTACHED)}
@@ -175,18 +175,18 @@ export function Screen07({ fire }) {
   )
 }
 
-/* ================= 08 · 흡착·고정 확인 · S5 · UI-05 ================= */
+/* ================= 08 · 바닥 고정 (음압 흡착) 확인 · S5 · UI-05 ================= */
 export function Screen08({ fire, demo }) {
   const err = demo.vacuumError
   return (
     <Light band={err ? C.caution : null} bandH={12}>
-      <Header title="흡착·고정 확인" right={err ? '주의 · 흡착 불안정' : '확인 중'} rightColor={err ? '#9a7000' : null} />
+      <Header title="바닥 고정 확인" right={err ? '주의 · 고정 약함' : '확인 중'} rightColor={err ? '#9a7000' : null} />
       <div style={{ flex: 1, position: 'relative', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 18 }}>
         <div style={{ width: 560, height: 250, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
           <img src={IMG.device} alt="SAVER 장치" style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain', display: 'block' }} />
         </div>
         <div style={{ fontSize: 44, fontWeight: 800 }}>그대로 두세요</div>
-        <div style={{ fontSize: 22, color: '#3a4250' }}>흡착·고정 상태를 확인하고 있습니다.</div>
+        <div style={{ fontSize: 22, color: '#3a4250' }}>장치를 바닥에 고정하고 있습니다.</div>
         <Progress w={320} color={err ? C.caution : C.primary} dur="1.6s" />
         <div style={{ display: 'flex', gap: 12, marginTop: 6 }}>
           <Btn variant="ghostBlue" w={180} fs={23} onPress={() => fire(err ? EV.VACUUM_ERROR : EV.VACUUM_OK)}>재확인</Btn>
@@ -206,14 +206,14 @@ export function Screen08({ fire, demo }) {
 export function Screen20({ fire }) {
   return (
     <Light>
-      <Header title="바퀴 수납 · 안전핀 해제" right="탐색 완료" />
+      <Header title="안전핀 뽑기 · 바퀴 올리기" right="위치 찾음" />
       <div style={{ flex: 1, position: 'relative', display: 'flex', alignItems: 'center', gap: 30, padding: '0 40px' }}>
         <div style={{ width: 360, height: 280, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
           <img src={IMG.device} alt="SAVER 장치" style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain', display: 'block' }} />
         </div>
         <div style={{ flex: 1 }}>
-          <div style={{ fontSize: 38, fontWeight: 700, lineHeight: 1.3 }}>압박점 위에 섰습니다.<br />안전핀을 뽑아<br />바퀴를 수납하세요</div>
-          <div style={{ fontSize: 21, color: '#3a4250', marginTop: 16 }}>패드가 바닥에 닿으면 다음을 누르세요. 다음 화면에서 음압 고정을 시작합니다.</div>
+          <div style={{ fontSize: 38, fontWeight: 700, lineHeight: 1.3 }}>압박 위치를 찾았습니다.<br />안전핀을 뽑아<br />바퀴를 올리세요</div>
+          <div style={{ fontSize: 21, color: '#3a4250', marginTop: 16 }}>패드가 바닥에 닿으면 [핀을 뺐습니다]를 누르세요. 다음 화면에서 장치를 바닥에 고정합니다.</div>
         </div>
         <Btn variant="ghost" w={160} fs={23} onPress={() => fire(EV.CANCEL)}
           style={{ position: 'absolute', left: 28, bottom: 24 }}>취소</Btn>
@@ -235,7 +235,7 @@ export function Screen10({ fire, ctx }) {
         {ctx && typeof ctx.aedPads === 'boolean' && (
           <div style={{ position: 'absolute', top: 28, right: 32, fontSize: 18, fontWeight: 700, pointerEvents: 'none',
             color: ctx.aedPads ? C.success : '#6b7280' }}>
-            AED 패드: {ctx.aedPads ? '붙임' : '없음 · 도착하면 압박 화면에서 [AED 사용]'}
+            자동심장충격기 패드: {ctx.aedPads ? '붙임' : '아직 없음 · 도착하면 압박 화면에서 사용'}
           </div>
         )}
         <div style={{ width: 84, height: 84, borderRadius: '50%', border: `6px solid ${C.danger}`, position: 'relative' }}>

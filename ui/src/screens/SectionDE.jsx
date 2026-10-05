@@ -20,9 +20,9 @@ export function Screen17({ fire }) {
       <Header title="수동 해제" right="주의" rightColor="#9a7000" h={72} />
       <div style={{ flex: 1, position: 'relative', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 18 }}>
         <div style={{ fontSize: 42, fontWeight: 800 }}>장치를 가슴에서 떼세요</div>
-        <div style={{ fontSize: 22, color: '#3a4250' }}>흡착을 푼 뒤 [완료]를 누르세요.</div>
+        <div style={{ fontSize: 22, color: '#3a4250' }}>바닥 고정을 푼 뒤 [완료]를 누르세요.</div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 18, marginTop: 6 }}>
-          {step(1, '흡착 해제')}
+          {step(1, '바닥 고정 풀기')}
           <div style={{ fontSize: 30, color: '#8a929c' }}>→</div>
           {step(2, '장치 들어올리기',
             <span style={{ position: 'absolute', right: 10, bottom: 8, color: C.success, fontSize: 24, fontWeight: 800, animation: 'pulsedot 1.3s infinite' }}>↑</span>)}
@@ -45,7 +45,7 @@ export function Screen18({ fire, ctx }) {
         </div>
         <div style={{ fontSize: 44, fontWeight: 800 }}>작동을 마쳤습니다</div>
         <div style={{ fontSize: 22, color: '#3a4250' }}>기록이 저장되었습니다.</div>
-        <div style={{ fontSize: 16, color: '#8a929c' }}>이벤트 {ctx.log.length}건 · CSV 로그 저장됨</div>
+        <div style={{ fontSize: 16, color: '#8a929c' }}>기록 {ctx.log.length}건 저장됨</div>
         <Btn variant="ghost" w={200} fs={23} onPress={() => fire(EV.BACK_TO_IDLE)}
           style={{ position: 'absolute', left: 28, bottom: 24 }}>대기로</Btn>
         <Btn w={200} fs={23} onPress={() => fire(EV.POWER_OFF)}
@@ -58,12 +58,12 @@ export function Screen18({ fire, ctx }) {
 /* ================= 19 · 인공호흡 가이드 · 주의 · 한/영 병기 =================
    원본은 3/6 단계 스틸 컷. 실제 앱에서는 6단계가 자동으로 진행되도록 구현. */
 const VENT_STEPS = [
-  { n: '①', k: '기도 확보',   ko: '머리를 젖히고\n턱을 들어올리세요',   en: 'Tilt the head, lift the chin', sec: 3 },
-  { n: '②', k: '입 밀착',     ko: '마스크를 얼굴에\n밀착시키세요',      en: 'Seal the mask on the face',   sec: 3 },
+  { n: '①', k: '머리 젖히기', ko: '머리를 젖히고\n턱을 들어올리세요',   en: 'Tilt the head, lift the chin', sec: 3 },
+  { n: '②', k: '마스크 맞추기', ko: '마스크를 얼굴에\n꼭 맞게 대세요',     en: 'Seal the mask on the face',   sec: 3 },
   { n: '③', k: '숨 불어넣기', ko: '천천히 숨을\n불어넣으세요 (1초)',   en: 'Give a slow breath over 1 second', sec: 1 },
-  { n: '④', k: '가슴 상승',   ko: '가슴이 올라오는지\n확인하세요',      en: 'Check for chest rise',        sec: 2 },
-  { n: '⑤', k: '2차 호흡',    ko: '한 번 더 천천히\n불어넣으세요 (1초)', en: 'Give a second breath',       sec: 1 },
-  { n: '⑥', k: '압박 재개',   ko: '즉시 흉부압박을\n재개합니다',        en: 'Resume compressions now',     sec: 2 },
+  { n: '④', k: '가슴 확인',    ko: '가슴이 올라오는지\n확인하세요',      en: 'Check for chest rise',        sec: 2 },
+  { n: '⑤', k: '한 번 더',    ko: '한 번 더 천천히\n불어넣으세요 (1초)', en: 'Give a second breath',       sec: 1 },
+  { n: '⑥', k: '압박 재개',   ko: '바로 가슴 압박을\n다시 시작합니다',  en: 'Resume compressions now',     sec: 2 },
 ]
 
 export function Screen19({ fire }) {
@@ -83,7 +83,7 @@ export function Screen19({ fire }) {
   const s = VENT_STEPS[i]
   return (
     <Dark band={C.caution} bandH={12}>
-      <Header dark h={70} titleSize={25} title="인공호흡 가이드" titleEn="Rescue Breathing"
+      <Header dark h={70} titleSize={25} title="인공호흡 안내" titleEn="Rescue Breathing"
         right={`${i + 1} / 6`} rightColor={C.caution} />
       <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 44, minHeight: 0 }}>
         <div style={{ position: 'relative', width: 170, height: 170, flexShrink: 0 }}>
@@ -100,7 +100,7 @@ export function Screen19({ fire }) {
           <div style={{ fontSize: 18, color: '#9aa3b0', marginTop: 10 }}>{s.en}</div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 16, color: C.caution, marginTop: 14 }}>
             <span style={{ width: 9, height: 9, borderRadius: '50%', background: C.caution, display: 'inline-block' }} />
-            과도한 속도·압력 시 경고가 표시됩니다
+            너무 빠르거나 세게 불어넣으면 경고가 나옵니다
           </div>
         </div>
         <Btn variant="ghostDark" w={150} h={60} fs={20} fw={600} onPress={() => fire(EV.VENT_DONE)}>건너뛰기</Btn>

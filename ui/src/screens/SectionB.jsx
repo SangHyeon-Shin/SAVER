@@ -23,7 +23,7 @@ export function Screen11({ fire, vitals, waves }) {
       <div style={{ flex: 1, display: 'flex', gap: 14, padding: '14px 16px', minHeight: 0 }}>
         <div style={{ flex: 1.7, display: 'flex', flexDirection: 'column', gap: 12, minHeight: 0 }}>
           <WavePanel label="압박 리듬 / Compression rhythm" d={waves.comp} color={C.wave} dur="5s" />
-          <WavePanel label="PPG 신호 / PPG signal" d={waves.ppg} color={C.ppg} dur="5s" />
+          <WavePanel label="손가락 센서 신호 / Finger sensor" d={waves.ppg} color={C.ppg} dur="5s" />
         </div>
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 10, minHeight: 0 }}>
           <Stat label="압박 깊이 / Depth" value={vitals.depth} />
@@ -38,7 +38,7 @@ export function Screen11({ fire, vitals, waves }) {
 
       <div style={{ height: 74, display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 12, padding: '0 16px', flexShrink: 0 }}>
         {/* AED 분석·충격: 구조자 입력으로만 압박을 멈춘다(v2.2) */}
-        <Btn variant="success" w={230} h={58} fs={22} onPress={() => fire(EV.AED_PAUSE)} style={{ marginRight: 'auto' }}>AED 사용</Btn>
+        <Btn variant="success" w={250} h={58} fs={20} onPress={() => fire(EV.AED_PAUSE)} style={{ marginRight: 'auto' }}>자동심장충격기 사용</Btn>
         <Btn variant="ghostDark" w={190} h={58} fs={22} onPress={() => fire(EV.PAUSE)}>일시정지</Btn>
         <Btn variant="danger" w={190} h={58} fs={22} onPress={() => fire(EV.STOP)}>정지</Btn>
       </div>
@@ -59,7 +59,7 @@ export function Screen12({ fire, waves }) {
         <div style={{ position: 'relative', fontSize: 22, color: '#c5ccd6' }}>환자 상태를 확인하세요.</div>
         <div style={{ position: 'absolute', bottom: 24, display: 'flex', gap: 14 }}>
           <Btn w={230} fs={24} fw={700} onPress={() => fire(EV.RESUME)}>재개</Btn>
-          <Btn variant="success" w={200} fs={23} onPress={() => fire(EV.AED_PAUSE)}>AED 사용</Btn>
+          <Btn variant="success" w={250} fs={20} onPress={() => fire(EV.AED_PAUSE)}>자동심장충격기 사용</Btn>
           <Btn variant="ghostDark" w={190} fs={23} onPress={() => fire(EV.END)}>종료</Btn>
         </div>
       </div>
