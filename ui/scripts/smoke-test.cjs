@@ -55,6 +55,7 @@ const check = (name, ok, detail = '') => {
   tap(B('이동 완료'))
   check('04 시작 대기', await until(has('시작 대기')))
   check('04 119 신고·자동심장충격기 요청 먼저 안내', has('먼저 119에 신고하고 자동심장충격기')())
+  check('04 헤드셋 착용 안내 (D-40)', has('헤드셋을 착용해 주세요')() && !!d.querySelector('[data-headset]'))
 
   tap(B('시작'))
   check('05 겉옷 제거 안내(인식 없음, D-38)', await until(has('겉옷을 벗겨 주세요'))
@@ -78,7 +79,7 @@ const check = (name, ok, detail = '') => {
   check('09 반력 곡선 그려짐', await until(() => d.querySelectorAll('[data-pt]').length >= 10, 6000),
     d.querySelectorAll('[data-pt]').length + '점')
   check('09 가슴 두께(EAPD)·거리 D 표시', has('205.8 mm')() && has('89.7 mm')())
-  check('20 탐색 완료 → 바퀴 수납 · 안전핀 해제', await until(has('안전핀을 뽑아'), 9000))
+  check('20 탐색 완료 → 바퀴 수납 · 안전핀 해제, 헤드셋 확인', await until(has('안전핀을 뽑아'), 9000) && has('헤드셋을 썼는지')())
 
   tap(B('핀을 뺐습니다'))
   check('08 바닥 고정 확인 (핀 해제 뒤)', await until(has('바닥 고정 확인')))
@@ -229,11 +230,15 @@ const check = (name, ok, detail = '') => {
   check('음성 문구: TTS 입력에 어려운 말 없음(일반인 기준, direction.plain)', VB.length >= 10
     && VP.prompts.every((p) => !VB.some((w) => p.say.includes(w))),
     VP.prompts.filter((p) => VB.some((w) => p.say.includes(w))).map((p) => p.id).join(','))
+  check('음성 문구: 시작 대기에서 헤드셋 착용을 먼저 안내 (D-40)', VP.prompts.some((p) => p.node === 'S2' && p.when === 'enter' && p.say.includes('헤드셋')))
   check('음성 문구: 시험 묶음이 목록에 있고 세 등급을 모두 포함', VP.pilot.every((i) => vids.includes(i))
     && ['안내', '주의', '경고'].every((lv) => VP.pilot.some((i) => VP.prompts.find((p) => p.id === i).level === lv)))
-  check('음성 문구: 모든 등급에 보이스 태그(긴장 태그 없음), 목소리 필터와 생성 설정', VP.prompts.every((p) => VP.direction.levels[p.level]
-    && /^\[[^\]]+\]$/.test(VP.direction.levels[p.level].tag))
-    && Object.values(VP.direction.levels).every((l) => !/serious|urgent/i.test(l.tag))
+  // 보이스 태그: 등급 태그는 비었거나 [..] 하나, calm 은 등급 태그에 넣지 않고 calm 목록(극도의 침착함)에만
+  const TAGOK = (t) => t === '' || /^\[[^\]]+\]$/.test(t)
+  const tags = Object.values(VP.direction.levels).map((l) => l.tag).concat(VP.prompts.filter((p) => 'tag' in p).map((p) => p.tag))
+  check('음성 문구: 보이스 태그 형식, 긴장 태그 없음, calm 은 목록에만, 목소리 필터와 생성 설정',
+    VP.prompts.every((p) => VP.direction.levels[p.level]) && tags.every(TAGOK) && tags.every((t) => !/serious|urgent|calm/i.test(t))
+    && VP.direction.calm.ids.every((i) => vids.includes(i)) && VP.direction.levels['안내'].tag === ''
     && VP.direction.filters.length >= 4 && VP.direction.settings.length >= 6)
   check('음성 문구: S0 외 모든 화면에 문구', Object.keys(spec.nodes).filter((n) => n !== 'S0')
     .every((n) => VP.prompts.some((p) => p.node === n)),

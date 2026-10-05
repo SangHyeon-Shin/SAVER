@@ -67,7 +67,19 @@ export function Screen03({ fire }) {
   )
 }
 
-/* ================= 04 · 시작 대기 · S2 · UI-02 ================= */
+/* 헤드셋 그림 (머리띠와 귀덮개) */
+function HeadsetIcon({ size = 34, color = C.primary }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 32 32" aria-hidden="true">
+      <path d="M5 19 V15 a11 11 0 0 1 22 0 V19" fill="none" stroke={color} strokeWidth="2.6" strokeLinecap="round" />
+      <rect x="3" y="17" width="7" height="11" rx="2.5" fill={color} />
+      <rect x="22" y="17" width="7" height="11" rx="2.5" fill={color} />
+    </svg>
+  )
+}
+
+/* ================= 04 · 시작 대기 · S2 · UI-02 =================
+   블로워 소리가 커서 음성 안내는 헤드셋으로 듣는다(D-40). 시작 전에 착용을 안내한다 */
 export function Screen04({ fire }) {
   return (
     <Light band={C.success}>
@@ -80,6 +92,14 @@ export function Screen04({ fire }) {
           <div style={{ fontSize: 48, fontWeight: 800, color: '#1a1f29' }}>환자를 단단한 바닥에 눕히세요.</div>
           {/* 119 신고와 자동심장충격기 요청이 장치 사용보다 먼저다(119 현장경험자 인터뷰 권고, v2.2) */}
           <div style={{ fontSize: 26, fontWeight: 700, color: C.danger }}>먼저 119에 신고하고 자동심장충격기(AED)를 가져다 달라고 하세요.</div>
+        </div>
+        <div data-headset style={{ position: 'absolute', left: 28, bottom: 24, height: 64, display: 'flex', alignItems: 'center', gap: 12,
+          padding: '0 18px', borderRadius: 12, background: '#eef4ff', border: `1.5px solid ${C.primary}` }}>
+          <HeadsetIcon />
+          <div>
+            <div style={{ fontSize: 22, fontWeight: 800, color: '#1a1f29' }}>헤드셋을 착용해 주세요</div>
+            <div style={{ fontSize: 15, color: '#3a4250', marginTop: 2 }}>장치 소리가 커서 음성 안내는 헤드셋으로 들으세요</div>
+          </div>
         </div>
         <Btn w={240} fs={24} onPress={() => fire(EV.START_PRESSED)}
           style={{ position: 'absolute', right: 28, bottom: 24 }}>시작</Btn>
@@ -165,7 +185,7 @@ export function Screen07({ fire }) {
           <img src={IMG.ppg_sensor} alt="손가락 센서" style={{ width: '100%', height: '100%', objectFit: 'contain', display: 'block' }} />
         </div>
         <div style={{ flex: 1 }}>
-          <div style={{ fontSize: 40, fontWeight: 700, lineHeight: 1.3 }}>센서를<br />환자의 손가락에<br />끼워 주세요</div>
+          <div style={{ fontSize: 40, fontWeight: 700, lineHeight: 1.3 }}>손가락 센서를<br />환자의 손가락에<br />끼워 주세요</div>
           <div style={{ marginTop: 28 }}><Dot color={C.success} label="자동 인식 중…" size={14} fontSize={24} /></div>
         </div>
         <Btn w={240} fs={24} onPress={() => fire(EV.PPG_ATTACHED)}
@@ -213,7 +233,7 @@ export function Screen20({ fire }) {
         </div>
         <div style={{ flex: 1 }}>
           <div style={{ fontSize: 38, fontWeight: 700, lineHeight: 1.3 }}>압박 위치를 찾았습니다.<br />안전핀을 뽑아<br />바퀴를 올리세요</div>
-          <div style={{ fontSize: 21, color: '#3a4250', marginTop: 16 }}>패드가 바닥에 닿으면 [핀을 뺐습니다]를 누르세요. 다음 화면에서 장치를 바닥에 고정합니다.</div>
+          <div style={{ fontSize: 21, color: '#3a4250', marginTop: 16 }}>패드가 바닥에 닿으면 [핀을 뺐습니다]를 누르세요. 다음 화면부터 장치 소리가 커집니다. 헤드셋을 썼는지 확인하세요.</div>
         </div>
         <Btn variant="ghost" w={160} fs={23} onPress={() => fire(EV.CANCEL)}
           style={{ position: 'absolute', left: 28, bottom: 24 }}>취소</Btn>
