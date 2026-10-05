@@ -481,6 +481,24 @@ Wire1의 기본 16/17과 엔코더 중복을 해소한다. 11/12를 엔코더에
 
 **수준**: 브리지 차단 `implemented`(jetson 199/199), 키오스크 연결 대기 `implemented`(smoke 103/103). S1 조건 전이와 X_WHEELS 삭제는 `planned`(합의 전).
 
+### D-45 · 상태머신 v2.3: 일시정지는 장치가 멈췄다고 알린 뒤에만 재개, 인공호흡 안내는 압박 정지 실물 확인 뒤 (2026-10-05)
+
+한건민 검토(10/5)에서 1~3번에 합의했다. 4번(X_WHEELS 삭제)과 5번(S1 조건 전이)은 회신 대기다.
+
+| 번호 | 합의 | 반영 |
+|---|---|---|
+| 1 | X_VENT 진입에 PAUSE_CPR (조건부) | X_VENT `enter_cmds: [PAUSE_CPR]`. 조건: 처음 S6 → S7은 START_CPR, 일시정지 노드(S8, S9, X_VENT, X_AED)에서 재개는 RESUME_CPR, 재개 경로에서 CPR_PAUSED 허용, **PAUSE_CPR 수락과 CPR_PAUSED 확인 전 재개 금지**, 이 순서를 시험에 넣음 |
+| 2 | S1 오류 뒤 S1 재점검 | S1 `error_return: S1`. 오류 확인(RECHECK) 뒤 PING, GET_STATUS, ARM, HOME을 다시 보낸다 |
+| 3 | X_POSOUT의 REALIGN_DONE 제거 | 위치 이탈은 STOP → S11만. 화면 지시는 [정지] 하나, 음성 V25도 "압박 위치가 어긋났습니다. 정지를 누르세요."로 바꿈(다시 생성 필요) |
+
+- 1의 조건 가운데 START/RESUME 구분과 CPR_PAUSED 허용은 v2.2에서 이미 작업 브랜치에 있었다(Jetson이 장치 상태로 고름, `protocol.resolve_enter_cmd`). 건민 검토는 main(v2.0) 기준이었다.
+- 새 필드 `event_requires_mcu`: 그 이벤트로 노드를 떠나려면 장치가 이 상태여야 한다. S8 RESUME, S9 RESUME_CPR, X_VENT VENT_DONE, X_AED AED_RESUME에 `CPR_PAUSED`. 정지 방향(STOP, END, STOP_CPR)은 막지 않는다. Jetson `state_machine.py`와 UI `stateMachine.js`가 같은 규칙을 쓴다.
+- UI: 장치에 연결돼 있으면 Teensy가 CPR_PAUSED를 보고하기 전에는 "압박을 멈추는 중입니다 / 잠시 기다리세요"만 보이고 재개 버튼을 막는다. 인공호흡 안내는 멈춤 보고 뒤에 단계를 시작한다. 오프라인 시연은 바로 멈춘 것으로 본다.
+- **Teensy 확인 사항(건민 지적)**: `motorsOff()`에 압박 드라이버 정지 명령이 아직 없다("baud와 명령 형식 확정 전에는 송신 금지"). PAUSE_CPR, STOP_CPR, 위험 등급 고장, 통신 두절 정지가 모두 `motorsOff()`를 쓰므로, 압박 구동을 메인 펌웨어에 넣을 때 정지 명령도 함께 넣어야 한다. 물리 비상정지는 이와 무관하게 모터 전원을 끊는다.
+- 그래서 브리지는 `pause_stop_verified`(기본 false)가 켜지기 전에는 장치 연결 중 인공호흡 안내에 들어가지 않는다(거부 사유 `pause_unverified`). PAUSE_CPR로 압박 모터가 실제로 멈추는 것을 실기에서 확인(인터록 점검표 C11)한 뒤 실기 설정 파일에서 켠다. D-44의 `no_pause_cmd` 차단은 이 검사로 이어진다.
+
+**수준**: 상태머신 v2.3, 브리지 검사, UI 대기 화면 `implemented`(jetson 209/209, ui smoke 110/110, teensy 26/26). 실기에서 PAUSE_CPR이 압박 모터를 멈추는지는 미확인(Teensy 구현 전).
+
 ## 보고서·논문
 
 ### D-30 · ILCOR 인용은 이렇게 구분한다
@@ -541,7 +559,8 @@ SAVER 는 ILCOR 이 인정하는 **"특정 상황(specific circumstances)" 예�
 | 헤드셋을 쓴 구조자가 119 상담원 말과 자동심장충격기 음성을 들을 수 있는지 (D-40) — 10/13 | 한성윤 |
 | 구조자용 헤드셋 준비(구매 또는 팀원 보유) (D-40) | 신상현 |
 | 장치 역할(손 압박 뒤 이어받기)과 시나리오 순서, S9 회복 의심 안내와 재개 규칙, 인공호흡 안내 유지 여부, 위치 이탈 복구 절차 (D-41) — 10/13 | 한성윤 |
-| 상태머신: `X_VENT` 압박 정지, 재개 전 손 떼기 확인, 부팅 오류 복귀 (D-41) | 신상현 + 한건민 |
+| ~~상태머신: `X_VENT` 압박 정지, 부팅 오류 복귀~~ → v2.3 반영(D-45, 10/5 합의). 재개 전 손 떼기 확인은 X_VENT 6단계 버튼으로 유지 | 완료 |
+| Teensy `motorsOff()`에 압박 드라이버 정지 명령 추가, PAUSE_CPR·STOP_CPR로 압박 모터가 멈추는지 실기 확인 뒤 `pause_stop_verified` 켜기 (D-45) — 압박 구동 통합 전, 늦어도 10/14 G1 | 한건민 |
 | 상태머신: `X_WHEELS`(바퀴 내리기) 노드 삭제와 `X_PIN`, `X_MOVE` 이름 정리 (D-42) | 신상현 + 한건민 |
 | 상태머신: S1 조건 전이(PING, GET_STATUS, ARM)와 점검 실패 시 오류 화면, 시간 제한 값은 10/12 실측 뒤 (D-44) | 신상현 + 한건민 |
 | 인공호흡: 10분 기준 문헌 근거, 안내 대상(훈련받은 구조자 한정), X_VENT 유지와 30:2 동기화(CO-Show 이후) (D-44) — 10/8 | 한성윤 |

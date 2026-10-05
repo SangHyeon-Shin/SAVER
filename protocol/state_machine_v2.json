@@ -10,10 +10,12 @@
     "error_return 이 있는 노드로 @return 할 때도 그 노드의 requires_mcu 를 검사합니다.",
     "v2.2(2026-10-04): AED 병행. X_CLOTHES → X_AED_PAD(가슴이 드러난 때 AED 패드 부착 확인, 없으면 건너뜀) → S3S4. 압박 중(S7)이나 일시정지(S8)에서 구조자가 AED 버튼을 누를 때만 X_AED(압박 일시정지)로 가고, 구조자가 재개를 눌러야만 S7로 돌아간다(자동 재개 없음). 압박 중단 경고 기준은 의학 근거로 정한다(미정, Jetson 설정 aed_pause_warn_s). 한건민·한성윤 검토 전.",
     "v2.2: S7 requires_mcu 에 CPR_PAUSED, CPR_RUNNING 추가. 일시정지(S8, S9, X_POSOUT, X_AED)나 오류 확인(S10)에서 S7로 돌아올 때 장치는 CPR_READY 가 아니므로 v2.1 에서는 실기에서 재개가 막혔다. 이때 Jetson 은 START_CPR 대신 RESUME_CPR 를 보낸다(CPR_RUNNING 이면 보내지 않음).",
-    "v2.2: S6 진입 명령 순서를 SET_TARGET → SET_CP_POINT 로 바꿨다. SET_CP_POINT(헤드 하강) 실행 중에는 장치가 다른 명령을 BUSY 로 거부하므로, 뒤에 보낸 SET_TARGET 이 거부되어 목표 깊이 없이 START_CPR 가 거부됐다(모의 Teensy 연결 시험에서 확인)."
+    "v2.2: S6 진입 명령 순서를 SET_TARGET → SET_CP_POINT 로 바꿨다. SET_CP_POINT(헤드 하강) 실행 중에는 장치가 다른 명령을 BUSY 로 거부하므로, 뒤에 보낸 SET_TARGET 이 거부되어 목표 깊이 없이 START_CPR 가 거부됐다(모의 Teensy 연결 시험에서 확인).",
+    "event_requires_mcu: 그 이벤트로 이 노드를 떠나려면 Teensy가 이 상태여야 합니다. 아니면 전이를 거부합니다. 장치 상태를 모르면(연결 없음) 검사하지 않습니다.",
+    "v2.3(2026-10-05, 한건민 합의 10/5): ① X_VENT 진입 명령에 PAUSE_CPR 추가(장치 압박과 사람 인공호흡을 동시에 하지 않음, D-44). ② 일시정지 노드(S8, S9, X_VENT, X_AED)에서 S7로 재개하는 이벤트는 장치가 CPR_PAUSED 일 때만 받는다(PAUSE_CPR 수락과 CPR_PAUSED 확인 전 재개 금지). 처음 S6 → S7 은 START_CPR, 재개는 RESUME_CPR(Jetson 이 장치 상태로 고름, v2.2). ③ S1 error_return 을 S1 로 두어 오류 확인 뒤 초기 점검(PING, GET_STATUS, ARM, HOME)을 다시 한다. ④ X_POSOUT 의 REALIGN_DONE(위치 다시 맞춘 뒤 재개)을 복구 절차가 정해질 때까지 없앤다. 위치 이탈은 STOP → S11 만 남는다."
   ],
-  "version": "2.2",
-  "updated": "2026-10-04",
+  "version": "2.3",
+  "updated": "2026-10-05",
 
   "events": {
     "INIT_DONE": "std", "INIT_ERROR": "std", "POWER_ON": "std", "POWER_OFF": "std",
@@ -26,7 +28,7 @@
 
     "WHEELS_DONE": "ext", "MOVE_DONE": "ext", "CLOTHES_OK": "ext", "PPG_ATTACHED": "ext",
     "SEARCH_DONE": "ext", "SEARCH_FAIL": "ext", "PIN_RELEASED": "ext",
-    "POSITION_DRIFT": "ext", "REALIGN_DONE": "ext",
+    "POSITION_DRIFT": "ext",
     "VENT_GUIDE": "ext", "VENT_DONE": "ext", "BATTERY_LOW": "ext", "BATTERY_OK": "ext",
     "AED_PADS_ON": "ext", "AED_NONE": "ext", "AED_PAUSE": "ext", "AED_RESUME": "ext"
   },
@@ -43,6 +45,7 @@
     "S1": {
       "state": "S1", "ui": "UI-01", "screen": 1, "name": "초기화 · 시스템 점검", "alarm": "normal",
       "auto": { "ms": 3000, "event": "INIT_DONE" },
+      "error_return": "S1",
       "enter_cmds": ["PING", "GET_STATUS", "ARM", "HOME"],
       "on": { "INIT_DONE": "X_WHEELS", "INIT_ERROR": "S10" }
     },
@@ -109,11 +112,13 @@
     "S8": {
       "state": "S8", "ui": "UI-08", "screen": 12, "name": "일시정지", "alarm": "caution",
       "enter_cmds": ["PAUSE_CPR"],
+      "event_requires_mcu": { "RESUME": ["CPR_PAUSED"] },
       "on": { "RESUME": "S7", "END": "S13", "AED_PAUSE": "X_AED" }
     },
     "S9": {
       "state": "S9", "ui": "UI-09", "screen": 13, "name": "ROSC 의심 · 사용자 확인", "alarm": "warning",
       "enter_cmds": ["PAUSE_CPR"],
+      "event_requires_mcu": { "RESUME_CPR": ["CPR_PAUSED"] },
       "on": { "RESUME_CPR": "S7", "STOP_CPR": "S13" }
     },
     "S10": {
@@ -123,7 +128,7 @@
     "X_POSOUT": {
       "state": null, "ui": "(정의서)", "screen": 15, "name": "압박 위치 이탈 경고", "alarm": "warning",
       "enter_cmds": ["PAUSE_CPR"],
-      "on": { "REALIGN_DONE": "S7", "STOP": "S11" }
+      "on": { "STOP": "S11" }
     },
     "S11": {
       "state": "S11", "ui": "UI-11", "screen": 16, "name": "안전정지", "alarm": "danger",
@@ -145,6 +150,8 @@
     },
     "X_VENT": {
       "state": null, "ui": "(정의서)", "screen": 19, "name": "인공호흡 가이드", "alarm": "caution",
+      "enter_cmds": ["PAUSE_CPR"],
+      "event_requires_mcu": { "VENT_DONE": ["CPR_PAUSED"] },
       "on": { "VENT_DONE": "S7" }
     },
     "X_AED_PAD": {
@@ -154,6 +161,7 @@
     "X_AED": {
       "state": null, "ui": "(v2.2 추가)", "screen": 22, "name": "AED 분석 · 충격 (압박 일시정지)", "alarm": "caution",
       "enter_cmds": ["PAUSE_CPR"],
+      "event_requires_mcu": { "AED_RESUME": ["CPR_PAUSED"] },
       "on": { "AED_RESUME": "S7", "STOP": "S11" }
     }
   }

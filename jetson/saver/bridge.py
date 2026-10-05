@@ -57,6 +57,8 @@ CONFIG = {
     "force_max_N": 0,             # TODO 한성윤 / 서정준
     "vacuum_target_kPa": 0,       # TODO 서정준 + 한건민
     "aed_pause_warn_s": None,     # TODO 한성윤. AED 분석·충격 중 압박 중단 경고 기준(초). 비어 있으면 경고 안 함
+    "pause_stop_verified": False, # TODO 한건민. PAUSE_CPR 로 압박 모터가 실제로 멈추는 것을 실기에서 확인한 뒤 true
+                                  # (인터록 점검표 C11). false 면 장치 연결 중 인공호흡 안내(X_VENT)에 들어가지 않는다(D-45)
 }
 # 압박점 탐색(saver/search.py, 초안 §7.2). 전부 비어 있으면 탐색을 시작하지 않는다.
 CONFIG.update(dict((k, None) for k in SEARCH_KEYS))
@@ -65,17 +67,28 @@ CONFIG.update(dict((k, None) for k in SEARCH_KEYS))
 DEVICE_OWNED = ("SEARCH_DONE",)
 # 이 노드에 들어오면 이전 탐색 결과를 버린다.
 CP_RESET_NODES = ("S1", "S2", "X_SEARCH", "S12", "S13")
-# 구조자가 환자 가슴과 얼굴 가까이 손과 얼굴을 대는 안내 화면. 진입 명령에 압박 정지(PAUSE_CPR)가
-# 없으면 장치에 연결된 동안 들어가지 않는다(D-44). 상태머신에 PAUSE_CPR 이 정의되면 저절로 풀린다.
+# 구조자가 환자 가슴과 얼굴 가까이 손과 얼굴을 대는 안내 화면. 장치에 연결된 동안에는
+#   ① 진입 명령에 압박 정지(PAUSE_CPR)가 없으면(D-44)
+#   ② PAUSE_CPR 로 압박 모터가 실제로 멈추는 것을 실기에서 확인하기 전이면(D-45, pause_stop_verified)
+# 들어가지 않는다.
 HANDS_ON_NODES = ("X_VENT",)
 
 
-def hands_on_blocked(fsm, name):
-    """이 이벤트의 목적지가 압박을 멈추지 않는 손 대기 화면이면 True"""
+def hands_on_block_reason(fsm, name, cfg=None):
+    """이 이벤트의 목적지가 압박을 멈췄다고 믿을 수 없는 손 대기 화면이면 사유, 아니면 None"""
+    cfg = CONFIG if cfg is None else cfg
     target = fsm.cur.get("on", {}).get(name)
     if target not in HANDS_ON_NODES:
-        return False
-    return "PAUSE_CPR" not in fsm.nodes[target].get("enter_cmds", [])
+        return None
+    if "PAUSE_CPR" not in fsm.nodes[target].get("enter_cmds", []):
+        return "no_pause_cmd"
+    if not cfg.get("pause_stop_verified"):
+        return "pause_unverified"
+    return None
+
+
+def hands_on_blocked(fsm, name, cfg=None):
+    return hands_on_block_reason(fsm, name, cfg) is not None
 
 
 def load_config(path):
@@ -279,7 +292,8 @@ class Bridge(object):
                 elif t in ("intent", "event") and name and self.link.connected and hands_on_blocked(self.fsm, name):
                     self.log.event("ui", name + "_BLOCKED")
                     await ws.send(json.dumps({"type": "rejected", "name": name, "node": self.fsm.node,
-                                              "allowed": self.fsm.allowed(), "reason": "no_pause_cmd"}))
+                                              "allowed": self.fsm.allowed(),
+                                              "reason": hands_on_block_reason(self.fsm, name)}))
                 elif t in ("intent", "event") and name:
                     ok = self.fsm.fire(name, msg.get("payload"))
                     self.log.event("ui", name)

@@ -47,7 +47,7 @@ export function Screen11({ fire, vitals, waves }) {
 }
 
 /* ================= 12 · 일시정지 · S8 · UI-08 · 주의 ================= */
-export function Screen12({ fire, waves }) {
+export function Screen12({ fire, waves, paused = true }) {
   return (
     <Dark band={C.caution} bandH={12}>
       <Header dark h={72} titleSize={26} title="일시정지" titleEn="Paused" right="주의" rightColor={C.caution} />
@@ -55,11 +55,14 @@ export function Screen12({ fire, waves }) {
         <div style={{ position: 'absolute', top: 24, left: 30, right: 30, bottom: 110, opacity: .22, overflow: 'hidden', borderRadius: 10 }}>
           <Wave d={waves.comp} color={C.wave} dur={null} double={false} />
         </div>
-        {/* 지시는 하나(10/5): 환자 상태 확인. 다시 시작은 아래 [재개] 버튼 */}
-        <div style={{ position: 'relative', fontSize: 30, fontWeight: 700, color: '#c5ccd6' }}>압박을 멈췄습니다</div>
-        <div style={{ position: 'relative', fontSize: 46, fontWeight: 800 }}>환자 상태를 확인하세요</div>
+        {/* 지시는 하나(10/5): 환자 상태 확인. 다시 시작은 아래 [재개] 버튼.
+            장치가 멈춤(CPR_PAUSED)을 보고하기 전에는 '멈추는 중'과 기다리기만 보이고 재개를 막는다(v2.3) */}
+        <div data-pause-state={paused ? 'paused' : 'pausing'} style={{ position: 'relative', fontSize: 30, fontWeight: 700, color: '#c5ccd6' }}>
+          {paused ? '압박을 멈췄습니다' : '압박을 멈추는 중입니다'}
+        </div>
+        <div style={{ position: 'relative', fontSize: 46, fontWeight: 800 }}>{paused ? '환자 상태를 확인하세요' : '잠시 기다리세요'}</div>
         <div style={{ position: 'absolute', bottom: 24, display: 'flex', gap: 14 }}>
-          <Btn w={230} fs={24} fw={700} onPress={() => fire(EV.RESUME)}>재개</Btn>
+          <Btn w={230} fs={24} fw={700} disabled={!paused} onPress={() => fire(EV.RESUME)}>재개</Btn>
           <Btn variant="success" w={250} fs={20} onPress={() => fire(EV.AED_PAUSE)}>자동심장충격기 사용</Btn>
           <Btn variant="ghostDark" w={190} fs={23} onPress={() => fire(EV.END)}>종료</Btn>
         </div>

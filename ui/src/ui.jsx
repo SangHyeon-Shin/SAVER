@@ -151,7 +151,7 @@ export function Progress({ w = 300, color = C.success, dur = '1.8s' }) {
  * 터치 버튼
  * variant: primary | success | danger | warning | ghost | ghostDark | white | outlineWhite
  */
-export function Btn({ children, onPress, variant = 'primary', w, h = 64, fs = 24, fw, flex, style }) {
+export function Btn({ children, onPress, variant = 'primary', w, h = 64, fs = 24, fw, flex, style, disabled }) {
   const V = {
     primary:      { background: C.primary, color: '#fff', border: 'none', fontWeight: 600 },
     success:      { background: C.success, color: '#fff', border: 'none', fontWeight: 700 },
@@ -166,8 +166,11 @@ export function Btn({ children, onPress, variant = 'primary', w, h = 64, fs = 24
 
   return (
     <button
-      onPointerDown={(e) => { e.stopPropagation(); onPress && onPress() }}
-      style={{ width: w, height: h, flex, borderRadius: 6, fontSize: fs, fontFamily: 'inherit', ...V, ...(fw ? { fontWeight: fw } : {}), ...style }}
+      disabled={!!disabled}
+      data-disabled={disabled ? '1' : undefined}
+      onPointerDown={(e) => { e.stopPropagation(); if (!disabled && onPress) onPress() }}
+      style={{ width: w, height: h, flex, borderRadius: 6, fontSize: fs, fontFamily: 'inherit', ...V, ...(fw ? { fontWeight: fw } : {}),
+        ...(disabled ? { opacity: 0.4, cursor: 'not-allowed' } : {}), ...style }}
     >
       {children}
     </button>

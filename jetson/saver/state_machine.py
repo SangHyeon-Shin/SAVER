@@ -92,6 +92,15 @@ class StateMachine(object):
         if redirected:
             target = redirected
 
+        # 이벤트별 장치 조건 (v2.3) — 일시정지 노드의 재개는 장치가 CPR_PAUSED 일 때만
+        need = self.cur.get("event_requires_mcu", {}).get(event)
+        if need:
+            cur_mcu = self.mcu_state()
+            if cur_mcu is not None and cur_mcu not in need:
+                self.blocked_reason = {"event": event, "target": target,
+                                       "need": need, "mcu": cur_mcu}
+                return False
+
         # 장치 선행조건 검사 — UI 가 장치보다 앞서가는 것을 막는다
         need = self.nodes[target].get("requires_mcu")
         if need:

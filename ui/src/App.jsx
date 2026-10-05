@@ -215,7 +215,13 @@ export default function App() {
   const Screen = SCREEN[ctx.node]
   // AED 압박 중단 경고 기준(초). 의학 근거 확인 전이라 기본은 비어 있다(브리지 CONFIG.aed_pause_warn_s)
   const aedWarnS = bridge.connected && bridge.config ? bridge.config.aed_pause_warn_s : null
-  const props = { fire, ctx, demo, vitals, waves, search, searchCtl, setPatient, aedWarnS }
+  // 일시정지 확인(v2.3): 장치에 연결돼 있으면 Teensy 가 CPR_PAUSED 를 보고한 뒤에만 '멈췄습니다'와 재개 버튼을 보인다.
+  // 오프라인 시연(장치 없음)은 바로 멈춘 것으로 본다.
+  // ?paused=0 은 오프라인에서 '멈추는 중' 화면을 보는 시험용(스모크)이다.
+  const paused = bridge.connected
+    ? (!!bridge.telemetry && !bridge.stale && bridge.telemetry.state === 'CPR_PAUSED')
+    : QS.get('paused') !== '0'
+  const props = { fire, ctx, demo, vitals, waves, search, searchCtl, setPatient, aedWarnS, paused }
 
   return (
     <div style={{ position: 'fixed', inset: 0, background: '#0a0d12', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -233,16 +239,18 @@ export default function App() {
         </VoiceCtx.Provider>
 
         {/* 장치가 아직 준비되지 않아 전이가 거부됨 */}
-        {bridge.rejected && ['device_not_ready', 'no_pause_cmd'].includes(bridge.rejected.reason) && (
+        {bridge.rejected && ['device_not_ready', 'no_pause_cmd', 'pause_unverified'].includes(bridge.rejected.reason) && (
           <div style={{
             position: 'absolute', left: '50%', bottom: 92, transform: 'translateX(-50%)',
             background: 'rgba(232,168,0,.95)', color: '#1a1f29', borderRadius: 8,
             padding: '12px 22px', fontSize: 20, fontWeight: 700, zIndex: 45,
             boxShadow: '0 6px 24px rgba(0,0,0,.4)', pointerEvents: 'none',
           }}>
-            {bridge.rejected.reason === 'no_pause_cmd'
-              ? '인공호흡 안내는 실기에서 아직 쓰지 않습니다 (압박 정지 합의 전)'
-              : '장치 준비 중입니다 · 잠시 후 다시 눌러 주세요'}
+            {bridge.rejected.reason === 'no_pause_cmd' || bridge.rejected.reason === 'pause_unverified'
+              ? '인공호흡 안내는 실기에서 아직 쓰지 않습니다 (압박 정지 확인 전)'
+              : bridge.rejected.need && bridge.rejected.need.includes('CPR_PAUSED')
+                ? '압박이 멈추기를 기다리는 중입니다'
+                : '장치 준비 중입니다 · 잠시 후 다시 눌러 주세요'}
           </div>
         )}
 

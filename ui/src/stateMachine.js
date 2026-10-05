@@ -42,6 +42,7 @@ export const NODES = Object.freeze(
         errorReturn: n.error_return || null,
         enterCmds: n.enter_cmds || [],
         requiresMcu: n.requires_mcu || null,
+        eventRequiresMcu: n.event_requires_mcu || {},
         redirect: n.redirect || {},
       },
     ])
@@ -68,6 +69,10 @@ export function transition(ctx, event, payload = {}) {
   const cur = NODES[ctx.node]
   const target = cur.on && cur.on[event]
   if (!target) return { next: ctx, changed: false }
+
+  // 이벤트별 장치 조건(v2.3, Jetson state_machine.py 와 같은 규칙). 장치 상태를 모르면(오프라인) 검사하지 않는다.
+  const need = cur.eventRequiresMcu[event]
+  if (need && payload.mcu && !need.includes(payload.mcu)) return { next: ctx, changed: false }
 
   let toId = target === '@return' ? (ctx.errorReturn || 'S2') : target
   // 장치 플래그에 따른 목적지 변경 (Jetson state_machine.py 와 같은 규칙, redirect.js).

@@ -50,16 +50,52 @@ ck("허용 안 된 이벤트 무시", fsm.fire("RELEASE_DONE") is False and fsm.
 fsm.fire("ROSC_SUSPECT"); ck("ROSC 분기", fsm.node == "S9")
 fsm.fire("RESUME_CPR");  ck("압박 재개", fsm.node == "S7")
 
-# 인공호흡 안내 차단 (D-44): X_VENT 진입 명령에 PAUSE_CPR 이 없으면 장치 연결 중에는 들어가지 않는다
+# 인공호흡 안내 차단 (D-44, D-45): 장치 연결 중에는 X_VENT 에 PAUSE_CPR 이 있고,
+# PAUSE_CPR 로 압박 모터가 실제로 멈추는 것을 확인(pause_stop_verified)한 뒤에만 들어간다
 from saver import bridge as B
 fv = StateMachine(); fv.force("S7")
-_vent_has_pause = "PAUSE_CPR" in fv.nodes["X_VENT"].get("enter_cmds", [])
-ck("인공호흡 안내: 압박 정지 명령이 없으면 차단, 있으면 허용",
-   B.hands_on_blocked(fv, "VENT_GUIDE") == (not _vent_has_pause) and not B.hands_on_blocked(fv, "PAUSE")
-   and not B.hands_on_blocked(fv, "AED_PAUSE"), "PAUSE_CPR 정의=%s" % _vent_has_pause)
+ck("v2.3: X_VENT 진입 명령에 PAUSE_CPR", fv.nodes["X_VENT"].get("enter_cmds") == ["PAUSE_CPR"])
+ck("인공호흡 안내: 압박 정지 실기 확인 전에는 차단(pause_unverified)",
+   B.hands_on_block_reason(fv, "VENT_GUIDE", {"pause_stop_verified": False}) == "pause_unverified"
+   and B.hands_on_blocked(fv, "VENT_GUIDE", {}) and B.CONFIG.get("pause_stop_verified") is False)
+ck("인공호흡 안내: 확인 뒤에는 허용, 다른 이벤트는 검사 대상 아님",
+   B.hands_on_block_reason(fv, "VENT_GUIDE", {"pause_stop_verified": True}) is None
+   and not B.hands_on_blocked(fv, "PAUSE", {}) and not B.hands_on_blocked(fv, "AED_PAUSE", {}))
 fv2 = StateMachine(); fv2.nodes = json.loads(json.dumps(fv2.nodes)); fv2.force("S7")
-fv2.nodes["X_VENT"]["enter_cmds"] = ["PAUSE_CPR"]
-ck("인공호흡 안내: PAUSE_CPR 이 정의되면 검사가 저절로 풀림", B.hands_on_blocked(fv2, "VENT_GUIDE") is False)
+fv2.nodes["X_VENT"]["enter_cmds"] = []
+ck("인공호흡 안내: 진입 명령에 PAUSE_CPR 이 없으면 확인값과 관계없이 차단(no_pause_cmd)",
+   B.hands_on_block_reason(fv2, "VENT_GUIDE", {"pause_stop_verified": True}) == "no_pause_cmd")
+
+# v2.3 (한건민 합의 10/5): 재개 명령 순서. 처음 S6→S7 은 START_CPR, 일시정지 노드에서 재개는
+# 장치가 CPR_PAUSED 일 때만 받고 RESUME_CPR 를 보낸다
+mcu_v = {"s": "CPR_READY"}
+sent_v = []
+fz = StateMachine(mcu_state=lambda: mcu_v["s"],
+                  on_command=lambda c: sent_v.append(P.resolve_enter_cmd(c, mcu_v["s"])))
+fz.force("S6")
+ck("v2.3: 처음 S6→S7 은 START_CPR", fz.fire("CPR_START") and fz.node == "S7" and sent_v == ["START_CPR"], str(sent_v))
+mcu_v["s"] = "CPR_RUNNING"
+for ev_in, node_in, ev_back in (("VENT_GUIDE", "X_VENT", "VENT_DONE"), ("PAUSE", "S8", "RESUME"),
+                                ("ROSC_SUSPECT", "S9", "RESUME_CPR"), ("AED_PAUSE", "X_AED", "AED_RESUME")):
+    del sent_v[:]
+    mcu_v["s"] = "CPR_RUNNING"; fz.force("S7")
+    ok_in = fz.fire(ev_in) and fz.node == node_in and sent_v == ["PAUSE_CPR"]
+    blocked = fz.fire(ev_back) is False and fz.node == node_in and fz.blocked_reason \
+        and fz.blocked_reason.get("need") == ["CPR_PAUSED"]
+    mcu_v["s"] = "CPR_PAUSED"
+    ok_back = fz.fire(ev_back) and fz.node == "S7" and sent_v == ["PAUSE_CPR", "RESUME_CPR"]
+    ck("v2.3: %s → PAUSE_CPR, CPR_PAUSED 확인 전 %s 거부, 확인 뒤 RESUME_CPR" % (node_in, ev_back),
+       ok_in and blocked and ok_back, str(sent_v))
+mcu_v["s"] = "CPR_RUNNING"; fz.force("X_AED")
+ck("v2.3: 정지 방향(STOP)은 장치 상태와 관계없이 받음", fz.fire("STOP") and fz.node == "S11")
+fo = StateMachine(); fo.force("X_POSOUT")
+ck("v2.3: 위치 이탈은 정지만(REALIGN_DONE 없음)", fo.allowed() == ["STOP"] and "REALIGN_DONE" not in fo.events)
+s1_cmds = []
+fs1 = StateMachine(on_command=lambda c: s1_cmds.append(c)); fs1.force("S1")
+del s1_cmds[:]
+ck("v2.3: S1 오류 확인 뒤 S1 로 돌아가 초기 점검을 다시 함",
+   fs1.fire("INIT_ERROR") and fs1.node == "S10" and fs1.fire("RECHECK") and fs1.node == "S1"
+   and s1_cmds == ["PING", "GET_STATUS", "ARM", "HOME"], str(s1_cmds))
 
 # AED 병행 (v2.2)
 ck("겉옷 뒤 AED 패드 확인 → 정렬", "X_AED_PAD" in seen and seen.index("X_CLOTHES") < seen.index("X_AED_PAD") < seen.index("S3S4"))

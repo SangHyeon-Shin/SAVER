@@ -78,7 +78,25 @@ const VENT_STEPS = [
 
 const LAST = VENT_STEPS.length - 1
 
-export function Screen19({ fire }) {
+/* v2.3: 진입 때 PAUSE_CPR 를 보낸다. 장치가 멈춤(CPR_PAUSED)을 보고하기 전에는 안내를 시작하지 않고 기다린다 */
+export function Screen19({ fire, paused = true }) {
+  if (!paused) return <VentWait />
+  return <VentGuide fire={fire} />
+}
+
+function VentWait() {
+  return (
+    <Dark band={C.caution} bandH={12}>
+      <Header dark h={70} titleSize={25} title="인공호흡 안내" titleEn="Rescue Breathing" right="기다림" rightColor={C.caution} />
+      <div data-pause-state="pausing" style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 14 }}>
+        <div style={{ fontSize: 30, fontWeight: 700, color: '#c5ccd6' }}>압박을 멈추는 중입니다</div>
+        <div style={{ fontSize: 46, fontWeight: 800 }}>잠시 기다리세요</div>
+      </div>
+    </Dark>
+  )
+}
+
+function VentGuide({ fire }) {
   const [i, setI] = useState(0)
   const [left, setLeft] = useState(VENT_STEPS[0].sec)
   const vc = useContext(VoiceCtx)

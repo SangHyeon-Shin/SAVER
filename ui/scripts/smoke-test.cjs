@@ -246,6 +246,35 @@ const check = (name, ok, detail = '') => {
   check('인공호흡: 기다려도 자동으로 압박 화면에 가지 않음', T5().includes('인공호흡 안내') && !T5().includes('압박 모니터링'))
   tap([...d5.querySelectorAll('#root button')].find((b) => b.textContent.trim() === '압박 재개'))
   check('인공호흡: [압박 재개]를 눌러야 압박 화면', await until(() => T5().includes('압박 모니터링'), 3000))
+  // v2.3: 장치가 멈춤(CPR_PAUSED)을 보고하기 전에는 안내와 재개를 막는다 (?paused=0 은 오프라인 시험용)
+  const pw = async (q, words) => {
+    const dd = openDom(q).window.document
+    const TT = () => (dd.querySelector('#root')?.textContent || '')
+    await until(() => words.every((w) => TT().includes(w)), 3000)
+    return { dd, TT }
+  }
+  const v0 = await pw('?start=X_VENT&paused=0', ['인공호흡 안내', '잠시 기다리세요'])
+  check('v2.3 인공호흡: 멈춤 확인 전에는 기다리기만, 단계 안내와 버튼 없음', v0.TT().includes('압박을 멈추는 중입니다')
+    && !v0.TT().includes('머리를 젖히고')
+    && ![...v0.dd.querySelectorAll('#root button')].some((b) => ['건너뛰기', '압박 재개'].includes(b.textContent.trim())))
+  const s8 = await pw('?start=S8&paused=0', ['압박을 멈추는 중입니다'])
+  const s8btn = [...s8.dd.querySelectorAll('#root button')].find((b) => b.textContent.trim() === '재개')
+  check('v2.3 일시정지: 멈춤 확인 전 재개 버튼 비활성', !!s8btn && s8btn.disabled && !s8.TT().includes('환자 상태를 확인하세요'))
+  tap(s8btn); await wait(300)
+  check('v2.3 일시정지: 비활성 재개를 눌러도 압박 화면으로 가지 않음', s8.TT().includes('일시정지') && !s8.TT().includes('압박 모니터링'))
+  const s9 = await pw('?start=S9&paused=0', ['압박을 멈추는 중입니다'])
+  const s9btn = [...s9.dd.querySelectorAll('#root button')].find((b) => b.textContent.trim() === '압박 재개')
+  check('v2.3 회복 확인: 멈춤 확인 전 환자 확인 지시 없음, 재개 비활성', !!s9btn && s9btn.disabled && !s9.TT().includes('숨쉬기와 맥박'))
+  const ae = await pw('?start=X_AED&paused=0', ['압박 멈추는 중'])
+  const aebtn = [...ae.dd.querySelectorAll('#root button')].find((b) => b.textContent.trim() === '압박 재개')
+  check('v2.3 자동심장충격기: 멈춤 확인 전 재개 비활성', !!aebtn && aebtn.disabled)
+  const s8ok = await pw('?start=S8', ['압박을 멈췄습니다'])
+  check('v2.3 일시정지: 오프라인 시연은 바로 멈춘 것으로 보고 재개 가능',
+    !![...s8ok.dd.querySelectorAll('#root button')].find((b) => b.textContent.trim() === '재개' && !b.disabled))
+  const po = await pw('?start=X_POSOUT', ['압박 위치가 어긋났습니다'])
+  check('v2.3 위치 이탈: 다시 맞추기 없이 [정지] 하나', po.TT().includes('[정지]를 누르세요') && !po.TT().includes('맞췄습니다')
+    && !po.TT().includes('다시 맞춰') && !![...po.dd.querySelectorAll('#root button')].find((b) => b.textContent.trim() === '정지')
+    && ![...po.dd.querySelectorAll('#root button')].some((b) => b.textContent.includes('재개')))
   // 실기 키오스크 빌드(D-44): 브리지에 연결되기 전에는 화면이 스스로 넘어가지 않는다
   const KFILE = 'dist-kiosk/SAVER_UI.html'
   if (!existsSync(KFILE)) check('키오스크: 시험본 있음 (npm run build:single 이 함께 만든다)', false, KFILE)

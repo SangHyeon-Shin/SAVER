@@ -170,12 +170,12 @@ Jetson의 S1~S13에서 어떤 명령이 나가는지는 `protocol/state_machine_
 
 | Jetson 상태 | 나가는 명령 |
 |---|---|
-| S1 초기화 | `PING` → `GET_STATUS` → `ARM` → `HOME` |
+| S1 초기화 | `PING` → `GET_STATUS` → `ARM` → `HOME` (오류 확인 뒤 S1에서 다시, v2.3) |
 | S5 흡착·고정 | `VACUUM_ON` |
 | (압박점 탐색) | `STIFFNESS_SCAN` → `SET_CP_POINT` |
-| S6 압박 준비 | `SET_TARGET` → `TRIAL_COMPRESSION` |
-| S7 압박 수행 | `START_CPR` |
-| S8 일시정지 | `PAUSE_CPR` |
+| S6 압박 준비 | `SET_TARGET` → `SET_CP_POINT` (v2.2) |
+| S7 압박 수행 | 처음(S6에서) `START_CPR`. 일시정지 뒤 재개는 `RESUME_CPR` (장치가 `CPR_PAUSED`일 때만 재개 이벤트를 받음, v2.3) |
+| S8 일시정지, S9 회복 확인, X_VENT 인공호흡 안내, X_AED, X_POSOUT 위치 이탈 | `PAUSE_CPR` |
 | S11 안전정지 | `STOP_CPR{reason:SAFETY}` |
 | S12 수동 해제 | `VACUUM_OFF` |
 
@@ -403,4 +403,5 @@ Jetson                              Teensy
 |---|---|---|
 | v1.0 | 2026-07-26 | 초안 작성 (신상현) |
 | v1.0a | 2026-08-03 | 저장소 이력에서 확인된 하드웨어 사실 반영 (신상현)<br>· 온도·팬 telemetry 필드 추가<br>· 음압 드라이버 ERR, 온도 오류 코드 추가<br>· 플랫폼 불일치(ESP32-S3) 경고 추가<br>· 미확정 항목 7~9 추가 |
+| v1.0b | 2026-10-05 | §5 상태머신 대응표를 `state_machine_v2.json` v2.3에 맞춤(한건민 합의 1~3): 재개는 `RESUME_CPR`, 일시정지 노드의 재개는 `CPR_PAUSED` 확인 뒤, S1 오류 뒤 재점검, X_POSOUT 재정렬 재개 삭제. 메시지 형식 변경 없음 |
 | | | ← 한건민 검토 의견 반영 후 v1.1 |

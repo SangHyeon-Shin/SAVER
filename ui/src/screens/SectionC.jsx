@@ -7,7 +7,7 @@ import { IMG } from '../images'
 import { reasonText } from '../search'
 
 /* ================= 13 · ROSC 의심 · S9 · UI-09 · ★핵심·경고 ================= */
-export function Screen13({ fire, waves }) {
+export function Screen13({ fire, waves, paused = true }) {
   return (
     <Dark band={C.warning} bandH={14}>
       <Header dark h={72} titleSize={25} title="회복 신호 확인" titleEn="Recovery check"
@@ -15,14 +15,21 @@ export function Screen13({ fire, waves }) {
       <div style={{ flex: 1, display: 'flex', minHeight: 0 }}>
         <div style={{ width: '46%', background: 'linear-gradient(180deg,rgba(242,96,0,.22),rgba(242,96,0,.07))', padding: '24px 26px', display: 'flex', flexDirection: 'column' }}>
           <div style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', textAlign: 'center' }}>
-            <div style={{ fontSize: 46, fontWeight: 800, color: '#FF8A3D', lineHeight: 1.25 }}>환자 상태를<br />확인하세요</div>
-            <div style={{ fontSize: 25, color: '#eef1f6', marginTop: 18, lineHeight: 1.5 }}>
-              심장이 다시 뛰는 것 같습니다.<br />숨쉬기와 맥박을 확인하세요.
-            </div>
+            {paused ? (
+              <>
+                <div style={{ fontSize: 46, fontWeight: 800, color: '#FF8A3D', lineHeight: 1.25 }}>환자 상태를<br />확인하세요</div>
+                <div style={{ fontSize: 25, color: '#eef1f6', marginTop: 18, lineHeight: 1.5 }}>
+                  심장이 다시 뛰는 것 같습니다.<br />숨쉬기와 맥박을 확인하세요.
+                </div>
+              </>
+            ) : (
+              /* 장치가 멈춤을 보고하기 전에는 손을 대게 하지 않는다(v2.3) */
+              <div data-pause-state="pausing" style={{ fontSize: 40, fontWeight: 800, color: '#FF8A3D', lineHeight: 1.3 }}>압박을 멈추는 중입니다<br />잠시 기다리세요</div>
+            )}
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
             <div style={{ display: 'flex', gap: 10 }}>
-              <Btn flex={1} fs={22} fw={700} onPress={() => fire(EV.RESUME_CPR)}>압박 재개</Btn>
+              <Btn flex={1} fs={22} fw={700} disabled={!paused} onPress={() => fire(EV.RESUME_CPR)}>압박 재개</Btn>
               <Btn flex={1} fs={22} variant="warning" onPress={() => fire(EV.STOP_CPR)}>압박 중단</Btn>
             </div>
             {/* 장치는 ROSC를 확정하지 않는다 — 사용자 확인 기록용 (연동표 v2 §0) */}
@@ -84,7 +91,7 @@ export function Screen14({ fire, ctx, search }) {
 }
 
 /* ================= 15 · 압박 위치 이탈 경고 · 경보음 ================= */
-export function Screen15({ fire }) {
+export function Screen15({ fire, paused = true }) {
   return (
     <AlarmRed>
       <div style={{ height: 72, display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 26px', borderBottom: '1px solid rgba(255,255,255,.35)', flexShrink: 0 }}>
@@ -97,9 +104,10 @@ export function Screen15({ fire }) {
       </div>
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 14, padding: '0 30px' }}>
         <div style={{ fontSize: 40, fontWeight: 800, textAlign: 'center' }}>⚠ 압박 위치가 어긋났습니다</div>
-        <div style={{ fontSize: 22, color: 'rgba(255,255,255,.92)', textAlign: 'center' }}>
-          초록색 선에 환자 몸을 다시 맞춰 주세요<br />
-          <span style={{ fontSize: 17, color: 'rgba(255,255,255,.7)' }}>Re-align the patient to the green line</span>
+        {/* v2.3: 위치를 다시 맞춘 뒤 재개하는 길(REALIGN_DONE)은 복구 절차가 정해질 때까지 없다. 지시는 [정지] 하나 */}
+        <div style={{ fontSize: 26, fontWeight: 700, color: 'rgba(255,255,255,.95)', textAlign: 'center' }}>
+          {paused ? '압박을 멈췄습니다. [정지]를 누르세요' : '압박을 멈추는 중입니다. [정지]를 누르세요'}<br />
+          <span style={{ fontSize: 17, fontWeight: 400, color: 'rgba(255,255,255,.7)' }}>Compression paused. Press Stop.</span>
         </div>
         <div style={{ position: 'relative', width: 420, height: 200, border: '1px solid #c4cbd4', borderRadius: 10, overflow: 'hidden', background: '#0e1116' }}>
           <img src={IMG.patient_topdown} alt="환자 (위에서 본 모습)" style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'center', display: 'block' }} />
@@ -110,8 +118,7 @@ export function Screen15({ fire }) {
           <div style={{ position: 'absolute', left: '55%', top: '15%', font: "600 12px 'Pretendard',sans-serif", color: '#ff8a8a' }}>현재 위치</div>
         </div>
         <div style={{ display: 'flex', gap: 14, marginTop: 4 }}>
-          <Btn variant="white" w={320} h={70} fs={24} onPress={() => fire(EV.REALIGN_DONE)}>맞췄습니다 · 압박 재개</Btn>
-          <Btn variant="outlineWhite" w={180} h={70} fs={26} onPress={() => fire(EV.STOP)}>정지</Btn>
+          <Btn variant="white" w={260} h={70} fs={28} onPress={() => fire(EV.STOP)}>정지</Btn>
         </div>
       </div>
     </AlarmRed>

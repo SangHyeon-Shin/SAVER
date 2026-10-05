@@ -53,7 +53,7 @@ export function Screen21({ fire }) {
 const mmss = (s) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`
 
 /* ================= 22 · AED 분석 · 충격 (압박 일시정지) · X_AED ================= */
-export function Screen22({ fire, ctx, aedWarnS }) {
+export function Screen22({ fire, ctx, aedWarnS, paused = true }) {
   const [sec, setSec] = useState(0)
   useEffect(() => {
     const t0 = Date.now()
@@ -69,7 +69,7 @@ export function Screen22({ fire, ctx, aedWarnS }) {
   return (
     <Dark band={over ? C.danger : C.caution} bandH={14}>
       <Header dark h={72} titleSize={26} title="자동심장충격기 사용 중" titleEn="AED in use"
-        right="압박 멈춤" rightColor={C.caution} />
+        right={paused ? '압박 멈춤' : '압박 멈추는 중'} rightColor={C.caution} />
       <div style={{ flex: 1, display: 'flex', gap: 22, padding: '20px 26px 0', minHeight: 0 }}>
         <div style={{ width: 360, background: C.darkCard, borderRadius: 12, padding: '18px 20px', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
           <div style={{ fontSize: 20, color: C.darkSub }}>압박을 멈춘 시간</div>
@@ -100,7 +100,7 @@ export function Screen22({ fire, ctx, aedWarnS }) {
         <div style={{ fontSize: 17, color: C.darkSub }}>자동으로 다시 시작하지 않습니다.</div>
         <div style={{ display: 'flex', gap: 12 }}>
           <Btn variant="ghostDark" w={170} h={66} fs={23} fw={400} onPress={() => fire(EV.STOP)}>정지</Btn>
-          <Btn w={300} h={66} fs={26} fw={700} onPress={() => fire(EV.AED_RESUME)}>압박 재개</Btn>
+          <Btn w={300} h={66} fs={26} fw={700} disabled={!paused} onPress={() => fire(EV.AED_RESUME)}>압박 재개</Btn>
         </div>
       </div>
     </Dark>
