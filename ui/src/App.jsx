@@ -45,6 +45,9 @@ const QS = new URLSearchParams(typeof location === 'undefined' ? ''
   : (location.search || location.hash.replace(/^#/, '')))      // 체험판은 #start=... 로도 받는다
 // 체험판 빌드(VITE_DEMO=1)에서만: 감싼 페이지와 상태·이벤트를 주고받는다. 실기 빌드에는 들어가지 않는다
 const DEMO_BUILD = import.meta.env.VITE_DEMO === '1'
+// 실기 키오스크 빌드(VITE_KIOSK=1, npm run build:kiosk): 브리지에 연결되기 전이나 연결이 끊긴 동안
+// 화면이 스스로 넘어가지 않고 연결 대기 화면을 보인다(D-44). 로컬 전이는 오프라인 시연 전용이다
+const KIOSK = import.meta.env.VITE_KIOSK === '1'
 const qEapd = () => {
   const e = QS.get('eapd')
   if (e === 'none') return null
@@ -87,6 +90,9 @@ export default function App() {
   }, [])
 
   const bridge = useBridge({ onState: applyState })
+  const [everUp, setEverUp] = useState(false)          // 키오스크: 한 번이라도 연결됐는지(끊김 안내 구분)
+  useEffect(() => { if (bridge.connected) setEverUp(true) }, [bridge.connected])
+  const linkWait = KIOSK && !bridge.connected
 
   /* ---------- 이벤트 발생 (모든 화면의 공통 진입점) ----------
      연결 시  : intent 만 보내고 화면은 브리지가 돌려준 state 로 바뀐다
@@ -95,6 +101,7 @@ export default function App() {
     // AED 패드 부착 여부는 화면 표시용으로 UI 가 기억한다(장치 상태가 아님)
     if (event === EV.AED_PADS_ON || event === EV.AED_NONE) setCtx((c) => ({ ...c, aedPads: event === EV.AED_PADS_ON }))
     if (bridgeRef.current && bridgeRef.current(event, payload)) return
+    if (KIOSK) return                       // 실기: 연결 없이는 전이하지 않는다
     // 오프라인 시연: 음압 잔존이면 장치 플래그를 붙여 S13 → S12 redirect 를 보인다(redirect.js)
     if (event === EV.BACK_TO_IDLE && demoRef.current.vacResidual) {
       payload = { ...payload, mcuFlags: { rearm_lock: true, vac_released: false } }
@@ -133,6 +140,7 @@ export default function App() {
   }, [ctx.node])
   useEffect(() => { if (ctx.battery === 'popup') voice.event('battery_low') }, [ctx.battery])
   useEffect(() => () => voice.stop(), [])
+  useEffect(() => { if (linkWait) voice.stop() }, [linkWait])
 
   const search = bridge.connected ? bridge.search : sdemo.snap
   const startSearch = bridge.connected ? () => bridge.sendSearch('start') : sdemo.start
@@ -184,7 +192,7 @@ export default function App() {
      연결 시에는 브리지의 ticker 가 처리하므로 UI 는 관여하지 않는다.
      양쪽이 동시에 쏘면 같은 전이가 두 번 기록된다. */
   useEffect(() => {
-    if (!node.auto || bridge.connected) return
+    if (!node.auto || bridge.connected || KIOSK) return
     const t = setTimeout(() => fire(node.auto.event), node.auto.ms)
     return () => clearTimeout(t)
   }, [node, fire, bridge.connected])
@@ -217,20 +225,24 @@ export default function App() {
         boxShadow: '0 0 0 1px rgba(255,255,255,.06)',
       }}>
         <VoiceCtx.Provider value={voiceValue}>
-          {ctx.node === 'S0'
-            ? <PowerOff onPress={() => fire(EV.POWER_ON)} />
-            : <Screen {...props} />}
+          {linkWait
+            ? <A.ScreenLink lost={everUp} />
+            : ctx.node === 'S0'
+              ? <PowerOff onPress={() => fire(EV.POWER_ON)} />
+              : <Screen {...props} />}
         </VoiceCtx.Provider>
 
         {/* 장치가 아직 준비되지 않아 전이가 거부됨 */}
-        {bridge.rejected && bridge.rejected.reason === 'device_not_ready' && (
+        {bridge.rejected && ['device_not_ready', 'no_pause_cmd'].includes(bridge.rejected.reason) && (
           <div style={{
             position: 'absolute', left: '50%', bottom: 92, transform: 'translateX(-50%)',
             background: 'rgba(232,168,0,.95)', color: '#1a1f29', borderRadius: 8,
             padding: '12px 22px', fontSize: 20, fontWeight: 700, zIndex: 45,
             boxShadow: '0 6px 24px rgba(0,0,0,.4)', pointerEvents: 'none',
           }}>
-            장치 준비 중입니다 · 잠시 후 다시 눌러 주세요
+            {bridge.rejected.reason === 'no_pause_cmd'
+              ? '인공호흡 안내는 실기에서 아직 쓰지 않습니다 (압박 정지 합의 전)'
+              : '장치 준비 중입니다 · 잠시 후 다시 눌러 주세요'}
           </div>
         )}
 

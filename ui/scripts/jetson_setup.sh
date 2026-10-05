@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # ============================================================
 # 젯슨 나노(Ubuntu 18.04) 키오스크 설치 스크립트
-#   PC에서 npm run build → dist/ 를 젯슨으로 복사한 뒤 젯슨에서 실행합니다.
+#   PC에서 npm run build:kiosk → dist/ 를 젯슨으로 복사한 뒤 젯슨에서 실행합니다.
+#   (build:kiosk 는 브리지에 연결되기 전 화면이 스스로 넘어가지 않는 실기용 빌드, D-44)
 #
 #   scp -r dist backend scripts <user>@<젯슨IP>:~/saver-ui/
 #   ssh <user>@<젯슨IP>

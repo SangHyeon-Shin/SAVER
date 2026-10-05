@@ -22,6 +22,23 @@ export function Screen01() {
   )
 }
 
+/* ================= 실기 키오스크: 브리지 연결 대기 (D-44) =================
+   상태머신 노드가 아니다. 연결 전이나 끊긴 동안 화면이 스스로 넘어가지 않게 이 화면만 보인다.
+   지시는 없다(장치 쪽 안전은 Teensy 인터록과 물리 비상정지가 맡는다) */
+export function ScreenLink({ lost }) {
+  return (
+    <Light style={{ alignItems: 'center', justifyContent: 'center' }}>
+      <div data-linkwait style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 18 }}>
+        <div style={{ width: 380, height: 220, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <img src={IMG.device} alt="SAVER 장치" style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain', display: 'block' }} />
+        </div>
+        <div style={{ fontSize: 40, fontWeight: 800 }}>{lost ? '장치와 연결이 끊겼습니다' : '장치와 연결하고 있습니다'}</div>
+        <Dot color={lost ? C.caution : C.success} label={lost ? '다시 연결하고 있습니다' : '곧 시작됩니다'} />
+      </div>
+    </Light>
+  )
+}
+
 /* ================= 02 · 점검 완료 (X_WHEELS) =================
    바퀴는 평소 내려가 있고, 안전핀을 뽑으면 올라간다(10/5 팀장 확인). 바퀴를 내리는 단계는 없다.
    노드 X_WHEELS 삭제는 protocol/ 합의 대기(DECISIONS D-42). 그때까지 점검 완료만 잠깐 보여 준다 */

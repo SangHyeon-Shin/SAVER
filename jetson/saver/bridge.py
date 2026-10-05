@@ -65,6 +65,17 @@ CONFIG.update(dict((k, None) for k in SEARCH_KEYS))
 DEVICE_OWNED = ("SEARCH_DONE",)
 # 이 노드에 들어오면 이전 탐색 결과를 버린다.
 CP_RESET_NODES = ("S1", "S2", "X_SEARCH", "S12", "S13")
+# 구조자가 환자 가슴과 얼굴 가까이 손과 얼굴을 대는 안내 화면. 진입 명령에 압박 정지(PAUSE_CPR)가
+# 없으면 장치에 연결된 동안 들어가지 않는다(D-44). 상태머신에 PAUSE_CPR 이 정의되면 저절로 풀린다.
+HANDS_ON_NODES = ("X_VENT",)
+
+
+def hands_on_blocked(fsm, name):
+    """이 이벤트의 목적지가 압박을 멈추지 않는 손 대기 화면이면 True"""
+    target = fsm.cur.get("on", {}).get(name)
+    if target not in HANDS_ON_NODES:
+        return False
+    return "PAUSE_CPR" not in fsm.nodes[target].get("enter_cmds", [])
 
 
 def load_config(path):
@@ -265,6 +276,10 @@ class Bridge(object):
                 if t in ("intent", "event") and name in DEVICE_OWNED and self.link.connected:
                     await ws.send(json.dumps({"type": "rejected", "name": name, "node": self.fsm.node,
                                               "allowed": self.fsm.allowed(), "reason": "device_owned"}))
+                elif t in ("intent", "event") and name and self.link.connected and hands_on_blocked(self.fsm, name):
+                    self.log.event("ui", name + "_BLOCKED")
+                    await ws.send(json.dumps({"type": "rejected", "name": name, "node": self.fsm.node,
+                                              "allowed": self.fsm.allowed(), "reason": "no_pause_cmd"}))
                 elif t in ("intent", "event") and name:
                     ok = self.fsm.fire(name, msg.get("payload"))
                     self.log.event("ui", name)

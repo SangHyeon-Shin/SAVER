@@ -5,7 +5,7 @@
 import { readFileSync, writeFileSync, rmSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
 
-const DIR = 'dist-single'
+const DIR = process.env.OUTDIR || 'dist-single'   // 실기 키오스크 시험본은 dist-kiosk
 let html = readFileSync(join(DIR, 'index.html'), 'utf8')
 
 const assets = readdirSync(join(DIR, 'assets'))

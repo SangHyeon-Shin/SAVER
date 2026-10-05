@@ -119,7 +119,7 @@
 | 해석 | MATLAB/Simulink, ANSYS |
 
 **젯슨에서 빌드하지 않습니다.** 18.04 에서 Vite 가 돌지 않습니다.
-PC 에서 `npm run build` 한 `dist/` 만 복사합니다.
+PC 에서 `npm run build:kiosk` 한 `dist/` 만 복사합니다(실기용 빌드. 브리지 연결 전에는 화면이 스스로 넘어가지 않음, D-44).
 
 `websockets` 는 **9.1 로 고정**합니다. 최신 버전은 Python 3.6 에 설치되지 않습니다.
 

@@ -141,8 +141,8 @@ cd ui && npm run build:single && npm run smoke               # 24항목
 ### 젯슨 실기 배포
 
 ```bash
-# PC 에서
-cd ui && npm run build
+# PC 에서 (실기용: 브리지 연결 전에는 화면이 스스로 넘어가지 않음, D-44)
+cd ui && npm run build:kiosk
 scp -r dist ../jetson <계정>@<젯슨IP>:~/SAVER/
 
 # 젯슨에서 (Python 3.6)

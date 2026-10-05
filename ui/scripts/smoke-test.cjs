@@ -246,6 +246,19 @@ const check = (name, ok, detail = '') => {
   check('인공호흡: 기다려도 자동으로 압박 화면에 가지 않음', T5().includes('인공호흡 안내') && !T5().includes('압박 모니터링'))
   tap([...d5.querySelectorAll('#root button')].find((b) => b.textContent.trim() === '압박 재개'))
   check('인공호흡: [압박 재개]를 눌러야 압박 화면', await until(() => T5().includes('압박 모니터링'), 3000))
+  // 실기 키오스크 빌드(D-44): 브리지에 연결되기 전에는 화면이 스스로 넘어가지 않는다
+  const KFILE = 'dist-kiosk/SAVER_UI.html'
+  if (!existsSync(KFILE)) check('키오스크: 시험본 있음 (npm run build:single 이 함께 만든다)', false, KFILE)
+  else {
+    const dk = new JSDOM(readFileSync(KFILE, 'utf8'), { runScripts: 'dangerously', pretendToBeVisual: true,
+      url: 'file:///SAVER_UI_kiosk.html', virtualConsole: vc }).window.document
+    const TK = () => (dk.querySelector('#root')?.textContent || '').replace(/\s+/g, ' ')
+    await until(() => TK().includes('장치와 연결하고 있습니다'), 3000)
+    check('키오스크: 연결 전에는 연결 대기 화면', !!dk.querySelector('[data-linkwait]') && TK().includes('장치와 연결하고 있습니다'))
+    await wait(4200)
+    check('키오스크: 연결 없이 4초가 지나도 스스로 넘어가지 않음 (부팅 점검 3초 타이머 무시)',
+      !!dk.querySelector('[data-linkwait]') && !TK().includes('환자에게 이동') && !TK().includes('점검을 마쳤습니다'), TK().slice(0, 40))
+  }
   // 음성 안내 문구 (src/voice/prompts.json)
   const VP = JSON.parse(readFileSync('src/voice/prompts.json', 'utf8'))
   const vids = VP.prompts.map((p) => p.id)

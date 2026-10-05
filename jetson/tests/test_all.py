@@ -50,6 +50,17 @@ ck("허용 안 된 이벤트 무시", fsm.fire("RELEASE_DONE") is False and fsm.
 fsm.fire("ROSC_SUSPECT"); ck("ROSC 분기", fsm.node == "S9")
 fsm.fire("RESUME_CPR");  ck("압박 재개", fsm.node == "S7")
 
+# 인공호흡 안내 차단 (D-44): X_VENT 진입 명령에 PAUSE_CPR 이 없으면 장치 연결 중에는 들어가지 않는다
+from saver import bridge as B
+fv = StateMachine(); fv.force("S7")
+_vent_has_pause = "PAUSE_CPR" in fv.nodes["X_VENT"].get("enter_cmds", [])
+ck("인공호흡 안내: 압박 정지 명령이 없으면 차단, 있으면 허용",
+   B.hands_on_blocked(fv, "VENT_GUIDE") == (not _vent_has_pause) and not B.hands_on_blocked(fv, "PAUSE")
+   and not B.hands_on_blocked(fv, "AED_PAUSE"), "PAUSE_CPR 정의=%s" % _vent_has_pause)
+fv2 = StateMachine(); fv2.nodes = json.loads(json.dumps(fv2.nodes)); fv2.force("S7")
+fv2.nodes["X_VENT"]["enter_cmds"] = ["PAUSE_CPR"]
+ck("인공호흡 안내: PAUSE_CPR 이 정의되면 검사가 저절로 풀림", B.hands_on_blocked(fv2, "VENT_GUIDE") is False)
+
 # AED 병행 (v2.2)
 ck("겉옷 뒤 AED 패드 확인 → 정렬", "X_AED_PAD" in seen and seen.index("X_CLOTHES") < seen.index("X_AED_PAD") < seen.index("S3S4"))
 fa = StateMachine(); fa.force("X_AED_PAD")

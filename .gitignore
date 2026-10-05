@@ -8,6 +8,7 @@ venv/
 # 빌드 산출물
 dist/
 dist-single/
+dist-kiosk/
 docs/build/
 # protocol/ 에서 자동 복사됨. 편집 금지 (주석을 같은 줄에 두면 규칙이 무효가 된다)
 ui/src/generated/

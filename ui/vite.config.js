@@ -12,7 +12,7 @@ export default defineConfig({
   },
   preview: { host: '0.0.0.0', port: 4173 },
   build: {
-    outDir: process.env.SINGLE ? 'dist-single' : 'dist',
+    outDir: process.env.SINGLE ? (process.env.OUTDIR || 'dist-single') : 'dist',
     assetsDir: 'assets',
     sourcemap: false,
     // SINGLE=1 이면 이미지까지 base64로 인라인 → 단일 HTML 생성 가능
