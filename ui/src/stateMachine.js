@@ -37,7 +37,8 @@ export const NODES = Object.freeze(
         name: n.name || id,
         alarm: n.alarm || LV.NORMAL,
         running: !!n.running,
-        auto: n.auto || null,
+        // 자동 전이는 오프라인 시연 전용(offline_auto, v2.4). 실기에서는 브리지가 상태를 정한다
+        auto: n.offline_auto || n.auto || null,
         on: n.on || {},
         errorReturn: n.error_return || null,
         enterCmds: n.enter_cmds || [],
@@ -82,10 +83,12 @@ export function transition(ctx, event, payload = {}) {
   const next = { ...ctx, node: toId }
 
   if (toId === 'S10') {
-    next.errorReturn = cur.errorReturn || 'S2'
+    // 이벤트별 복귀 노드(v2.4, Jetson 과 같은 규칙): 초기화 오류는 어디서 났든 S1 에서 다시 점검
+    next.errorReturn = (spec.error_return_by_event || {})[event] || cur.errorReturn || 'S2'
     next.errorCause =
       event === EV.POSITION_ERROR ? 'position' :
       event === EV.VACUUM_ERROR ? 'vacuum' :
+      event === EV.INIT_ERROR ? 'init' :
       payload.cause || 'tubing'
   } else {
     next.errorCause = null

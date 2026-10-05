@@ -343,7 +343,7 @@ class TeensyLink(object):
                 self._write(msg)
             else:
                 self.comm_fault = True
-                self.on_error({"code": "2-CM-002", "sev": 2,
+                self.on_error({"code": "2-CM-002", "sev": 2, "seq": msg.get("seq"),
                                "why": "ACK_TIMEOUT:" + str(msg.get("cmd"))})
 
     def _in_order(self, kind, msg):

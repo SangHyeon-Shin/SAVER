@@ -39,30 +39,12 @@ export function ScreenLink({ lost }) {
   )
 }
 
-/* ================= 02 · 점검 완료 (X_WHEELS) =================
-   바퀴는 평소 내려가 있고, 안전핀을 뽑으면 올라간다(10/5 팀장 확인). 바퀴를 내리는 단계는 없다.
-   노드 X_WHEELS 삭제는 protocol/ 합의 대기(DECISIONS D-42). 그때까지 점검 완료만 잠깐 보여 준다 */
-export function Screen02() {
-  return (
-    <Light>
-      <Header title="점검 완료" right="2 / 8" />
-      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 26 }}>
-        <div style={{ width: 600, height: 320, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <img src={IMG.device} alt="SAVER 장치" style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain', display: 'block' }} />
-        </div>
-        <div style={{ fontSize: 40, fontWeight: 800 }}>점검을 마쳤습니다</div>
-        <Dot color={C.success} label="곧 다음 화면으로 넘어갑니다" />
-      </div>
-    </Light>
-  )
-}
-
 /* ================= 03 · 환자에게 이동 =================
    사이렌은 이 화면에서 울리지 않는다(구조자가 장치 옆에서 119와 통화 중이다). 사이렌은 KSME 결선에 달지 않는다 */
 export function Screen03({ fire }) {
   return (
     <Light>
-      <Header title="환자에게 이동" right="3 / 8" />
+      <Header title="환자에게 이동" right="2 / 7" />
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 26 }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 18, width: '100%' }}>
           <div style={{ width: 420, height: 300, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
@@ -136,7 +118,7 @@ export function Screen04({ fire }) {
   ][i]
   return (
     <Light band={C.success}>
-      <Header title="시작 대기" right="4 / 8" />
+      <Header title="시작 대기" right="3 / 7" />
       <div style={{ flex: 1, position: 'relative' }}>
         {body}
         {i > 0 && <Btn variant="ghost" w={160} fs={23} onPress={() => go(i - 1)}
@@ -166,7 +148,7 @@ export function Screen05({ fire }) {
   )
   return (
     <Light>
-      <Header title="겉옷 정리 단계" right="5 / 8" />
+      <Header title="겉옷 정리 단계" right="4 / 7" />
       <div style={{ flex: 1, padding: '16px 28px 18px', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
         <div style={{ fontSize: 26, fontWeight: 700, textAlign: 'center', marginBottom: 12, flexShrink: 0 }}>
           가슴 압박을 할 수 있도록 겉옷을 벗겨 주세요
@@ -196,7 +178,7 @@ export function Screen06({ fire, demo }) {
   const lines = i === 1
   return (
     <Light band={err ? C.caution : null} bandH={12}>
-      <Header title="몸 위치 맞추기" right={err ? '주의' : '6 / 8'} rightColor={err ? '#9a7000' : null} />
+      <Header title="몸 위치 맞추기" right={err ? '주의' : '5 / 7'} rightColor={err ? '#9a7000' : null} />
       <div style={{ flex: 1, position: 'relative', display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '22px 28px' }}>
         <div style={{ position: 'relative', width: 500, height: 250, border: '1px solid #c4cbd4', borderRadius: 10, overflow: 'hidden', background: '#0e1116' }}>
           <img src={IMG.patient_topdown} alt="환자 상체 (위에서 본 모습)" style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'center', display: 'block' }} />
@@ -231,7 +213,7 @@ export function Screen06({ fire, demo }) {
 export function Screen07({ fire }) {
   return (
     <Light>
-      <Header title="손가락 센서 끼우기" right="7 / 8" />
+      <Header title="손가락 센서 끼우기" right="6 / 7" />
       <div style={{ flex: 1, position: 'relative', display: 'flex', alignItems: 'center', gap: 30, padding: '0 40px' }}>
         <div style={{ width: 360, height: 300, background: '#fff', border: `1px solid ${C.lightLine}`, borderRadius: 10, overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
           <img src={IMG.ppg_sensor} alt="손가락 센서" style={{ width: '100%', height: '100%', objectFit: 'contain', display: 'block' }} />

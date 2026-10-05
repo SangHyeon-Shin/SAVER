@@ -78,19 +78,21 @@ const VENT_STEPS = [
 
 const LAST = VENT_STEPS.length - 1
 
-/* v2.3: 진입 때 PAUSE_CPR 를 보낸다. 장치가 멈춤(CPR_PAUSED)을 보고하기 전에는 안내를 시작하지 않고 기다린다 */
+/* v2.3: 진입 때 PAUSE_CPR 를 보낸다. 장치가 멈춤(CPR_PAUSED)을 보고하기 전에는 안내를 시작하지 않고 기다린다.
+   v2.4: [정지](STOP → S11)는 멈춤 보고 전에도 언제든 누를 수 있다(한건민 합의 10/5) */
 export function Screen19({ fire, paused = true }) {
-  if (!paused) return <VentWait />
+  if (!paused) return <VentWait fire={fire} />
   return <VentGuide fire={fire} />
 }
 
-function VentWait() {
+function VentWait({ fire }) {
   return (
     <Dark band={C.caution} bandH={12}>
       <Header dark h={70} titleSize={25} title="인공호흡 안내" titleEn="Rescue Breathing" right="기다림" rightColor={C.caution} />
       <div data-pause-state="pausing" style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 14 }}>
         <div style={{ fontSize: 30, fontWeight: 700, color: '#c5ccd6' }}>압박을 멈추는 중입니다</div>
         <div style={{ fontSize: 46, fontWeight: 800 }}>잠시 기다리세요</div>
+        <Btn variant="ghostDark" w={180} h={58} fs={22} fw={600} onPress={() => fire(EV.STOP)}>정지</Btn>
       </div>
     </Dark>
   )
@@ -133,9 +135,12 @@ function VentGuide({ fire }) {
             너무 빠르거나 세게 불어넣으면 경고가 나옵니다
           </div>
         </div>
-        {i === LAST
-          ? <Btn w={200} h={64} fs={24} fw={700} onPress={() => fire(EV.VENT_DONE)}>압박 재개</Btn>
-          : <Btn variant="ghostDark" w={150} h={60} fs={20} fw={600} onPress={() => setI(LAST)}>건너뛰기</Btn>}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          {i === LAST
+            ? <Btn w={200} h={64} fs={24} fw={700} onPress={() => fire(EV.VENT_DONE)}>압박 재개</Btn>
+            : <Btn variant="ghostDark" w={200} h={60} fs={20} fw={600} onPress={() => setI(LAST)}>건너뛰기</Btn>}
+          <Btn variant="ghostDark" w={200} h={52} fs={20} fw={600} onPress={() => fire(EV.STOP)}>정지</Btn>
+        </div>
       </div>
       <div style={{ height: 120, borderTop: '1px solid rgba(255,255,255,.1)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 26px', flexShrink: 0 }}>
         {VENT_STEPS.map((v, k) => {

@@ -114,10 +114,13 @@ class StateMachine(object):
         prev = self.node
 
         if target == "S10":
-            self.error_return = self.cur.get("error_return", "S2")
+            # 이벤트별 복귀 노드(v2.4): 초기화 오류는 어느 노드에서 났든 S1 에서 다시 점검한다
+            self.error_return = (self.spec.get("error_return_by_event", {}).get(event)
+                                 or self.cur.get("error_return", "S2"))
             self.error_cause = (
                 "position" if event == "POSITION_ERROR" else
                 "vacuum" if event == "VACUUM_ERROR" else
+                "init" if event == "INIT_ERROR" else
                 payload.get("cause", "tubing"))
         else:
             self.error_cause = None
@@ -178,8 +181,13 @@ class StateMachine(object):
                 return rule["to"]
         return None
 
+    def procedure(self):
+        """현재 노드의 절차 이름(v2.4). 예: S1 의 "init". 없으면 None."""
+        return self.cur.get("procedure")
+
     def auto_due(self):
-        """자동 전이 시각이 됐으면 이벤트 이름을 돌려준다 (S1 부팅 등)."""
+        """자동 전이 시각이 됐으면 이벤트 이름을 돌려준다.
+        v2.4 부터 이 기능을 쓰는 노드는 없다. offline_auto(오프라인 시연 전용)는 읽지 않는다."""
         a = self.cur.get("auto")
         if not a:
             return None

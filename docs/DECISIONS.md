@@ -499,6 +499,40 @@ Wire1의 기본 16/17과 엔코더 중복을 해소한다. 11/12를 엔코더에
 
 **수준**: 상태머신 v2.3, 브리지 검사, UI 대기 화면 `implemented`(jetson 209/209, ui smoke 110/110, teensy 26/26). 실기에서 PAUSE_CPR이 압박 모터를 멈추는지는 미확인(Teensy 구현 전).
 
+### D-46 · 상태머신 v2.4: 바퀴 화면 삭제, 부팅 점검은 장치 응답을 보며 차례로, 인공호흡 안내에도 정지 (2026-10-05)
+
+한건민 회신(10/5)으로 D-42, D-44의 남은 두 건과 X_VENT 정지에 합의했다.
+
+| 번호 | 합의 | 반영 |
+|---|---|---|
+| 4 | X_WHEELS 삭제와 이름 정리 (동의). 상태 ID와 Teensy 명령에 영향 없다는 조건 | `X_WHEELS`, `WHEELS_DONE` 삭제. S1 `INIT_DONE` → `X_MOVE`. 표시 이름만 `X_MOVE` "환자에게 이동", `X_PIN` "안전핀 해제". 안전핀 화면의 `requires_mcu: HOMED`와 안내 단계는 그대로. 화면 02와 음성 V02 삭제, 앞 단계 표시는 "n / 7". `teensy/reference/README.md`의 화면 02 설명은 한건민이 v2.4 병합 뒤 정리 |
+| 5 | S1 결과 기반 전이 (조건부 동의). **HOME ACK 전에는 넘어가지 않는다** | S1의 3 s 타이머와 일괄 진입 명령을 없애고 `procedure: "init"`. 브리지 `init_seq.py`가 PING ACK → GET_STATUS(텔레메트리의 `estop` 거짓, `faults` 비어 있음) → 장치 상태별 처리 → HOME ACK ok → `INIT_DONE`. 원점 완료(`HOMING_DONE` 또는 상태 `HOMED`)는 뒤에서 기다린다 |
+| 추가 | X_VENT STOP → S11 (동의) | X_VENT `on`에 `STOP: S11`. 장치가 멈췄다고 알리기 전에도 [정지]를 누를 수 있다(UI 대기 화면과 안내 화면 모두). 링크는 앞 명령의 ACK를 기다리지 않고 보내므로 `STOP_CPR`가 `PAUSE_CPR` 응답 때문에 늦지 않는다. S11에는 압박 재개 경로가 없어 `STOP_CPR` ACK가 없어도 재개로 돌아가지 않는다 |
+
+**S1 장치 상태표 (한건민 제안 그대로)**
+
+| GET_STATUS 결과 | S1 처리 |
+|---|---|
+| `IDLE` | ARM 수락 확인 → HOME |
+| `ARMED` | ARM 생략 → HOME (다시 ARM 하면 NOT_IDLE) |
+| `HOMED` | ARM, HOME 생략. 원점 완료로 인정 |
+| `FAULT`, `ESTOP`, 또는 `estop` 참, `faults` 있음 | `INIT_ERROR` → S10 |
+| `VACUUM_HOLD`, `CPR_READY`, `CPR_RUNNING`, `CPR_PAUSED` | 자동 DISARM 하지 않고 `INIT_ERROR`(UNEXPECTED_MCU_STATE) |
+
+- ARM이나 HOME이 거부되거나(ACK ok=false) 응답이 없으면(2-CM-002) 그 자리에서 `INIT_ERROR`. 이 명령들의 오류는 브리지의 일반 규칙(경고 → ERROR, 위험 → STOP)으로 처리하지 않는다. 그래서 Jetson의 ACK 무응답 오류에 `seq`를 붙였다.
+- GET_STATUS 뒤 텔레메트리가 0.5 s(오래된 값 기준 `STALE_S`) 안에 오지 않으면 `INIT_ERROR`(NO_STATUS).
+- `INIT_DONE` 전에 링크가 끊기면 다시 연결된 뒤 PING부터 다시 한다. 펌웨어 판(GET_INFO) 확인 전에는 보내지 않는다.
+- 원점 대기 중 장치가 `FAULT`·`ESTOP`이나 `ARMED`·`HOMED`가 아닌 상태(재부팅 뒤 `IDLE` 등)가 되거나, `HOMING_DONE` 결과가 OK가 아니면 `INIT_ERROR`. 탐색 전 노드(X_MOVE, S2, X_CLOTHES, X_AED_PAD, S3S4, X_PPG)에서 `INIT_ERROR` → S10을 받는다. 새 필드 `error_return_by_event: {INIT_ERROR: S1}`로 어느 노드에서 났든 [재확인] 뒤 S1에서 처음부터 다시 점검한다. 다른 오류의 복귀 노드는 그대로다.
+- 원점 시간 제한은 Jetson 설정 `home_timeout_s`(기본 비어 있음, 10/12 실측 뒤). 비어 있으면 시간은 검사하지 않고, 탐색과 흡착 진입은 X_SEARCH, X_PIN의 `requires_mcu: HOMED`가 막는다. 임의 값을 넣지 않는다.
+- 브리지 없는 오프라인 시연과 체험판은 `offline_auto`(3 s)로 넘어간다. Jetson은 이 필드를 읽지 않는다.
+- S10 원인 `init`: "장치 점검을 마치지 못했습니다 / 재확인을 누르면 처음 점검부터 다시 합니다", "비상정지 버튼을 확인하세요".
+
+**Teensy 현황 (한건민 답변, 10/5)**: ARM 거부 사유는 ACK에 실린다(비상정지 3-MU-002 ESTOP_ACTIVE, 상태 불일치 2-CU-011 NOT_IDLE). 전압, 드라이버, 리미트를 포함한 ARM 인터록 전체는 아직 없다. HOME 실패 이벤트는 없고, 메인 코드는 HOME ACK 직후 HOMED와 HOMING_DONE을 보내는 골격이다(실제 원점 이동, 리미트, 시간 초과 판정은 구현 예정). RESUME_CPR은 CPR_PAUSED만 검사하고 음압, 압박점, 센서 유효성은 다시 보지 않는다. PAUSE_CPR은 정지 출력 → CPR_PAUSED → ACK, STOP_CPR은 정지 출력 → HOMED(현재 구현) → ACK 순서다. 다음 텔레메트리는 20 Hz 기준 보통 0~50 ms와 전송 지연 뒤에 온다. 압박 모터 VESC 정지와 기계 정착 확인이 아직 없으므로 **ACK는 물리적 정지 완료를 뜻하지 않는다**(D-45의 `pause_stop_verified` 유지).
+
+**확인한 빈틈 (제안, 합의 전)**: S13에서 장치를 DISARM 한 뒤 [대기로](BACK_TO_IDLE)는 S2로 간다. 이때 장치는 `IDLE`이라 다음 사용에서 압박 위치 찾기(X_SEARCH, `requires_mcu: HOMED`)가 막힌다. BACK_TO_IDLE의 목적지를 S1로 바꿔 초기화 절차를 다시 거치게 하자고 한건민에게 제안한다(`protocol/` 변경).
+
+**수준**: 상태머신 v2.4, 브리지 초기화 절차, UI `implemented`(jetson 239/239, ui smoke 115/115, teensy 26/26). 모의 Teensy(v1.0)와 가상 포트로 부팅 → X_MOVE, 비상정지 상태 재점검 → S10, 해제 뒤 재확인 → X_MOVE를 확인(`simulated`). 실기 Teensy의 HOME은 골격이라 원점 실패 경로는 실기에서 아직 시험할 수 없다.
+
 ## 보고서·논문
 
 ### D-30 · ILCOR 인용은 이렇게 구분한다
@@ -561,8 +595,11 @@ SAVER 는 ILCOR 이 인정하는 **"특정 상황(specific circumstances)" 예�
 | 장치 역할(손 압박 뒤 이어받기)과 시나리오 순서, S9 회복 의심 안내와 재개 규칙, 인공호흡 안내 유지 여부, 위치 이탈 복구 절차 (D-41) — 10/13 | 한성윤 |
 | ~~상태머신: `X_VENT` 압박 정지, 부팅 오류 복귀~~ → v2.3 반영(D-45, 10/5 합의). 재개 전 손 떼기 확인은 X_VENT 6단계 버튼으로 유지 | 완료 |
 | Teensy `motorsOff()`에 압박 드라이버 정지 명령 추가, PAUSE_CPR·STOP_CPR로 압박 모터가 멈추는지 실기 확인 뒤 `pause_stop_verified` 켜기 (D-45) — 압박 구동 통합 전, 늦어도 10/14 G1 | 한건민 |
-| 상태머신: `X_WHEELS`(바퀴 내리기) 노드 삭제와 `X_PIN`, `X_MOVE` 이름 정리 (D-42) | 신상현 + 한건민 |
-| 상태머신: S1 조건 전이(PING, GET_STATUS, ARM)와 점검 실패 시 오류 화면, 시간 제한 값은 10/12 실측 뒤 (D-44) | 신상현 + 한건민 |
+| ~~상태머신: `X_WHEELS`(바퀴 내리기) 노드 삭제와 `X_PIN`, `X_MOVE` 이름 정리 (D-42)~~ → v2.4 반영(D-46, 10/5 합의). Teensy README 화면 02 설명은 한건민 | 완료 |
+| ~~상태머신: S1 조건 전이와 점검 실패 시 오류 화면 (D-44)~~ → v2.4 초기화 절차(D-46). 원점 시간 제한 `home_timeout_s`만 10/12 실측 뒤 | 한건민 |
+| Teensy: HOME 실제 원점 이동, 리미트·시간 초과 판정, `HOMING_DONE` 실패 결과 보고 (D-46) | 한건민 |
+| Teensy: ARM 인터록 전체(전압, 드라이버, 리미트), RESUME_CPR 재검사(음압, 압박점, 센서 유효성) (D-46) | 한건민 |
+| 상태머신: 종료 뒤 [대기로](BACK_TO_IDLE) 목적지를 S2에서 S1로(DISARM 뒤 다음 사용에서 탐색이 막힘) 제안 (D-46) | 신상현 + 한건민 |
 | 인공호흡: 10분 기준 문헌 근거, 안내 대상(훈련받은 구조자 한정), X_VENT 유지와 30:2 동기화(CO-Show 이후) (D-44) — 10/8 | 한성윤 |
 | Jetson 전원 투입부터 화면 표시까지 시간 실측 (D-44) — 10/12 | 신상현 + 한건민 |
 | AED 패드 부착 시점: 장치 프레임·흡착부와 패드 간섭 (D-35) | 서정준 + 신상현 |

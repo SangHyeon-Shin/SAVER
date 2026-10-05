@@ -33,7 +33,7 @@ ck("명령 분류: 조회 4, 정지 4", len(P.QUERY_CMDS) == 4 and len(P.STOP_CM
 print("\n== 2. 상태머신 ==")
 fired = []
 fsm = StateMachine(on_command=lambda c: fired.append(c))
-path = ["INIT_DONE","WHEELS_DONE","MOVE_DONE","START_PRESSED","CLOTHES_OK","AED_PADS_ON",
+path = ["INIT_DONE","MOVE_DONE","START_PRESSED","CLOTHES_OK","AED_PADS_ON",
         "POSITION_OK","PPG_ATTACHED","SEARCH_DONE","PIN_RELEASED","VACUUM_OK","CPR_START"]
 ok = all(fsm.fire(e) for e in path)
 ck("정상 흐름 S1→S7", ok and fsm.node == "S7", fsm.node)
@@ -93,9 +93,41 @@ ck("v2.3: 위치 이탈은 정지만(REALIGN_DONE 없음)", fo.allowed() == ["ST
 s1_cmds = []
 fs1 = StateMachine(on_command=lambda c: s1_cmds.append(c)); fs1.force("S1")
 del s1_cmds[:]
-ck("v2.3: S1 오류 확인 뒤 S1 로 돌아가 초기 점검을 다시 함",
+ck("v2.3·v2.4: S1 오류 확인 뒤 S1 로 돌아감(명령은 진입 명령이 아니라 초기화 절차가 보냄)",
    fs1.fire("INIT_ERROR") and fs1.node == "S10" and fs1.fire("RECHECK") and fs1.node == "S1"
-   and s1_cmds == ["PING", "GET_STATUS", "ARM", "HOME"], str(s1_cmds))
+   and s1_cmds == [] and fs1.procedure() == "init", str(s1_cmds))
+
+# v2.4 (한건민 합의 10/5): X_WHEELS 삭제, S1 결과 기반 전이, X_VENT 정지
+fw = StateMachine()
+ck("v2.4: X_WHEELS·WHEELS_DONE 삭제, S1 INIT_DONE → X_MOVE",
+   "X_WHEELS" not in fw.nodes and "WHEELS_DONE" not in fw.events and fw.cur["on"]["INIT_DONE"] == "X_MOVE")
+ck("v2.4: 표시 이름만 정리(X_MOVE, X_PIN), 안전핀 화면의 장치 조건은 그대로",
+   fw.nodes["X_MOVE"]["name"] == "환자에게 이동" and fw.nodes["X_PIN"]["name"] == "안전핀 해제"
+   and fw.nodes["X_PIN"].get("requires_mcu") == ["HOMED"] and fw.nodes["X_SEARCH"].get("requires_mcu") == ["HOMED"])
+ck("v2.4: S1 은 타이머 없이 초기화 절차로(Jetson 자동 전이 없음, offline_auto 는 오프라인 시연 전용)",
+   fw.cur.get("auto") is None and fw.auto_due() is None and fw.procedure() == "init"
+   and fw.cur.get("offline_auto", {}).get("event") == "INIT_DONE" and not fw.cur.get("enter_cmds"))
+bad_ie = []
+for nd in ("X_MOVE", "S2", "X_CLOTHES", "X_AED_PAD", "S3S4", "X_PPG"):
+    fi = StateMachine(); fi.force(nd)
+    if not (fi.fire("INIT_ERROR") and fi.node == "S10" and fi.error_cause == "init" and fi.error_return == "S1"
+            and fi.fire("RECHECK") and fi.node == "S1"):
+        bad_ie.append(nd)
+ck("v2.4: 원점 완료 전 오류는 탐색 전 노드 어디서나 INIT_ERROR → S10 → RECHECK → S1", not bad_ie, str(bad_ie))
+ck("v2.4: 탐색부터는 INIT_ERROR 를 받지 않음(그 전에 HOMED 확인)",
+   all("INIT_ERROR" not in fw.nodes[n]["on"] for n in ("X_SEARCH", "X_PIN", "S5", "S6", "S7")))
+fp = StateMachine(); fp.force("S3S4"); fp.fire("POSITION_ERROR")
+ck("v2.4: 다른 오류의 복귀 노드는 그대로(정렬 오류 → S3S4)", fp.error_return == "S3S4" and fp.error_cause == "position")
+sent_x, mcu_x = [], {"s": "CPR_RUNNING"}
+fx = StateMachine(mcu_state=lambda: mcu_x["s"], on_command=sent_x.append); fx.force("S7")
+ck("v2.4: 인공호흡 안내에서 장치가 멈췄다고 알리기 전에도 [정지] → S11, STOP_CPR",
+   fx.fire("VENT_GUIDE") and fx.node == "X_VENT" and fx.fire("STOP") and fx.node == "S11"
+   and sent_x == ["PAUSE_CPR", "STOP_CPR"], str(sent_x))
+fxv = StateMachine(); fxv.force("X_VENT")
+ck("v2.4: 인공호흡 안내의 정지는 브리지 차단 대상이 아님(확인값과 관계없이)",
+   B.hands_on_block_reason(fxv, "STOP", {"pause_stop_verified": False}) is None)
+ck("v2.4: 안전정지에서 압박 재개 경로 없음", "S7" not in fw.nodes["S11"]["on"].values()
+   and sorted(fw.nodes["S11"]["on"]) == ["END", "MANUAL_RELEASE"])
 
 # AED 병행 (v2.2)
 ck("겉옷 뒤 AED 패드 확인 → 정렬", "X_AED_PAD" in seen and seen.index("X_CLOTHES") < seen.index("X_AED_PAD") < seen.index("S3S4"))
@@ -799,6 +831,164 @@ ck("가상 포트: EAPD 180 → D = 78.45", abs(s5["D_mm"] - 78.45) < 0.01, str(
 ck("가상 포트: 오류 없음", not r5, str(r5[:2]))
 l5.stop(); sim5.terminate(); sim5.wait()
 try: os.remove("/tmp/ttyFAKE_SRCH")
+except OSError: pass
+
+print("\n== 10. S1 초기화 절차 (v2.4, init_seq.py) ==")
+from saver.init_seq import InitRunner
+
+
+class _FL(object):
+    """명령을 기록만 하는 링크. ACK·텔레메트리는 시험이 직접 넣는다."""
+    def __init__(self):
+        self.connected, self.proto, self.sent, self.n = True, "1.1", [], 100
+    def send(self, cmd, **kw):
+        self.n += 1
+        self.sent.append((cmd, self.n))
+        return self.n
+
+
+def irig(cfg=None, ready=True):
+    lk, evs, clk = _FL(), [], {"t": 0.0}
+    if not ready:
+        lk.proto = None
+    rn = InitRunner(lk, fire=lambda e, p=None: (evs.append((e, p)), True)[1], cfg=cfg or {}, clock=lambda: clk["t"])
+    return lk, rn, evs, clk
+
+
+def cmds(lk):
+    return [c for c, _ in lk.sent]
+
+
+def iack(rn, lk, ok=True, why=None):
+    rn.on_ack({"t": "ack", "seq": lk.sent[-1][1], "ok": ok, "err": "" if ok else "2-CU-011", "why": why or ""})
+
+
+def itel(rn, state, estop=False, faults=None):
+    rn.on_tel({"t": "tel", "state": state, "estop": estop, "faults": faults or []})
+
+
+def until_status(rn, lk):
+    rn.start(); iack(rn, lk); iack(rn, lk)
+
+
+lk, rn, evs, clk = irig()
+rn.start(); a1 = cmds(lk) == ["PING"]
+iack(rn, lk); a2 = cmds(lk) == ["PING", "GET_STATUS"]
+iack(rn, lk); itel(rn, "IDLE"); a3 = cmds(lk)[-1] == "ARM"
+iack(rn, lk); a4 = cmds(lk)[-1] == "HOME" and evs == []
+iack(rn, lk); a5 = evs == [("INIT_DONE", None)] and rn.step == "homing" and not rn.homed
+itel(rn, "ARMED"); a6 = rn.step == "homing"
+rn.on_event({"evt": "HOMING_DONE", "result": "OK"}); a7 = rn.step == "done" and rn.homed
+ck("초기화: IDLE → PING, GET_STATUS, ARM, HOME 차례, HOME ACK 뒤에야 INIT_DONE, 원점 완료는 뒤에서",
+   all([a1, a2, a3, a4, a5, a6, a7]), "%s %s" % (cmds(lk), evs))
+
+lk, rn, evs, clk = irig(); until_status(rn, lk); itel(rn, "ARMED"); iack(rn, lk)
+ck("초기화: ARMED → ARM 생략, HOME 만", cmds(lk) == ["PING", "GET_STATUS", "HOME"] and evs == [("INIT_DONE", None)], str(cmds(lk)))
+lk, rn, evs, clk = irig(); until_status(rn, lk); itel(rn, "HOMED")
+ck("초기화: HOMED → ARM·HOME 생략, 원점 완료로 인정", cmds(lk) == ["PING", "GET_STATUS"] and evs == [("INIT_DONE", None)]
+   and rn.step == "done" and rn.homed, str(cmds(lk)))
+
+def err_case(state, estop=False, faults=None):
+    lk, rn, evs, clk = irig(); until_status(rn, lk); itel(rn, state, estop, faults)
+    return cmds(lk) == ["PING", "GET_STATUS"] and len(evs) == 1 and evs[0][0] == "INIT_ERROR" \
+        and evs[0][1]["cause"] == "init", (rn.reason, cmds(lk))
+r_f, d_f = err_case("FAULT"); r_e, d_e = err_case("ESTOP", estop=True); r_e2, d_e2 = err_case("IDLE", estop=True)
+r_fl, d_fl = err_case("IDLE", faults=["3-CU-021"])
+ck("초기화: FAULT, ESTOP, 비상정지 표시, 활성 고장 → INIT_ERROR, ARM 안 보냄",
+   r_f and r_e and r_e2 and r_fl, str([d_f, d_e, d_e2, d_fl]))
+bad_u = [st for st in ("VACUUM_HOLD", "CPR_READY", "CPR_RUNNING", "CPR_PAUSED") if not err_case(st)[0]]
+lk, rn, evs, clk = irig(); until_status(rn, lk); itel(rn, "CPR_RUNNING")
+ck("초기화: VACUUM_HOLD·CPR_* → UNEXPECTED_MCU_STATE, 자동 DISARM 안 함",
+   not bad_u and "DISARM" not in cmds(lk) and str(rn.reason).startswith("UNEXPECTED_MCU_STATE"), str(bad_u))
+
+lk, rn, evs, clk = irig(); until_status(rn, lk); itel(rn, "IDLE"); iack(rn, lk, ok=False, why="ESTOP_ACTIVE")
+ck("초기화: ARM 거부 → INIT_ERROR, HOME 안 보냄", "HOME" not in cmds(lk) and evs and evs[-1][0] == "INIT_ERROR"
+   and "ESTOP_ACTIVE" in rn.reason, str(rn.reason))
+lk, rn, evs, clk = irig(); until_status(rn, lk); itel(rn, "ARMED"); iack(rn, lk, ok=False, why="NOT_ARMED")
+ck("초기화: HOME 거부 → INIT_ERROR, 화면 진행(INIT_DONE) 없음", [e for e, _ in evs] == ["INIT_ERROR"], str(evs))
+lk, rn, evs, clk = irig(); rn.start(); s_ping = lk.sent[-1][1]
+own = rn.owns(s_ping) and not rn.owns(9999)
+rn.on_error({"code": "2-CM-002", "seq": s_ping, "why": "ACK_TIMEOUT:PING"})
+ck("초기화: 응답 없음(2-CM-002) → INIT_ERROR, 절차가 보낸 명령을 알아봄", own and [e for e, _ in evs] == ["INIT_ERROR"], str(rn.reason))
+lk, rn, evs, clk = irig(); rn.start(); iack(rn, lk); rn.on_error({"code": "2-CU-011", "seq": lk.sent[-1][1], "why": "X"})
+ck("초기화: 거부 오류(ok=false)는 ACK 쪽에서만 처리(이중 처리 없음)", evs == [] and rn.step == "status")
+lk, rn, evs, clk = irig(); until_status(rn, lk); clk["t"] += P.STALE_S + 0.1; rn.tick()
+ck("초기화: GET_STATUS 뒤 텔레메트리가 없으면 INIT_ERROR(NO_STATUS)", rn.reason == "NO_STATUS" and evs[-1][0] == "INIT_ERROR")
+
+def homing_rig(cfg=None):
+    lk, rn, evs, clk = irig(cfg); until_status(rn, lk); itel(rn, "ARMED"); iack(rn, lk)
+    return lk, rn, evs, clk
+lk, rn, evs, clk = homing_rig(); itel(rn, "FAULT")
+ck("원점 대기: FAULT → INIT_ERROR", [e for e, _ in evs] == ["INIT_DONE", "INIT_ERROR"] and rn.reason == "HOMING_LOST:FAULT", str(rn.reason))
+lk, rn, evs, clk = homing_rig(); rn.on_event({"evt": "HOMING_DONE", "result": "TIMEOUT"})
+ck("원점 대기: HOMING_DONE 결과가 OK 아님 → INIT_ERROR", evs[-1][0] == "INIT_ERROR" and rn.reason == "HOMING_TIMEOUT")
+lk, rn, evs, clk = homing_rig(); itel(rn, "IDLE")
+ck("원점 대기: 장치가 IDLE(재부팅 등) → INIT_ERROR", evs[-1][0] == "INIT_ERROR" and rn.reason == "HOMING_LOST:IDLE")
+lk, rn, evs, clk = homing_rig(); clk["t"] += 10000; rn.tick()
+ok_nt = rn.step == "homing" and evs[-1][0] == "INIT_DONE"
+lk, rn, evs, clk = homing_rig({"home_timeout_s": 5}); clk["t"] += 4; rn.tick(); ok_t1 = rn.step == "homing"
+clk["t"] += 2; rn.tick()
+ck("원점 대기: 시간 제한은 설정이 있을 때만(비어 있으면 검사 안 함, 10/12 실측 뒤)",
+   ok_nt and ok_t1 and rn.reason == "HOME_TIMEOUT" and evs[-1][0] == "INIT_ERROR")
+lk, rn, evs, clk = irig(); rn.start(); iack(rn, lk); lk.connected = False; rn.on_link(False)
+w = rn.step == "wait_link"; lk.connected = True; rn.on_link(True)
+ck("초기화: INIT_DONE 전 링크 끊김 → 다시 연결되면 PING 부터", w and cmds(lk) == ["PING", "GET_STATUS", "PING"], str(cmds(lk)))
+lk, rn, evs, clk = irig(ready=False); rn.start(); n0 = len(lk.sent); lk.proto = "1.0"; rn.tick()
+ck("초기화: 펌웨어 판 확인 전에는 보내지 않고 기다림", n0 == 0 and cmds(lk) == ["PING"])
+
+# 상태머신과 함께: 원점 대기 중 오류는 X_MOVE 에서도 S10, 확인 뒤 S1 처음부터
+fi = StateMachine(); lk, _, _, clk = irig()
+rni = InitRunner(lk, fire=lambda e, p=None: fi.fire(e, p), clock=lambda: clk["t"])
+rni.start(); iack(rni, lk); iack(rni, lk); itel(rni, "ARMED"); iack(rni, lk)
+at_move = fi.node == "X_MOVE"
+itel(rni, "ESTOP", estop=True)
+ck("상태머신 연동: HOME ACK → X_MOVE, 원점 대기 중 비상정지 → S10(원인 init) → RECHECK → S1",
+   at_move and fi.node == "S10" and fi.error_cause == "init" and fi.fire("RECHECK") and fi.node == "S1", fi.node)
+
+# 링크: 정지 명령은 앞 명령의 ACK 를 기다리지 않고 바로 나간다
+class _W(object):
+    def __init__(self): self.out = []
+    def write(self, b): self.out.append(P.decode(b)["cmd"])
+lw = TeensyLink(port="/nonexistent"); lw._ser = _W(); lw.proto = "1.0"; lw.connected = True
+lw.send("PAUSE_CPR"); lw.send("STOP_CPR")
+ck("링크: PAUSE_CPR 응답을 기다리지 않고 STOP_CPR 송신", lw._ser.out == ["PAUSE_CPR", "STOP_CPR"], str(lw._ser.out))
+
+# 브리지 + 가상 포트(모의 Teensy v1.0)
+import argparse, tempfile
+sim6 = subprocess.Popen([sys.executable, "-u", os.path.join(SIMDIR, "fake_teensy.py"),
+    "--port", "/tmp/ttyFAKE_INIT", "--hz", "20", "--seed", "6", "--quiet"],
+    stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+time.sleep(1.2)
+br = B.Bridge(argparse.Namespace(serial="/tmp/ttyFAKE_INIT", logdir=tempfile.mkdtemp(), spec=None, port=0))
+sent6 = []
+_orig_send = br.link.send
+def _rec(cmd, **kw):
+    sent6.append(cmd)
+    return _orig_send(cmd, **kw)
+br.link.send = _rec
+br.link.start(); br.fsm.enter_initial()
+
+def wait_for(cond, limit):
+    end = time.monotonic() + limit
+    while time.monotonic() < end and not cond():
+        br.init.tick(); time.sleep(0.05)
+    return cond()
+ok6 = wait_for(lambda: br.fsm.node == "X_MOVE" and br.init.homed, 8.0)
+ck("브리지: 부팅 → 장치 응답으로 S1 → X_MOVE, 원점 완료 확인",
+   ok6 and "ARM" in sent6 and "HOME" in sent6 and sent6.index("ARM") < sent6.index("HOME")
+   and any(l["from"] == "S1" and l["event"] == "INIT_DONE" for l in br.fsm.log), "%s %s" % (br.fsm.node, sent6))
+sim6.stdin.write(b"estop\n"); sim6.stdin.flush(); time.sleep(0.5)
+br.fsm.force("S10"); br.fsm.error_return = "S1"
+del sent6[:]
+br.fsm.fire("RECHECK")
+ok6b = wait_for(lambda: br.fsm.node == "S10", 3.0)
+ck("브리지: 비상정지가 눌린 채 다시 점검 → S10(원인 init), ARM 안 보냄",
+   ok6b and br.fsm.error_cause == "init" and "ARM" not in sent6 and str(br.init.reason) == "ESTOP", "%s %s" % (br.init.reason, sent6))
+sim6.stdin.write(b"ok\n"); sim6.stdin.flush(); time.sleep(0.4)
+br.fsm.fire("RECHECK")
+ck("브리지: 비상정지 해제 뒤 재확인 → 다시 X_MOVE", wait_for(lambda: br.fsm.node == "X_MOVE", 5.0), br.fsm.node)
+br.link.stop(); sim6.terminate(); sim6.wait()
+try: os.remove("/tmp/ttyFAKE_INIT")
 except OSError: pass
 
 print("\n%s  (통과 %d / 실패 %d)\n" % ("전체 통과" if P_["fail"] == 0 else "실패 있음", P_["pass"], P_["fail"]))

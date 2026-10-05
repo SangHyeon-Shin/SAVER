@@ -275,6 +275,28 @@ const check = (name, ok, detail = '') => {
   check('v2.3 위치 이탈: 다시 맞추기 없이 [정지] 하나', po.TT().includes('[정지]를 누르세요') && !po.TT().includes('맞췄습니다')
     && !po.TT().includes('다시 맞춰') && !![...po.dd.querySelectorAll('#root button')].find((b) => b.textContent.trim() === '정지')
     && ![...po.dd.querySelectorAll('#root button')].some((b) => b.textContent.includes('재개')))
+  // v2.4 (한건민 합의 10/5): 인공호흡 안내의 [정지]는 장치가 멈췄다고 알리기 전에도 누를 수 있다
+  const vs = await pw('?start=X_VENT&paused=0', ['잠시 기다리세요'])
+  const vsb = [...vs.dd.querySelectorAll('#root button')].find((b) => b.textContent.trim() === '정지')
+  check('v2.4 인공호흡: 멈춤 확인 전에도 [정지]를 누를 수 있음', !!vsb && !vsb.disabled)
+  tap(vsb)
+  check('v2.4 인공호흡: [정지] → 안전 정지 화면', await until(() => vs.TT().includes('안전 정지'), 3000), vs.TT().slice(0, 40))
+  const vg = await pw('?start=X_VENT', ['인공호흡 안내', '건너뛰기'])
+  check('v2.4 인공호흡: 안내 중에도 [정지] 있음',
+    !![...vg.dd.querySelectorAll('#root button')].find((b) => b.textContent.trim() === '정지' && !b.disabled))
+  // v2.4: X_WHEELS 삭제. 오프라인 시연은 S1 → 환자에게 이동(offline_auto), 실기 브리지는 초기화 절차 결과로
+  const s1d = openDom('?start=S1').window.document
+  const S1T = () => (s1d.querySelector('#root')?.textContent || '')
+  const s1seen = []
+  await until(() => { s1seen.push(S1T().includes('점검을 마쳤습니다')); return S1T().includes('환자에게 이동') }, 6000, 100)
+  check('v2.4 부팅: 오프라인 시연은 점검 완료 화면 없이 바로 환자에게 이동(3 s, offline_auto)',
+    S1T().includes('환자에게 이동') && !s1seen.some(Boolean), S1T().slice(0, 40))
+  check('v2.4 상태머신: X_WHEELS 없음, S1 은 초기화 절차(procedure)와 오프라인 전용 자동 전이, 초기화 오류는 S1 로 복귀',
+    !spec.nodes.X_WHEELS && !spec.events.WHEELS_DONE && spec.nodes.S1.procedure === 'init' && !spec.nodes.S1.auto
+    && spec.nodes.S1.offline_auto && spec.nodes.S1.on.INIT_DONE === 'X_MOVE' && spec.error_return_by_event.INIT_ERROR === 'S1'
+    && ['X_MOVE', 'S2', 'X_CLOTHES', 'X_AED_PAD', 'S3S4', 'X_PPG'].every((n) => spec.nodes[n].on.INIT_ERROR === 'S10')
+    && spec.nodes.X_VENT.on.STOP === 'S11'
+    && /error_return_by_event/.test(readFileSync('src/stateMachine.js', 'utf8')) && /offline_auto/.test(readFileSync('src/stateMachine.js', 'utf8')))
   // 실기 키오스크 빌드(D-44): 브리지에 연결되기 전에는 화면이 스스로 넘어가지 않는다
   const KFILE = 'dist-kiosk/SAVER_UI.html'
   if (!existsSync(KFILE)) check('키오스크: 시험본 있음 (npm run build:single 이 함께 만든다)', false, KFILE)
@@ -301,12 +323,12 @@ const check = (name, ok, detail = '') => {
     && VP.prompts.every((p) => !VB.some((w) => p.say.includes(w))),
     VP.prompts.filter((p) => VB.some((w) => p.say.includes(w))).map((p) => p.id).join(','))
   check('음성 문구: 헤드셋 착용 전 화면은 무음, 첫 음성은 착용 뒤 119 안내 (D-43)',
-    ['S1', 'X_WHEELS', 'X_MOVE'].every((n) => VP.prompts.filter((p) => p.node === n).every((p) => p.silent))
+    ['S1', 'X_MOVE'].every((n) => VP.prompts.filter((p) => p.node === n).every((p) => p.silent))
     && VP.prompts.filter((p) => p.node === 'S2' && p.when === 'enter').every((p) => p.silent)
     && VP.prompts.some((p) => p.node === 'S2' && p.when === 'step:2' && p.say.includes('일일구') && !p.silent)
     && !VP.prompts.some((p) => p.say.includes('단단한 바닥')))
   check('음성 문구: 바퀴를 내리거나 올리라는 문구 없음 (바퀴는 안전핀으로 저절로, 10/5)',
-    VP.prompts.filter((p) => !p.hold).every((p) => !/바퀴를 (내리|올려)/.test(p.say)) && VP.prompts.find((p) => p.id === 'V02').hold === true)
+    VP.prompts.every((p) => !/바퀴를 (내리|올려)/.test(p.say)) && !VP.prompts.some((p) => p.id === 'V02' || p.node === 'X_WHEELS'))
   check('음성 문구: 시험 묶음이 목록에 있고 세 등급을 모두 포함', VP.pilot.every((i) => vids.includes(i))
     && ['안내', '주의', '경고'].every((lv) => VP.pilot.some((i) => VP.prompts.find((p) => p.id === i).level === lv)))
   // 보이스 태그: 등급 태그는 비었거나 [..] 하나, calm 은 등급 태그에 넣지 않고 calm 목록(극도의 침착함)에만
@@ -342,12 +364,11 @@ const check = (name, ok, detail = '') => {
   // 음성 재생 규칙과 재생기 (voice/plan.js, voice/player.js)
   const VPl = await import('../src/voice/plan.js')
   const VPP = VP.prompts
-  check('재생 규칙: 헤드셋 착용 전(부팅, 이동, 시작 대기 진입)은 무음, 착용 뒤 2단계에서 119 안내', ['S1', 'X_WHEELS', 'X_MOVE', 'S2'].every((n) => VPl.planEnter(VPP, n).length === 0)
+  check('재생 규칙: 헤드셋 착용 전(부팅, 이동, 시작 대기 진입)은 무음, 착용 뒤 2단계에서 119 안내', ['S1', 'X_MOVE', 'S2'].every((n) => VPl.planEnter(VPP, n).length === 0)
     && VPl.planEvent(VPP, 'S2', 'step:2').join() === 'V36', VPl.planEnter(VPP, 'S2').join())
   check('재생 규칙: 단계 화면 (몸 위치, 안전핀, 수동 해제)', VPl.planEnter(VPP, 'S3S4').join() === 'V08' && VPl.planEvent(VPP, 'S3S4', 'step:2').join() === 'V07'
     && VPl.planEnter(VPP, 'X_PIN').join() === 'V14' && VPl.planEvent(VPP, 'X_PIN', 'step:2').join() === 'V41'
-    && VPl.planEnter(VPP, 'S12').join() === 'V27' && VPl.planEvent(VPP, 'S12', 'step:2').join() === 'V42'
-    && VPl.planEnter(VPP, 'X_WHEELS').length === 0)
+    && VPl.planEnter(VPP, 'S12').join() === 'V27' && VPl.planEvent(VPP, 'S12', 'step:2').join() === 'V42')
   check('재생 규칙: 의학 검토 전 보류 문구(V19)는 재생 계획에 없음', VP.prompts.find((p) => p.id === 'V19').hold === true && !VPl.planEnter(VPP, 'S9').includes('V19'))
   check('재생 규칙: S10 은 진입 문구 뒤 원인 문구, 위치 오류는 V09',
     VPl.planEnter(VPP, 'S10', { cause: 'vacuum' }).join() === 'V20,V22' && VPl.planEnter(VPP, 'S3S4', { positionError: true }).join() === 'V09'

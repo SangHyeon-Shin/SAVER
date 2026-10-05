@@ -17,7 +17,7 @@ import * as DE from './screens/SectionDE'
 
 /* 노드 → 화면 컴포넌트 */
 const SCREEN = {
-  S1: A.Screen01, X_WHEELS: A.Screen02, X_MOVE: A.Screen03, S2: A.Screen04,
+  S1: A.Screen01, X_MOVE: A.Screen03, S2: A.Screen04,
   X_CLOTHES: A.Screen05, S3S4: A.Screen06, X_PPG: A.Screen07, S5: A.Screen08,
   X_SEARCH: Screen09, X_PIN: A.Screen20, S6: A.Screen10,
   S7: B.Screen11, S8: B.Screen12,
@@ -188,8 +188,8 @@ export default function App() {
 
   const vitals = useVitals(!!node.running, bridge.telemetry, bridge.stale)
 
-  /* ---------- 자동 전이 (부팅 · 점검 완료) ----------
-     연결 시에는 브리지의 ticker 가 처리하므로 UI 는 관여하지 않는다.
+  /* ---------- 자동 전이 (오프라인 시연 전용, offline_auto) ----------
+     브리지에 연결되면 S1 은 브리지의 초기화 절차(장치 응답)로 넘어가므로 UI 는 관여하지 않는다(v2.4).
      양쪽이 동시에 쏘면 같은 전이가 두 번 기록된다. */
   useEffect(() => {
     if (!node.auto || bridge.connected || KIOSK) return

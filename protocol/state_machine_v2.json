@@ -12,9 +12,12 @@
     "v2.2: S7 requires_mcu 에 CPR_PAUSED, CPR_RUNNING 추가. 일시정지(S8, S9, X_POSOUT, X_AED)나 오류 확인(S10)에서 S7로 돌아올 때 장치는 CPR_READY 가 아니므로 v2.1 에서는 실기에서 재개가 막혔다. 이때 Jetson 은 START_CPR 대신 RESUME_CPR 를 보낸다(CPR_RUNNING 이면 보내지 않음).",
     "v2.2: S6 진입 명령 순서를 SET_TARGET → SET_CP_POINT 로 바꿨다. SET_CP_POINT(헤드 하강) 실행 중에는 장치가 다른 명령을 BUSY 로 거부하므로, 뒤에 보낸 SET_TARGET 이 거부되어 목표 깊이 없이 START_CPR 가 거부됐다(모의 Teensy 연결 시험에서 확인).",
     "event_requires_mcu: 그 이벤트로 이 노드를 떠나려면 Teensy가 이 상태여야 합니다. 아니면 전이를 거부합니다. 장치 상태를 모르면(연결 없음) 검사하지 않습니다.",
-    "v2.3(2026-10-05, 한건민 합의 10/5): ① X_VENT 진입 명령에 PAUSE_CPR 추가(장치 압박과 사람 인공호흡을 동시에 하지 않음, D-44). ② 일시정지 노드(S8, S9, X_VENT, X_AED)에서 S7로 재개하는 이벤트는 장치가 CPR_PAUSED 일 때만 받는다(PAUSE_CPR 수락과 CPR_PAUSED 확인 전 재개 금지). 처음 S6 → S7 은 START_CPR, 재개는 RESUME_CPR(Jetson 이 장치 상태로 고름, v2.2). ③ S1 error_return 을 S1 로 두어 오류 확인 뒤 초기 점검(PING, GET_STATUS, ARM, HOME)을 다시 한다. ④ X_POSOUT 의 REALIGN_DONE(위치 다시 맞춘 뒤 재개)을 복구 절차가 정해질 때까지 없앤다. 위치 이탈은 STOP → S11 만 남는다."
+    "v2.3(2026-10-05, 한건민 합의 10/5): ① X_VENT 진입 명령에 PAUSE_CPR 추가(장치 압박과 사람 인공호흡을 동시에 하지 않음, D-44). ② 일시정지 노드(S8, S9, X_VENT, X_AED)에서 S7로 재개하는 이벤트는 장치가 CPR_PAUSED 일 때만 받는다(PAUSE_CPR 수락과 CPR_PAUSED 확인 전 재개 금지). 처음 S6 → S7 은 START_CPR, 재개는 RESUME_CPR(Jetson 이 장치 상태로 고름, v2.2). ③ S1 error_return 을 S1 로 두어 오류 확인 뒤 초기 점검(PING, GET_STATUS, ARM, HOME)을 다시 한다. ④ X_POSOUT 의 REALIGN_DONE(위치 다시 맞춘 뒤 재개)을 복구 절차가 정해질 때까지 없앤다. 위치 이탈은 STOP → S11 만 남는다.",
+    "procedure: 진입 명령을 한꺼번에 보내지 않고 Jetson 이 ACK 와 장치 상태를 보며 차례로 보내는 절차. \"init\" = S1 초기화(jetson/saver/init_seq.py). offline_auto: 브리지 없는 오프라인 시연(UI)에서만 쓰는 자동 전이. Jetson 은 쓰지 않는다.",
+    "error_return_by_event: 이 이벤트로 S10 에 갔으면 RECHECK 뒤 노드의 error_return 대신 여기 적힌 노드로 돌아간다.",
+    "v2.4(2026-10-05, 한건민 합의 10/5): ① X_WHEELS 와 WHEELS_DONE 삭제. 바퀴는 평소 내려가 있고 안전핀을 뽑으면 올라가므로 바퀴 내리기 단계가 없다(D-42). S1 INIT_DONE → X_MOVE. 표시 이름만 정리: X_MOVE \"환자에게 이동\", X_PIN \"안전핀 해제\". 상태 ID 와 Teensy 명령은 그대로. ② S1 은 3 s 타이머 없이 초기화 절차(procedure init)의 결과로 넘어간다. PING ACK → GET_STATUS(비상정지 아님, 활성 고장 없음) → 장치 상태별 ARM/HOME(IDLE: ARM 수락 뒤 HOME, ARMED: HOME, HOMED: 생략, FAULT·ESTOP·그 밖: INIT_ERROR, 자동 DISARM 안 함) → HOME ACK ok → INIT_DONE. 원점 완료(HOMING_DONE)는 뒤에서 기다리고, 그 사이 실패나 시간 초과면 탐색 전 노드(X_MOVE, S2, X_CLOTHES, X_AED_PAD, S3S4, X_PPG)에서도 INIT_ERROR → S10 → RECHECK → S1. 탐색·흡착 진입은 X_SEARCH, X_PIN 의 requires_mcu HOMED 가 막는다. 원점 시간 제한은 10/12 실측 뒤 정한다(Jetson 설정 home_timeout_s, 비어 있으면 검사 안 함). ③ X_VENT 에 STOP → S11. 장치가 멈췄다고 알리기 전이라도 언제든 누를 수 있고, STOP_CPR 는 PAUSE_CPR 응답을 기다리지 않는다(D-46)."
   ],
-  "version": "2.3",
+  "version": "2.4",
   "updated": "2026-10-05",
 
   "events": {
@@ -26,7 +29,7 @@
     "RESUME": "std", "END": "std", "RESUME_CPR": "std", "STOP_CPR": "std",
     "RECHECK": "std", "MANUAL_RELEASE": "std", "RELEASE_DONE": "std", "BACK_TO_IDLE": "std",
 
-    "WHEELS_DONE": "ext", "MOVE_DONE": "ext", "CLOTHES_OK": "ext", "PPG_ATTACHED": "ext",
+    "MOVE_DONE": "ext", "CLOTHES_OK": "ext", "PPG_ATTACHED": "ext",
     "SEARCH_DONE": "ext", "SEARCH_FAIL": "ext", "PIN_RELEASED": "ext",
     "POSITION_DRIFT": "ext",
     "VENT_GUIDE": "ext", "VENT_DONE": "ext", "BATTERY_LOW": "ext", "BATTERY_OK": "ext",
@@ -37,6 +40,8 @@
 
   "initial": "S1",
 
+  "error_return_by_event": { "INIT_ERROR": "S1" },
+
   "nodes": {
     "S0": {
       "state": "S0", "ui": "-", "screen": 0, "name": "전원 꺼짐", "alarm": "normal",
@@ -44,36 +49,31 @@
     },
     "S1": {
       "state": "S1", "ui": "UI-01", "screen": 1, "name": "초기화 · 시스템 점검", "alarm": "normal",
-      "auto": { "ms": 3000, "event": "INIT_DONE" },
+      "procedure": "init",
+      "offline_auto": { "ms": 3000, "event": "INIT_DONE" },
       "error_return": "S1",
-      "enter_cmds": ["PING", "GET_STATUS", "ARM", "HOME"],
-      "on": { "INIT_DONE": "X_WHEELS", "INIT_ERROR": "S10" }
-    },
-    "X_WHEELS": {
-      "state": null, "ui": "(정의서)", "screen": 2, "name": "바퀴 내리기 · 이동 준비", "alarm": "normal",
-      "auto": { "ms": 3500, "event": "WHEELS_DONE" },
-      "on": { "WHEELS_DONE": "X_MOVE" }
+      "on": { "INIT_DONE": "X_MOVE", "INIT_ERROR": "S10" }
     },
     "X_MOVE": {
-      "state": null, "ui": "(정의서)", "screen": 3, "name": "환자에게 이동 · 사이렌", "alarm": "normal",
-      "on": { "MOVE_DONE": "S2" }
+      "state": null, "ui": "(정의서)", "screen": 3, "name": "환자에게 이동", "alarm": "normal",
+      "on": { "MOVE_DONE": "S2", "INIT_ERROR": "S10" }
     },
     "S2": {
       "state": "S2", "ui": "UI-02", "screen": 4, "name": "시작 대기", "alarm": "normal",
-      "on": { "START_PRESSED": "X_CLOTHES" }
+      "on": { "START_PRESSED": "X_CLOTHES", "INIT_ERROR": "S10" }
     },
     "X_CLOTHES": {
       "state": null, "ui": "(정의서)", "screen": 5, "name": "겉옷 제거", "alarm": "normal",
-      "on": { "CLOTHES_OK": "X_AED_PAD", "CANCEL": "S2" }
+      "on": { "CLOTHES_OK": "X_AED_PAD", "CANCEL": "S2", "INIT_ERROR": "S10" }
     },
     "S3S4": {
       "state": "S3·S4", "ui": "UI-03/04", "screen": 6, "name": "흉곽 정렬 · 위치 확인", "alarm": "normal",
       "error_return": "S3S4",
-      "on": { "POSITION_OK": "X_PPG", "PLACED_NEXT": "X_PPG", "POSITION_ERROR": "S10", "CANCEL": "S2" }
+      "on": { "POSITION_OK": "X_PPG", "PLACED_NEXT": "X_PPG", "POSITION_ERROR": "S10", "CANCEL": "S2", "INIT_ERROR": "S10" }
     },
     "X_PPG": {
       "state": null, "ui": "(정의서)", "screen": 7, "name": "PPG 센서 착용", "alarm": "normal",
-      "on": { "PPG_ATTACHED": "X_SEARCH" }
+      "on": { "PPG_ATTACHED": "X_SEARCH", "INIT_ERROR": "S10" }
     },
     "X_SEARCH": {
       "state": null, "ui": "(정의서)", "screen": 9, "name": "압박점 탐색", "alarm": "normal",
@@ -82,7 +82,7 @@
       "on": { "SEARCH_DONE": "X_PIN", "SEARCH_FAIL": "S10", "CANCEL": "S2" }
     },
     "X_PIN": {
-      "state": null, "ui": "(정의서)", "screen": 20, "name": "바퀴 수납 · 안전핀 해제", "alarm": "normal",
+      "state": null, "ui": "(정의서)", "screen": 20, "name": "안전핀 해제", "alarm": "normal",
       "requires_mcu": ["HOMED"],
       "on": { "PIN_RELEASED": "S5", "CANCEL": "S2" }
     },
@@ -152,11 +152,11 @@
       "state": null, "ui": "(정의서)", "screen": 19, "name": "인공호흡 가이드", "alarm": "caution",
       "enter_cmds": ["PAUSE_CPR"],
       "event_requires_mcu": { "VENT_DONE": ["CPR_PAUSED"] },
-      "on": { "VENT_DONE": "S7" }
+      "on": { "VENT_DONE": "S7", "STOP": "S11" }
     },
     "X_AED_PAD": {
       "state": null, "ui": "(v2.2 추가)", "screen": 21, "name": "AED 패드 부착 확인", "alarm": "normal",
-      "on": { "AED_PADS_ON": "S3S4", "AED_NONE": "S3S4", "CANCEL": "S2" }
+      "on": { "AED_PADS_ON": "S3S4", "AED_NONE": "S3S4", "CANCEL": "S2", "INIT_ERROR": "S10" }
     },
     "X_AED": {
       "state": null, "ui": "(v2.2 추가)", "screen": 22, "name": "AED 분석 · 충격 (압박 일시정지)", "alarm": "caution",

@@ -39,12 +39,14 @@ if __package__ in (None, ""):                     # 직접 실행 대응
     from saver.teensy_serial import TeensyLink
     from saver.logger import CsvLogger
     from saver.search import SearchRunner, PARAM_KEYS as SEARCH_KEYS
+    from saver.init_seq import InitRunner
 else:
     from . import protocol as P
     from .state_machine import StateMachine
     from .teensy_serial import TeensyLink
     from .logger import CsvLogger
     from .search import SearchRunner, PARAM_KEYS as SEARCH_KEYS
+    from .init_seq import InitRunner
 
 
 # ─────────────────────────────────────────────────────────────
@@ -59,6 +61,8 @@ CONFIG = {
     "aed_pause_warn_s": None,     # TODO 한성윤. AED 분석·충격 중 압박 중단 경고 기준(초). 비어 있으면 경고 안 함
     "pause_stop_verified": False, # TODO 한건민. PAUSE_CPR 로 압박 모터가 실제로 멈추는 것을 실기에서 확인한 뒤 true
                                   # (인터록 점검표 C11). false 면 장치 연결 중 인공호흡 안내(X_VENT)에 들어가지 않는다(D-45)
+    "home_timeout_s": None,       # TODO 한건민. S1 초기화 뒤 원점 완료(HOMING_DONE)를 기다리는 시간 제한(초). 10/12 실측 뒤.
+                                  # 비어 있으면 시간은 검사하지 않고, 탐색·흡착 진입은 requires_mcu(HOMED)가 막는다(D-46)
 }
 # 압박점 탐색(saver/search.py, 초안 §7.2). 전부 비어 있으면 탐색을 시작하지 않는다.
 CONFIG.update(dict((k, None) for k in SEARCH_KEYS))
@@ -147,6 +151,9 @@ class Bridge(object):
                                logger=self.log)
         self.search = SearchRunner(self.link, CONFIG, on_update=self._on_search,
                                    on_done=self._on_search_done, logger=self.log)
+        # S1 초기화 절차(v2.4, D-46): ACK 와 장치 상태를 보며 PING → GET_STATUS → ARM/HOME 을 차례로 보낸다
+        self.init = InitRunner(self.link, fire=lambda ev, payload=None: self.fsm.fire(ev, payload),
+                               cfg=CONFIG, logger=self.log)
 
     # ── 브로드캐스트 ────────────────────────────────────────
     def push(self, msg):
@@ -176,6 +183,10 @@ class Bridge(object):
             self.cp_point_ready = False
         if snap.get("node") != "X_SEARCH" and self.search.active:
             self.search.cancel("LEFT_NODE")        # 탐색 화면을 벗어나면 동작을 멈춘다
+        if self.fsm.nodes.get(snap.get("node"), {}).get("procedure") == "init":
+            self.init.start()                      # S1 에 들어올 때마다(부팅, 오류 확인 뒤) 처음부터
+        elif self.init.step in ("wait_link", "ping", "status", "status_tel", "arm"):
+            self.init.cancel("LEFT_NODE")          # 원점 명령 전에 S1 을 벗어남(시연 패널 강제 이동 등)
 
     def _on_command(self, cmd):
         """상태 진입 시 정의된 Teensy 명령 (state_machine_v2.json 의 enter_cmds)"""
@@ -205,6 +216,7 @@ class Bridge(object):
 
     def _on_tel(self, msg):
         self.log.telemetry(msg)
+        self.init.on_tel(msg)
         r = self.fsm.retry_device()          # 상태 조건에 막혀 보류한 장치 이벤트(fire_device)
         if r and r[0] == "expired":
             self.log.event("sys", "DEVICE_EVENT_EXPIRED:" + r[1])
@@ -221,6 +233,7 @@ class Bridge(object):
 
     def _on_ack(self, msg):
         self.search.on_ack(msg)
+        self.init.on_ack(msg)
 
     def _on_search(self, snap):
         out = dict(snap)
@@ -241,6 +254,7 @@ class Bridge(object):
 
     def _on_evt(self, msg):
         self.search.on_event(msg)
+        self.init.on_event(msg)
         name = msg.get("evt", "")
         self.log.event("mcu", name)
         # 장비가 UI 상태를 바꿔야 하는 경우만 상태머신에 주입
@@ -258,6 +272,10 @@ class Bridge(object):
                "why": msg.get("why", ""), "latched": bool(msg.get("latched")),
                "desc": P.ERR.get(msg.get("code", ""), "")}
         self.push(out)
+        if self.init.owns(msg.get("seq")):
+            # 초기화 명령의 거부·무응답은 절차가 INIT_ERROR → S10 으로 처리한다(장치 상태표, D-46)
+            self.init.on_error(msg)
+            return
         if sev >= 3:                       # 위험 → 안전정지
             if not self.fsm.fire("STOP"):
                 self.fsm.force("S11", reason="SAFETY_STOP:" + str(msg.get("code")))
@@ -267,6 +285,7 @@ class Bridge(object):
     def _on_link(self, connected, port):
         self.log.event("sys", "LINK_UP" if connected else "LINK_DOWN")
         self.push({"type": "link", "connected": connected, "port": port})
+        self.init.on_link(connected)
         if not connected and self.fsm.is_running():
             # 압박 중 두절: Teensy 가 T_comm 까지 유지한다. UI 에는 경고만.
             self.push({"type": "error", "code": "3-CM-010", "sev": 2,
@@ -333,6 +352,7 @@ class Bridge(object):
             if ev:
                 self.fsm.fire(ev)
             self.search.tick()
+            self.init.tick()
             if self.link.connected and self.link.is_stale() and self.link.last_tel_at:
                 self.push({"type": "telemetry", "stale": True})
 
