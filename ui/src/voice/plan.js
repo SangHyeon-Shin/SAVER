@@ -4,6 +4,7 @@
    - 그 밖(when)   : 해당 사건 때 1회 (node '*' 는 모든 화면)
    - 압박 중(S7)   : 진입 1회만. 사건 음성 없음 (119 상담원 음성과 겹침 방지)
    - AED 화면(X_AED): 진입 1회 뒤 장치 음성을 끈다. 압박 멈춘 시간 경고(aed_pause_warn)만 예외
+   - hold 문구(의학 검토 전 보류)는 재생하지 않는다
    순수 함수만 둔다. 시험: scripts/smoke-test.cjs                                  */
 
 /** 첫 문구들 뒤에 after: 로 이어지는 문구를 붙인다 (중복, 순환 방지) */
@@ -15,7 +16,8 @@ export function chain(prompts, first) {
     prompts.filter((q) => q.when === 'after:' + p.id).forEach(add)
   }
   first.forEach(add)
-  return out
+  const held = new Set(prompts.filter((p) => p.hold).map((p) => p.id))
+  return out.filter((id) => !held.has(id))
 }
 
 /** 화면 진입. opt.cause: S10 원인(tubing·vacuum·position·search), opt.positionError: S3S4 위치 오류 */

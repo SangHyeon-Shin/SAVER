@@ -39,12 +39,12 @@ export function Screen02() {
   )
 }
 
-/* ================= 03 · 환자에게 이동 · 사이렌 ================= */
+/* ================= 03 · 환자에게 이동 =================
+   사이렌은 이 화면에서 울리지 않는다(구조자가 장치 옆에서 119와 통화 중이다). 사이렌은 KSME 결선에 달지 않는다 */
 export function Screen03({ fire }) {
   return (
     <Light>
-      <div data-safety-blink style={{ position: 'absolute', inset: 0, pointerEvents: 'none', animation: 'sirenglow 1s infinite', zIndex: 5 }} />
-      <Header title="환자에게 이동" right={<Dot color={C.danger} label="사이렌 작동" fast />} />
+      <Header title="환자에게 이동" right="3 / 8" />
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 26 }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 18, width: '100%' }}>
           <div style={{ width: 420, height: 300, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>

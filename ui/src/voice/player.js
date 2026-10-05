@@ -10,12 +10,12 @@ const defaultAudio = (src) =>
   (typeof Audio === 'undefined' || /jsdom/.test(navigator.userAgent)) ? null : new Audio(src)
 
 export function createVoice({ prompts, base = 'voice/', makeAudio = defaultAudio, log = () => {} }) {
-  let muted = false, node = null, queue = [], cur = null, last = []
+  let muted = false, node = null, queue = [], cur = null, curId = null, last = []
   const played = []                         // 시험용: 재생을 시도한 ID 순서
 
   const stop = () => {
     queue = []
-    if (cur) { const a = cur; cur = null; a.onended = a.onerror = null; try { a.pause() } catch (e) { /* 무시 */ } }
+    if (cur) { const a = cur; cur = null; curId = null; a.onended = a.onerror = null; try { a.pause() } catch (e) { /* 무시 */ } }
   }
   const next = () => {
     if (muted) { queue = []; return }
@@ -25,8 +25,8 @@ export function createVoice({ prompts, base = 'voice/', makeAudio = defaultAudio
     let a = null
     try { a = makeAudio(base + id + '.mp3') } catch (e) { a = null }
     if (!a) { next(); return }
-    cur = a
-    const done = () => { if (cur !== a) return; cur = null; next() }
+    cur = a; curId = id
+    const done = () => { if (cur !== a) return; cur = null; curId = null; next() }
     a.onended = done
     a.onerror = () => { log('voice_missing', id); done() }
     let r
@@ -37,9 +37,9 @@ export function createVoice({ prompts, base = 'voice/', makeAudio = defaultAudio
   return {
     /** 화면 진입: 하던 말을 끊고 새 화면 문구 */
     enter(n, opt) { node = n; stop(); last = planEnter(prompts, n, opt); queue = last.slice(); next() },
-    /** 같은 화면의 사건: 끊지 않고 뒤에 잇는다 */
+    /** 같은 화면의 사건: 끊지 않고 뒤에 잇는다. 이미 말하는 중이거나 대기 중인 문구는 다시 넣지 않는다 */
     event(when) {
-      const ids = planEvent(prompts, node, when)
+      const ids = planEvent(prompts, node, when).filter((id) => id !== curId && !queue.includes(id))
       if (!ids.length) return
       last = ids; queue = queue.concat(ids); next()
     },

@@ -218,6 +218,18 @@ const check = (name, ok, detail = '') => {
   await until(() => T4().includes('대기로'), 3000)
   tap([...d4.querySelectorAll('#root button')].find((b) => b.textContent.includes('대기로')))
   check('해제 완료 뒤 대기로 → 시작 대기(S2)', await until(() => T4().includes('시작 대기'), 3000))
+  // 인공호흡 안내: 시간이 끝나도 압박을 자동으로 다시 시작하지 않는다
+  const d5 = openDom('?start=X_VENT').window.document
+  const T5 = () => (d5.querySelector('#root')?.textContent || '')
+  await until(() => T5().includes('인공호흡 안내'), 3000)
+  tap([...d5.querySelectorAll('#root button')].find((b) => b.textContent.trim() === '건너뛰기'))
+  await wait(300)
+  check('인공호흡: 건너뛰기는 마지막 단계로, 압박 재개 버튼만 남음', T5().includes('인공호흡 안내') && T5().includes('[압박 재개]를 누르세요')
+    && !![...d5.querySelectorAll('#root button')].find((b) => b.textContent.trim() === '압박 재개'))
+  await wait(2500)
+  check('인공호흡: 기다려도 자동으로 압박 화면에 가지 않음', T5().includes('인공호흡 안내') && !T5().includes('압박 모니터링'))
+  tap([...d5.querySelectorAll('#root button')].find((b) => b.textContent.trim() === '압박 재개'))
+  check('인공호흡: [압박 재개]를 눌러야 압박 화면', await until(() => T5().includes('압박 모니터링'), 3000))
   // 음성 안내 문구 (src/voice/prompts.json)
   const VP = JSON.parse(readFileSync('src/voice/prompts.json', 'utf8'))
   const vids = VP.prompts.map((p) => p.id)
@@ -230,7 +242,8 @@ const check = (name, ok, detail = '') => {
   check('음성 문구: TTS 입력에 어려운 말 없음(일반인 기준, direction.plain)', VB.length >= 10
     && VP.prompts.every((p) => !VB.some((w) => p.say.includes(w))),
     VP.prompts.filter((p) => VB.some((w) => p.say.includes(w))).map((p) => p.id).join(','))
-  check('음성 문구: 시작 대기에서 헤드셋 착용을 먼저 안내 (D-40)', VP.prompts.some((p) => p.node === 'S2' && p.when === 'enter' && p.say.includes('헤드셋')))
+  check('음성 문구: 시작 대기 첫 문구는 119 신고, 이어서 헤드셋 착용 (D-40)', VP.prompts.some((p) => p.node === 'S2' && p.when === 'enter' && p.say.includes('일일구'))
+    && VP.prompts.some((p) => p.node === 'S2' && p.say.includes('헤드셋')))
   check('음성 문구: 시험 묶음이 목록에 있고 세 등급을 모두 포함', VP.pilot.every((i) => vids.includes(i))
     && ['안내', '주의', '경고'].every((lv) => VP.pilot.some((i) => VP.prompts.find((p) => p.id === i).level === lv)))
   // 보이스 태그: 등급 태그는 비었거나 [..] 하나, calm 은 등급 태그에 넣지 않고 calm 목록(극도의 침착함)에만
@@ -266,7 +279,8 @@ const check = (name, ok, detail = '') => {
   // 음성 재생 규칙과 재생기 (voice/plan.js, voice/player.js)
   const VPl = await import('../src/voice/plan.js')
   const VPP = VP.prompts
-  check('재생 규칙: 시작 대기는 헤드셋 → 눕히기 → 119 순서', VPl.planEnter(VPP, 'S2').join() === 'V40,V04,V36', VPl.planEnter(VPP, 'S2').join())
+  check('재생 규칙: 시작 대기는 119 → 헤드셋 → 눕히기 순서', VPl.planEnter(VPP, 'S2').join() === 'V36,V40,V04', VPl.planEnter(VPP, 'S2').join())
+  check('재생 규칙: 의학 검토 전 보류 문구(V19)는 재생 계획에 없음', VP.prompts.find((p) => p.id === 'V19').hold === true && !VPl.planEnter(VPP, 'S9').includes('V19'))
   check('재생 규칙: S10 은 진입 문구 뒤 원인 문구, 위치 오류는 V09',
     VPl.planEnter(VPP, 'S10', { cause: 'vacuum' }).join() === 'V20,V22' && VPl.planEnter(VPP, 'S3S4', { positionError: true }).join() === 'V09'
     && VPl.planEnter(VPP, 'S3S4').join() === 'V07,V08')
@@ -275,16 +289,16 @@ const check = (name, ok, detail = '') => {
     && VPl.planEvent(VPP, 'X_AED', 'aed_pause_warn').join() === 'V39' && VPl.planEvent(VPP, 'S3S4', 'battery_low').join() === 'V35'
     && VPl.planEvent(VPP, 'X_VENT', 'step:3').join() === 'V31' && VPl.planEvent(VPP, 'X_SEARCH', 'search_fail:EAPD_MISSING').join() === 'V13')
   const { createVoice } = await import('../src/voice/player.js')
-  const fake = [], objs = []   // 가짜 Audio: play 하면 기록. V04 는 파일 없음(오류)
+  const fake = [], objs = []   // 가짜 Audio: play 하면 기록. V40 은 파일 없음(오류)
   const mk = (src) => { const a = { src, onended: null, onerror: null, paused: false,
-    play() { fake.push(src); if (src.includes('V04')) setTimeout(() => a.onerror && a.onerror(), 0); return Promise.resolve() },
+    play() { fake.push(src); if (src.includes('V40')) setTimeout(() => a.onerror && a.onerror(), 0); return Promise.resolve() },
     pause() { a.paused = true } }; objs.push(a); return a }
   const pv = createVoice({ prompts: VPP, makeAudio: mk })
   pv.enter('S2')
-  check('재생기: 한 번에 하나만 재생', fake.join() === 'voice/V40.mp3', fake.join())
+  check('재생기: 한 번에 하나만 재생', fake.join() === 'voice/V36.mp3', fake.join())
   objs[0].onended()
   await wait(10)
-  check('재생기: 끝나면 다음, 없는 파일은 건너뜀', fake.join() === 'voice/V40.mp3,voice/V04.mp3,voice/V36.mp3', fake.join())
+  check('재생기: 끝나면 다음, 없는 파일은 건너뜀', fake.join() === 'voice/V36.mp3,voice/V40.mp3,voice/V04.mp3', fake.join())
   pv.enter('S6')
   check('재생기: 화면이 바뀌면 끊고 새 문구', objs[2].paused && fake[fake.length - 1] === 'voice/V16.mp3')
   pv.setMuted(true); pv.enter('S2'); pv.event('battery_low')
@@ -294,7 +308,10 @@ const check = (name, ok, detail = '') => {
     fake[fake.length - 1] === 'voice/V38.mp3' && (pv.replay(), fake[fake.length - 1] === 'voice/V38.mp3') && pv.lastIds.join() === 'V38')
   const pv2 = createVoice({ prompts: VPP, makeAudio: () => { throw new Error('x') } })
   pv2.enter('S2')
-  check('재생기: 장치 오류는 건너뛰고 멈추지 않음', pv2.played.join() === 'V40,V04,V36')
+  check('재생기: 장치 오류는 건너뛰고 멈추지 않음', pv2.played.join() === 'V36,V40,V04')
+  const pv3 = createVoice({ prompts: VPP, makeAudio: mk })
+  pv3.enter('S3S4'); pv3.event('battery_low'); pv3.event('battery_low')
+  check('재생기: 같은 경고가 겹치면 한 번만', pv3.played.length === 1 && (objs[objs.length - 1].onended(), objs[objs.length - 1].onended(), objs[objs.length - 1].onended(), pv3.played.filter((i) => i === 'V35').length === 1), pv3.played.join())
   const vb = d.querySelector('#root [data-voice]')
   check('화면: 헤더에 다시 듣기와 소리 끄기 버튼', !!vb && vb.textContent.includes('다시 듣기') && vb.querySelectorAll('button').length === 2)
   check('런타임 오류 없음 (시나리오 포함)', errors.length === 0, errors[0] || '')

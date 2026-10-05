@@ -57,15 +57,19 @@ export function Screen18({ fire, ctx }) {
 }
 
 /* ================= 19 · 인공호흡 가이드 · 주의 · 한/영 병기 =================
-   원본은 3/6 단계 스틸 컷. 실제 앱에서는 6단계가 자동으로 진행되도록 구현. */
+   1~5단계는 시간에 따라 넘어가는 안내다. 6단계에서 멈추고, 구조자가 손을 뗀 뒤
+   [압박 재개]를 눌러야 압박으로 돌아간다(시간이 끝났다고 자동으로 재개하지 않는다).
+   단계 시간과 문구는 한성윤 검토 전이다. */
 const VENT_STEPS = [
   { n: '①', k: '머리 젖히기', ko: '머리를 젖히고\n턱을 들어올리세요',   en: 'Tilt the head, lift the chin', sec: 3 },
   { n: '②', k: '마스크 맞추기', ko: '마스크를 얼굴에\n꼭 맞게 대세요',     en: 'Seal the mask on the face',   sec: 3 },
   { n: '③', k: '숨 불어넣기', ko: '천천히 숨을\n불어넣으세요 (1초)',   en: 'Give a slow breath over 1 second', sec: 1 },
   { n: '④', k: '가슴 확인',    ko: '가슴이 올라오는지\n확인하세요',      en: 'Check for chest rise',        sec: 2 },
   { n: '⑤', k: '한 번 더',    ko: '한 번 더 천천히\n불어넣으세요 (1초)', en: 'Give a second breath',       sec: 1 },
-  { n: '⑥', k: '압박 재개',   ko: '바로 가슴 압박을\n다시 시작합니다',  en: 'Resume compressions now',     sec: 2 },
+  { n: '⑥', k: '압박 재개',   ko: '손을 떼고\n[압박 재개]를 누르세요', en: 'Hands off, then press Resume', sec: 0 },
 ]
+
+const LAST = VENT_STEPS.length - 1
 
 export function Screen19({ fire }) {
   const [i, setI] = useState(0)
@@ -75,11 +79,9 @@ export function Screen19({ fire }) {
   useEffect(() => {
     if (vc) vc.voice.event('step:' + (i + 1))   // 단계 음성 V29~V34 (앞 문구를 끊지 않고 잇는다)
     setLeft(VENT_STEPS[i].sec)
+    if (i === LAST) return undefined          // 마지막 단계는 구조자 버튼으로만 넘어간다
     const tick = setInterval(() => setLeft((v) => Math.max(0, v - 1)), 1000)
-    const advance = setTimeout(() => {
-      if (i === VENT_STEPS.length - 1) fire(EV.VENT_DONE)
-      else setI(i + 1)
-    }, VENT_STEPS[i].sec * 1000)
+    const advance = setTimeout(() => setI(i + 1), VENT_STEPS[i].sec * 1000)
     return () => { clearInterval(tick); clearTimeout(advance) }
   }, [i])
 
@@ -96,7 +98,7 @@ export function Screen19({ fire }) {
               strokeDasharray="339.292" transform="rotate(-90 60 60)"
               style={{ animation: `ringcount ${s.sec}s linear infinite` }} />
           </svg>
-          <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 40, fontWeight: 800 }}>{left}초</div>
+          <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 40, fontWeight: 800 }}>{i === LAST ? '손 떼기' : left + '초'}</div>
         </div>
         <div style={{ minWidth: 330 }}>
           <div style={{ fontSize: 30, fontWeight: 800, lineHeight: 1.3, whiteSpace: 'pre-line' }}>{s.ko}</div>
@@ -106,7 +108,9 @@ export function Screen19({ fire }) {
             너무 빠르거나 세게 불어넣으면 경고가 나옵니다
           </div>
         </div>
-        <Btn variant="ghostDark" w={150} h={60} fs={20} fw={600} onPress={() => fire(EV.VENT_DONE)}>건너뛰기</Btn>
+        {i === LAST
+          ? <Btn w={200} h={64} fs={24} fw={700} onPress={() => fire(EV.VENT_DONE)}>압박 재개</Btn>
+          : <Btn variant="ghostDark" w={150} h={60} fs={20} fw={600} onPress={() => setI(LAST)}>건너뛰기</Btn>}
       </div>
       <div style={{ height: 120, borderTop: '1px solid rgba(255,255,255,.1)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 26px', flexShrink: 0 }}>
         {VENT_STEPS.map((v, k) => {
