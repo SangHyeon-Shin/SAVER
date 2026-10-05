@@ -50,21 +50,32 @@ const check = (name, ok, detail = '') => {
 
   check('01 부팅 화면 렌더링', await until(has('SAVER'), 3000), T().slice(0, 30))
 
+  check('02 바퀴 내리기 단계 없음 (바퀴는 평소 내려가 있음, 10/5)', !has('바퀴를 내리')())
   check('03 이동 화면 자동 전이', await until(has('환자에게 이동')))
 
   tap(B('이동 완료'))
   check('04 시작 대기', await until(has('시작 대기')))
-  check('04 119 신고·자동심장충격기 요청 먼저 안내', has('먼저 119에 신고하고 자동심장충격기')())
-  check('04 헤드셋 착용 안내 (D-40)', has('헤드셋을 착용해 주세요')() && !!d.querySelector('[data-headset]'))
+  // 한 화면에 지시 하나(10/5): 119 → 헤드셋 → 바닥, 단계마다 지시 하나만 보인다
+  const steps = () => d.querySelector('[data-steps]')?.getAttribute('data-steps')
+  check('04 ① 119 신고·자동심장충격기 요청 먼저, 다른 지시 없음', has('119에 신고하고')() && has('자동심장충격기를 가져다')()
+    && !has('헤드셋')() && !has('단단한 바닥')() && steps() === '1/3')
+  tap(BX('다음'))
+  check('04 ② 헤드셋 착용 안내 (D-40), 다른 지시 없음', await until(has('헤드셋을 착용해 주세요'))
+    && !!d.querySelector('[data-headset]') && !has('119에 신고')() && !has('단단한 바닥')() && steps() === '2/3')
+  tap(BX('다음'))
+  check('04 ③ 단단한 바닥, 시작 버튼', await until(has('단단한 바닥에 눕히세요')) && !has('헤드셋')() && !!BX('시작') && steps() === '3/3')
 
-  tap(B('시작'))
+  tap(BX('시작'))
   check('05 겉옷 제거 안내(인식 없음, D-38)', await until(has('겉옷을 벗겨 주세요'))
     && !has('인식')() && !!B('겉옷을 벗겼습니다'))
 
   tap(B('겉옷을 벗겼습니다'))
   check('21 겉옷 뒤 AED 패드 부착 확인 (v2.2)', await until(has('지금 패드를 붙이세요')))
   tap(B('패드를 붙였습니다'))
-  check('06 몸 위치 맞추기 (흉곽 정렬)', await until(has('몸 위치 맞추기')))
+  check('06 몸 위치 맞추기 (흉곽 정렬) ① 팔과 다리 먼저, 지시 하나', await until(has('몸 위치 맞추기'))
+    && has('팔과 다리를 몸에 붙여')() && !has('초록색 선에')())
+  tap(BX('다음'))
+  check('06 ② 초록색 선에 맞추기', await until(has('초록색 선에 환자 몸을 맞춰')) && !has('팔과 다리를')())
 
   tap(B('맞췄습니다'))
   check('07 손가락 센서 (PPG) 착용', await until(has('손가락 센서')))
@@ -79,13 +90,16 @@ const check = (name, ok, detail = '') => {
   check('09 반력 곡선 그려짐', await until(() => d.querySelectorAll('[data-pt]').length >= 10, 6000),
     d.querySelectorAll('[data-pt]').length + '점')
   check('09 가슴 두께(EAPD)·거리 D 표시', has('205.8 mm')() && has('89.7 mm')())
-  check('20 탐색 완료 → 바퀴 수납 · 안전핀 해제, 헤드셋 확인', await until(has('안전핀을 뽑아'), 9000) && has('헤드셋을 썼는지')())
+  check('20 탐색 완료 → 안전핀 뽑기 (바퀴는 핀을 뽑으면 저절로 올라감, 지시 하나)', await until(has('안전핀을 뽑으세요'), 9000)
+    && !has('바퀴를 올리')() && !has('헤드셋')())
+  tap(B('핀을 뽑았습니다'))
+  check('20 ② 헤드셋 확인 (D-40)', await until(has('헤드셋을 썼는지')) && !!d.querySelector('[data-headset]'))
 
-  tap(B('핀을 뺐습니다'))
+  tap(B('확인했습니다'))
   check('08 바닥 고정 확인 (핀 해제 뒤)', await until(has('바닥 고정 확인')))
 
   tap(B('재확인'))
-  check('10 압박 준비', await until(has('압박 준비')))
+  check('10 압박 준비: 지시는 손 떼기 하나', await until(has('압박 준비')) && has('환자에게서 손을 떼세요')() && !has('시작하려면')())
   check('10 자동심장충격기 패드 상태 표시', has('자동심장충격기 패드: 붙임')())
 
   tap(d.querySelector('#root [role="button"]'))
@@ -104,12 +118,12 @@ const check = (name, ok, detail = '') => {
   await wait(1600)
   check('22 자동 재개 없음, 중단 경과 시간 증가', has('음성 안내를 따르세요')() && tm() !== tm0, `${tm0} → ${tm()}`)
   check('22 경고 기준 미설정이면 경고 없음', has('경고 기준 미설정')() && !has('길어지고 있습니다')())
-  check('22 패드 붙임 확인 표시', has('패드: 붙임 확인됨')())
+  check('22 지시는 자동심장충격기 안내 따르기 하나', !has('분석과 충격 중에는')() && !has('지금 붙이세요')())
   tap(BX('압박 재개'))
   check('22 → 11 구조자 재개로만 압박 화면 복귀', await until(has('압박 모니터링')))
 
   tap(B('일시정지'))
-  check('12 일시정지', await until(has('재개하려면')))
+  check('12 일시정지: 지시는 환자 상태 확인 하나', await until(has('압박을 멈췄습니다')) && has('환자 상태를 확인하세요')())
   check('12 일시정지 중에도 AED 사용 버튼', !!BX('자동심장충격기 사용'))
 
   tap(BX('재개')); await until(has('압박 모니터링'))
@@ -117,9 +131,11 @@ const check = (name, ok, detail = '') => {
   check('16 안전정지', await until(has('안전 정지')))
 
   tap(B('수동 해제'))
-  check('17 수동 해제', await until(has('가슴에서 떼세요')))
+  check('17 수동 해제 ① 바닥 고정 풀기, 지시 하나', await until(has('바닥 고정을 푸세요')) && !has('가슴에서 떼세요')())
+  tap(BX('다음'))
+  check('17 ② 장치를 가슴에서 떼기', await until(has('가슴에서 떼세요')) && !has('바닥 고정을 푸세요')())
 
-  tap(B('완료'))
+  tap(BX('완료'))
   check('18 종료·기록 저장', await until(has('작동을 마쳤습니다')))
 
   check('이미지 5장 로드', d.querySelectorAll('img[src^="data:image"]').length >= 0)
@@ -213,7 +229,9 @@ const check = (name, ok, detail = '') => {
   const T4 = () => (d4.querySelector('#root')?.textContent || '')
   await until(() => T4().includes('대기로'), 3000)
   tap([...d4.querySelectorAll('#root button')].find((b) => b.textContent.includes('대기로')))
-  check('음압 잔존 시연: 종료 → 대기로 누르면 수동 해제(S12)', await until(() => T4().includes('가슴에서 떼세요'), 3000))
+  check('음압 잔존 시연: 종료 → 대기로 누르면 수동 해제(S12)', await until(() => T4().includes('바닥 고정을 푸세요'), 3000))
+  tap([...d4.querySelectorAll('#root button')].find((b) => b.textContent.trim() === '다음'))
+  await until(() => T4().includes('가슴에서 떼세요'), 3000)
   tap([...d4.querySelectorAll('#root button')].find((b) => b.textContent.trim() === '완료'))
   await until(() => T4().includes('대기로'), 3000)
   tap([...d4.querySelectorAll('#root button')].find((b) => b.textContent.includes('대기로')))
@@ -242,8 +260,10 @@ const check = (name, ok, detail = '') => {
   check('음성 문구: TTS 입력에 어려운 말 없음(일반인 기준, direction.plain)', VB.length >= 10
     && VP.prompts.every((p) => !VB.some((w) => p.say.includes(w))),
     VP.prompts.filter((p) => VB.some((w) => p.say.includes(w))).map((p) => p.id).join(','))
-  check('음성 문구: 시작 대기 첫 문구는 119 신고, 이어서 헤드셋 착용 (D-40)', VP.prompts.some((p) => p.node === 'S2' && p.when === 'enter' && p.say.includes('일일구'))
-    && VP.prompts.some((p) => p.node === 'S2' && p.say.includes('헤드셋')))
+  check('음성 문구: 시작 대기 첫 문구는 119 신고, 2단계 헤드셋 착용 (D-40)', VP.prompts.some((p) => p.node === 'S2' && p.when === 'enter' && p.say.includes('일일구'))
+    && VP.prompts.some((p) => p.node === 'S2' && p.when === 'step:2' && p.say.includes('헤드셋')))
+  check('음성 문구: 바퀴를 내리거나 올리라는 문구 없음 (바퀴는 안전핀으로 저절로, 10/5)',
+    VP.prompts.filter((p) => !p.hold).every((p) => !/바퀴를 (내리|올려)/.test(p.say)) && VP.prompts.find((p) => p.id === 'V02').hold === true)
   check('음성 문구: 시험 묶음이 목록에 있고 세 등급을 모두 포함', VP.pilot.every((i) => vids.includes(i))
     && ['안내', '주의', '경고'].every((lv) => VP.pilot.some((i) => VP.prompts.find((p) => p.id === i).level === lv)))
   // 보이스 태그: 등급 태그는 비었거나 [..] 하나, calm 은 등급 태그에 넣지 않고 calm 목록(극도의 침착함)에만
@@ -279,36 +299,48 @@ const check = (name, ok, detail = '') => {
   // 음성 재생 규칙과 재생기 (voice/plan.js, voice/player.js)
   const VPl = await import('../src/voice/plan.js')
   const VPP = VP.prompts
-  check('재생 규칙: 시작 대기는 119 → 헤드셋 → 눕히기 순서', VPl.planEnter(VPP, 'S2').join() === 'V36,V40,V04', VPl.planEnter(VPP, 'S2').join())
+  check('재생 규칙: 시작 대기는 진입 때 119만, 헤드셋과 눕히기는 단계 문구', VPl.planEnter(VPP, 'S2').join() === 'V36'
+    && VPl.planEvent(VPP, 'S2', 'step:2').join() === 'V40' && VPl.planEvent(VPP, 'S2', 'step:3').join() === 'V04', VPl.planEnter(VPP, 'S2').join())
+  check('재생 규칙: 단계 화면 (몸 위치, 안전핀, 수동 해제)', VPl.planEnter(VPP, 'S3S4').join() === 'V08' && VPl.planEvent(VPP, 'S3S4', 'step:2').join() === 'V07'
+    && VPl.planEnter(VPP, 'X_PIN').join() === 'V14' && VPl.planEvent(VPP, 'X_PIN', 'step:2').join() === 'V41'
+    && VPl.planEnter(VPP, 'S12').join() === 'V27' && VPl.planEvent(VPP, 'S12', 'step:2').join() === 'V42'
+    && VPl.planEnter(VPP, 'X_WHEELS').length === 0)
   check('재생 규칙: 의학 검토 전 보류 문구(V19)는 재생 계획에 없음', VP.prompts.find((p) => p.id === 'V19').hold === true && !VPl.planEnter(VPP, 'S9').includes('V19'))
   check('재생 규칙: S10 은 진입 문구 뒤 원인 문구, 위치 오류는 V09',
     VPl.planEnter(VPP, 'S10', { cause: 'vacuum' }).join() === 'V20,V22' && VPl.planEnter(VPP, 'S3S4', { positionError: true }).join() === 'V09'
-    && VPl.planEnter(VPP, 'S3S4').join() === 'V07,V08')
+    && VPl.planEnter(VPP, 'S3S4').join() === 'V08')
   check('재생 규칙: 압박 중 사건 음성 없음, AED 화면은 경고(V39)만, 배터리는 어느 화면에서나',
     VPl.planEvent(VPP, 'S7', 'battery_low').length === 0 && VPl.planEvent(VPP, 'X_AED', 'battery_low').length === 0
     && VPl.planEvent(VPP, 'X_AED', 'aed_pause_warn').join() === 'V39' && VPl.planEvent(VPP, 'S3S4', 'battery_low').join() === 'V35'
     && VPl.planEvent(VPP, 'X_VENT', 'step:3').join() === 'V31' && VPl.planEvent(VPP, 'X_SEARCH', 'search_fail:EAPD_MISSING').join() === 'V13')
   const { createVoice } = await import('../src/voice/player.js')
-  const fake = [], objs = []   // 가짜 Audio: play 하면 기록. V40 은 파일 없음(오류)
+  const fake = [], objs = []   // 가짜 Audio: play 하면 기록. V20 은 파일 없음(오류)
   const mk = (src) => { const a = { src, onended: null, onerror: null, paused: false,
-    play() { fake.push(src); if (src.includes('V40')) setTimeout(() => a.onerror && a.onerror(), 0); return Promise.resolve() },
+    play() { fake.push(src); if (src.includes('V20')) setTimeout(() => a.onerror && a.onerror(), 0); return Promise.resolve() },
     pause() { a.paused = true } }; objs.push(a); return a }
   const pv = createVoice({ prompts: VPP, makeAudio: mk })
-  pv.enter('S2')
-  check('재생기: 한 번에 하나만 재생', fake.join() === 'voice/V36.mp3', fake.join())
-  objs[0].onended()
+  pv.enter('S10', { cause: 'vacuum' })
+  check('재생기: 한 번에 하나만 재생', fake.join() === 'voice/V20.mp3', fake.join())
   await wait(10)
-  check('재생기: 끝나면 다음, 없는 파일은 건너뜀', fake.join() === 'voice/V36.mp3,voice/V40.mp3,voice/V04.mp3', fake.join())
+  check('재생기: 없는 파일은 건너뛰고 다음', fake.join() === 'voice/V20.mp3,voice/V22.mp3', fake.join())
+  fake.length = 0
+  pv.enter('S2'); const o36 = objs[objs.length - 1]
+  o36.onended(); await wait(10)
+  check('재생기: 단계 문구는 구조자가 다음을 누르기 전에는 재생 안 함', fake.join() === 'voice/V36.mp3', fake.join())
+  pv.enter('S2'); const o36b = objs[objs.length - 1]
+  pv.cue('step:2'); pv.cue('step:3')
+  check('재생기: 단계를 넘기면 앞 문구를 끊고 그 단계 문구만', o36b.paused && objs[objs.length - 2].paused
+    && fake.slice(-2).join() === 'voice/V40.mp3,voice/V04.mp3' && pv.lastIds.join() === 'V04', fake.join())
   pv.enter('S6')
-  check('재생기: 화면이 바뀌면 끊고 새 문구', objs[2].paused && fake[fake.length - 1] === 'voice/V16.mp3')
+  check('재생기: 화면이 바뀌면 끊고 새 문구', objs[objs.length - 2].paused && fake[fake.length - 1] === 'voice/V16.mp3')
   pv.setMuted(true); pv.enter('S2'); pv.event('battery_low')
   check('재생기: 소리 끄면 재생 안 함', fake[fake.length - 1] === 'voice/V16.mp3')
   pv.setMuted(false); pv.enter('X_AED'); pv.event('battery_low')
   check('재생기: AED 화면은 진입 1회 뒤 무음, 다시 듣기는 마지막 묶음',
     fake[fake.length - 1] === 'voice/V38.mp3' && (pv.replay(), fake[fake.length - 1] === 'voice/V38.mp3') && pv.lastIds.join() === 'V38')
   const pv2 = createVoice({ prompts: VPP, makeAudio: () => { throw new Error('x') } })
-  pv2.enter('S2')
-  check('재생기: 장치 오류는 건너뛰고 멈추지 않음', pv2.played.join() === 'V36,V40,V04')
+  pv2.enter('S10', { cause: 'vacuum' })
+  check('재생기: 장치 오류는 건너뛰고 멈추지 않음', pv2.played.join() === 'V20,V22')
   const pv3 = createVoice({ prompts: VPP, makeAudio: mk })
   pv3.enter('S3S4'); pv3.event('battery_low'); pv3.event('battery_low')
   check('재생기: 같은 경고가 겹치면 한 번만', pv3.played.length === 1 && (objs[objs.length - 1].onended(), objs[objs.length - 1].onended(), objs[objs.length - 1].onended(), pv3.played.filter((i) => i === 'V35').length === 1), pv3.played.join())

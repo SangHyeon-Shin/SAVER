@@ -180,7 +180,7 @@ export default function App() {
 
   const vitals = useVitals(!!node.running, bridge.telemetry, bridge.stale)
 
-  /* ---------- 자동 전이 (부팅 · 바퀴 전개) ----------
+  /* ---------- 자동 전이 (부팅 · 점검 완료) ----------
      연결 시에는 브리지의 ticker 가 처리하므로 UI 는 관여하지 않는다.
      양쪽이 동시에 쏘면 같은 전이가 두 번 기록된다. */
   useEffect(() => {

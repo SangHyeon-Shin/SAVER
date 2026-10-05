@@ -1,7 +1,8 @@
 import React from 'react'
 import { C } from '../tokens'
 import { EV } from '../stateMachine'
-import { Light, Header, Btn, Dot, Progress, PressArea } from '../ui'
+import { Light, Header, Btn, Dot, Progress, PressArea, StepDots, useSteps } from '../ui'
+import { AedMark } from './Aed'
 
 import { IMG } from '../images'
 
@@ -21,19 +22,19 @@ export function Screen01() {
   )
 }
 
-/* ================= 02 · 바퀴 내리기 · 이동 준비 ================= */
+/* ================= 02 · 점검 완료 (X_WHEELS) =================
+   바퀴는 평소 내려가 있고, 안전핀을 뽑으면 올라간다(10/5 팀장 확인). 바퀴를 내리는 단계는 없다.
+   노드 X_WHEELS 삭제는 protocol/ 합의 대기(DECISIONS D-42). 그때까지 점검 완료만 잠깐 보여 준다 */
 export function Screen02() {
   return (
     <Light>
-      <Header title="이동 준비 단계" right="2 / 8" />
+      <Header title="점검 완료" right="2 / 8" />
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 26 }}>
-        <div style={{ width: 660, height: 340, position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <div style={{ width: 600, height: 320, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
           <img src={IMG.device} alt="SAVER 장치" style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain', display: 'block' }} />
-          <div style={{ position: 'absolute', left: '18%', bottom: 12, color: C.success, fontSize: 26, fontWeight: 800, animation: 'pulsedot 1.3s infinite' }}>↓</div>
-          <div style={{ position: 'absolute', right: '18%', bottom: 12, color: C.success, fontSize: 26, fontWeight: 800, animation: 'pulsedot 1.3s infinite' }}>↓</div>
         </div>
-        <div style={{ fontSize: 24 }}>이동을 위해 바퀴를 내리고 있습니다.</div>
-        <Dot color={C.success} label="자동 진행 중" />
+        <div style={{ fontSize: 40, fontWeight: 800 }}>점검을 마쳤습니다</div>
+        <Dot color={C.success} label="곧 다음 화면으로 넘어갑니다" />
       </div>
     </Light>
   )
@@ -78,31 +79,58 @@ function HeadsetIcon({ size = 34, color = C.primary }) {
   )
 }
 
+/* 119 신고 그림 (휴대전화) */
+function PhoneIcon({ size = 150 }) {
+  return (
+    <svg width={size * 0.62} height={size} viewBox="0 0 62 100" aria-hidden="true">
+      <rect x="3" y="3" width="56" height="94" rx="9" fill="#1a1f29" />
+      <rect x="8" y="13" width="46" height="70" rx="3" fill="#fff" />
+      <text x="31" y="56" textAnchor="middle" fontSize="20" fontWeight="800" fill={C.danger} fontFamily="sans-serif">119</text>
+      <circle cx="31" cy="90" r="3" fill="#5b6472" />
+    </svg>
+  )
+}
+
+/* 한 단계 화면: 그림, 지시 한 줄(큰 글씨), 설명(작게, 지시 아님) */
+function StepBody({ pic, title, sub, titleColor = '#1a1f29' }) {
+  return (
+    <div style={{ position: 'absolute', inset: '0 0 96px', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 18 }}>
+      <div style={{ height: 210, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 40 }}>{pic}</div>
+      <div style={{ fontSize: 46, fontWeight: 800, color: titleColor, textAlign: 'center', lineHeight: 1.25 }}>{title}</div>
+      {sub && <div style={{ fontSize: 22, color: '#3a4250', textAlign: 'center' }}>{sub}</div>}
+    </div>
+  )
+}
+
 /* ================= 04 · 시작 대기 · S2 · UI-02 =================
-   블로워 소리가 커서 음성 안내는 헤드셋으로 듣는다(D-40). 시작 전에 착용을 안내한다 */
+   한 화면에 지시 하나(10/5): ① 119 신고와 자동심장충격기 요청 → ② 헤드셋 → ③ 단단한 바닥 → [시작].
+   119 신고와 자동심장충격기 요청이 장치 사용보다 먼저다(119 현장경험자 인터뷰 권고, v2.2).
+   블로워 소리가 커서 음성 안내는 헤드셋으로 듣는다(D-40). 음성 V36(진입) → V40(step:2) → V04(step:3) */
 export function Screen04({ fire }) {
+  const [i, go] = useSteps(3)
+  const body = [
+    <StepBody key="call" pic={<><PhoneIcon /><AedMark size={130} /></>}
+      title={<>먼저 <span style={{ color: C.danger }}>119</span>에 신고하고<br />자동심장충격기를 가져다 달라고 하세요</>} />,
+    <div key="headset" data-headset style={{ position: 'absolute', inset: 0 }}>
+      <StepBody pic={<HeadsetIcon size={170} />} title="헤드셋을 착용해 주세요" sub="장치 소리가 커서, 음성 안내는 헤드셋으로 들립니다" />
+    </div>,
+    <StepBody key="floor" pic={
+      <div style={{ width: 540, height: 190, border: `1px solid ${C.lightLine}`, borderRadius: 10, overflow: 'hidden', background: '#0e1116' }}>
+        <img src={IMG.patient_angled} alt="환자를 바닥에 눕힌 모습" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+      </div>} title="환자를 단단한 바닥에 눕히세요" />,
+  ][i]
   return (
     <Light band={C.success}>
       <Header title="시작 대기" right="4 / 8" />
       <div style={{ flex: 1, position: 'relative' }}>
-        <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 20 }}>
-          <div style={{ width: 540, height: 190, border: `1px solid ${C.lightLine}`, borderRadius: 10, overflow: 'hidden', background: '#0e1116' }}>
-            <img src={IMG.patient_angled} alt="환자를 바닥에 눕힌 모습" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
-          </div>
-          <div style={{ fontSize: 48, fontWeight: 800, color: '#1a1f29' }}>환자를 단단한 바닥에 눕히세요.</div>
-          {/* 119 신고와 자동심장충격기 요청이 장치 사용보다 먼저다(119 현장경험자 인터뷰 권고, v2.2) */}
-          <div style={{ fontSize: 26, fontWeight: 700, color: C.danger }}>먼저 119에 신고하고 자동심장충격기(AED)를 가져다 달라고 하세요.</div>
+        {body}
+        {i > 0 && <Btn variant="ghost" w={160} fs={23} onPress={() => go(i - 1)}
+          style={{ position: 'absolute', left: 28, bottom: 24 }}>이전</Btn>}
+        <div style={{ position: 'absolute', left: 0, right: 0, bottom: 44, display: 'flex', justifyContent: 'center', pointerEvents: 'none' }}>
+          <StepDots n={3} i={i} />
         </div>
-        <div data-headset style={{ position: 'absolute', left: 28, bottom: 24, height: 64, display: 'flex', alignItems: 'center', gap: 12,
-          padding: '0 18px', borderRadius: 12, background: '#eef4ff', border: `1.5px solid ${C.primary}` }}>
-          <HeadsetIcon />
-          <div>
-            <div style={{ fontSize: 22, fontWeight: 800, color: '#1a1f29' }}>헤드셋을 착용해 주세요</div>
-            <div style={{ fontSize: 15, color: '#3a4250', marginTop: 2 }}>장치 소리가 커서 음성 안내는 헤드셋으로 들으세요</div>
-          </div>
-        </div>
-        <Btn w={240} fs={24} onPress={() => fire(EV.START_PRESSED)}
-          style={{ position: 'absolute', right: 28, bottom: 24 }}>시작</Btn>
+        <Btn w={240} fs={24} onPress={() => (i < 2 ? go(i + 1) : fire(EV.START_PRESSED))}
+          style={{ position: 'absolute', right: 28, bottom: 24 }}>{i < 2 ? '다음' : '시작'}</Btn>
       </div>
     </Light>
   )
@@ -143,33 +171,42 @@ export function Screen05({ fire }) {
   )
 }
 
-/* ================= 06 · 몸 위치 맞추기 (흉곽 정렬) · S3·S4 · UI-03/04 ================= */
+/* ================= 06 · 몸 위치 맞추기 (흉곽 정렬) · S3·S4 · UI-03/04 =================
+   한 화면에 지시 하나(10/5): ① 팔과 다리를 몸에 붙이기 → ② 초록색 선에 맞추기.
+   음성 V08(진입) → V07(step:2). 위치 오류면 ②에서 시작하고 V09 */
 export function Screen06({ fire, demo }) {
   const err = demo.positionError
+  const [step, go] = useSteps(2, err ? 1 : 0)
+  const i = err ? 1 : step
+  const lines = i === 1
   return (
     <Light band={err ? C.caution : null} bandH={12}>
       <Header title="몸 위치 맞추기" right={err ? '주의' : '6 / 8'} rightColor={err ? '#9a7000' : null} />
       <div style={{ flex: 1, position: 'relative', display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '22px 28px' }}>
-        <div style={{ position: 'relative', width: 460, height: 230, border: '1px solid #c4cbd4', borderRadius: 10, overflow: 'hidden', background: '#0e1116' }}>
+        <div style={{ position: 'relative', width: 500, height: 250, border: '1px solid #c4cbd4', borderRadius: 10, overflow: 'hidden', background: '#0e1116' }}>
           <img src={IMG.patient_topdown} alt="환자 상체 (위에서 본 모습)" style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'center', display: 'block' }} />
-          <div style={{ position: 'absolute', left: '31%', top: '6%', bottom: '6%', width: 3, background: C.success, transform: 'translateX(-50%)', boxShadow: `0 0 6px ${C.success}` }} />
-          <div style={{ position: 'absolute', top: '50%', left: '6%', right: '6%', height: 3, background: C.success, boxShadow: `0 0 6px ${C.success}` }} />
-          <div style={{ position: 'absolute', left: '31%', top: '50%', width: 24, height: 24, border: `3px solid ${C.success}`, borderRadius: '50%', background: 'rgba(30,142,62,.15)', transform: 'translate(-50%,-50%)', boxShadow: '0 0 8px rgba(30,142,62,.6)' }} />
+          {lines && <>
+            <div style={{ position: 'absolute', left: '31%', top: '6%', bottom: '6%', width: 3, background: C.success, transform: 'translateX(-50%)', boxShadow: `0 0 6px ${C.success}` }} />
+            <div style={{ position: 'absolute', top: '50%', left: '6%', right: '6%', height: 3, background: C.success, boxShadow: `0 0 6px ${C.success}` }} />
+            <div style={{ position: 'absolute', left: '31%', top: '50%', width: 24, height: 24, border: `3px solid ${C.success}`, borderRadius: '50%', background: 'rgba(30,142,62,.15)', transform: 'translate(-50%,-50%)', boxShadow: '0 0 8px rgba(30,142,62,.6)' }} />
+          </>}
         </div>
-        <div style={{ fontSize: 26, fontWeight: 700, marginTop: 18 }}>
-          {err ? '몸 위치를 확인하세요' : '초록색 선에 환자 몸을 맞춰 주세요'}
+        <div style={{ fontSize: 40, fontWeight: 800, marginTop: 20 }}>
+          {err ? '몸 위치를 확인하세요' : lines ? '초록색 선에 환자 몸을 맞춰 주세요' : '팔과 다리를 몸에 붙여 주세요'}
         </div>
-        <div style={{ fontSize: 20, color: '#3a4250', marginTop: 8, textAlign: 'center' }}>
-          긴 초록색 선이 환자 몸 한가운데에 오도록 맞추세요. 환자를 들 필요는 없습니다.<br />
-          바퀴가 지나가도록 팔과 다리를 몸에 붙여 차렷 자세로 해 주세요.
+        <div style={{ fontSize: 21, color: '#3a4250', marginTop: 8, textAlign: 'center' }}>
+          {lines ? '긴 선이 몸 한가운데에 오게 합니다. 환자를 들 필요는 없습니다.' : '장치 바퀴가 몸 옆으로 지나갑니다.'}
         </div>
-        <div style={{ display: 'flex', gap: 12, marginTop: 22 }}>
-          <Btn variant="ghost" w={150} h={80} fs={24} onPress={() => fire(EV.CANCEL)}>취소</Btn>
-          <Btn variant={err ? 'warning' : 'success'} w={440} h={80} fs={30} fw={700}
-            onPress={() => fire(err ? EV.POSITION_ERROR : EV.POSITION_OK)}>
-            {err ? '위치 오류 · 확인' : '맞췄습니다'}
-          </Btn>
-        </div>
+        <Btn variant="ghost" w={160} fs={23} onPress={() => (i === 1 && !err ? go(0) : fire(EV.CANCEL))}
+          style={{ position: 'absolute', left: 28, bottom: 24 }}>{i === 1 && !err ? '이전' : '취소'}</Btn>
+        {!err && <div style={{ position: 'absolute', left: 0, right: 0, bottom: 44, display: 'flex', justifyContent: 'center', pointerEvents: 'none' }}>
+          <StepDots n={2} i={i} />
+        </div>}
+        <Btn variant={err ? 'warning' : 'success'} w={err ? 300 : 280} fs={26} fw={700}
+          onPress={() => (err ? fire(EV.POSITION_ERROR) : i === 0 ? go(1) : fire(EV.POSITION_OK))}
+          style={{ position: 'absolute', right: 28, bottom: 24 }}>
+          {err ? '위치 오류 · 확인' : i === 0 ? '다음' : '맞췄습니다'}
+        </Btn>
       </div>
     </Light>
   )
@@ -220,25 +257,38 @@ export function Screen08({ fire, demo }) {
 /* 09 · 압박점 탐색 · X_SEARCH → screens/Search.jsx */
 
 
-/* ================= 20 · 바퀴 수납 · 안전핀 해제 (X_PIN) =================
-   탐색으로 압박점 위에 선 뒤, 구조자가 안전핀을 빼 바퀴를 수납하고 패드를 바닥에 닿게 한다.
-   다음 화면(S5)에 들어가면 음압을 켠다. */
+/* ================= 20 · 안전핀 뽑기 (X_PIN) =================
+   탐색으로 압박점 위에 선 뒤, 구조자가 안전핀을 뽑는다. 바퀴는 평소 내려가 있고 핀을 뽑으면
+   올라가 패드가 바닥에 닿는다(10/5 팀장 확인. 구조자가 바퀴를 올리지 않는다).
+   한 화면에 지시 하나(10/5): ① 안전핀 → ② 헤드셋 확인(다음 화면부터 블로워 소리, D-40).
+   음성 V14(진입) → V41(step:2). 다음 화면(S5)에 들어가면 음압을 켠다. */
 export function Screen20({ fire }) {
+  const [i, go] = useSteps(2)
   return (
     <Light>
-      <Header title="안전핀 뽑기 · 바퀴 올리기" right="위치 찾음" />
-      <div style={{ flex: 1, position: 'relative', display: 'flex', alignItems: 'center', gap: 30, padding: '0 40px' }}>
-        <div style={{ width: 360, height: 280, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <img src={IMG.device} alt="SAVER 장치" style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain', display: 'block' }} />
+      <Header title="안전핀 뽑기" right="위치 찾음" />
+      <div style={{ flex: 1, position: 'relative' }}>
+        {i === 0
+          ? <div style={{ position: 'absolute', inset: '0 0 96px', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 14 }}>
+              <div style={{ width: 460, height: 230, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <img src={IMG.device} alt="SAVER 장치" style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain', display: 'block' }} />
+              </div>
+              <Dot color={C.success} label="압박 위치를 찾았습니다" />
+              <div style={{ fontSize: 46, fontWeight: 800 }}>안전핀을 뽑으세요</div>
+              <div style={{ fontSize: 22, color: '#3a4250' }}>핀을 뽑으면 바퀴가 올라가고 패드가 바닥에 닿습니다.</div>
+            </div>
+          : <div data-headset style={{ position: 'absolute', inset: '0 0 96px', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 18 }}>
+              <HeadsetIcon size={170} />
+              <div style={{ fontSize: 46, fontWeight: 800 }}>헤드셋을 썼는지 확인하세요</div>
+              <div style={{ fontSize: 22, color: '#3a4250' }}>다음 화면부터 장치 소리가 커집니다.</div>
+            </div>}
+        <Btn variant="ghost" w={160} fs={23} onPress={() => (i === 0 ? fire(EV.CANCEL) : go(0))}
+          style={{ position: 'absolute', left: 28, bottom: 24 }}>{i === 0 ? '취소' : '이전'}</Btn>
+        <div style={{ position: 'absolute', left: 0, right: 0, bottom: 44, display: 'flex', justifyContent: 'center', pointerEvents: 'none' }}>
+          <StepDots n={2} i={i} />
         </div>
-        <div style={{ flex: 1 }}>
-          <div style={{ fontSize: 38, fontWeight: 700, lineHeight: 1.3 }}>압박 위치를 찾았습니다.<br />안전핀을 뽑아<br />바퀴를 올리세요</div>
-          <div style={{ fontSize: 21, color: '#3a4250', marginTop: 16 }}>패드가 바닥에 닿으면 [핀을 뺐습니다]를 누르세요. 다음 화면부터 장치 소리가 커집니다. 헤드셋을 썼는지 확인하세요.</div>
-        </div>
-        <Btn variant="ghost" w={160} fs={23} onPress={() => fire(EV.CANCEL)}
-          style={{ position: 'absolute', left: 28, bottom: 24 }}>취소</Btn>
-        <Btn w={240} fs={24} onPress={() => fire(EV.PIN_RELEASED)}
-          style={{ position: 'absolute', right: 28, bottom: 24 }}>핀을 뺐습니다</Btn>
+        <Btn w={260} fs={24} onPress={() => (i === 0 ? go(1) : fire(EV.PIN_RELEASED))}
+          style={{ position: 'absolute', right: 28, bottom: 24 }}>{i === 0 ? '핀을 뽑았습니다' : '확인했습니다'}</Btn>
       </div>
     </Light>
   )
@@ -255,15 +305,15 @@ export function Screen10({ fire, ctx }) {
         {ctx && typeof ctx.aedPads === 'boolean' && (
           <div style={{ position: 'absolute', top: 28, right: 32, fontSize: 18, fontWeight: 700, pointerEvents: 'none',
             color: ctx.aedPads ? C.success : '#6b7280' }}>
-            자동심장충격기 패드: {ctx.aedPads ? '붙임' : '아직 없음 · 도착하면 압박 화면에서 사용'}
+            자동심장충격기 패드: {ctx.aedPads ? '붙임' : '아직 없음'}
           </div>
         )}
         <div style={{ width: 84, height: 84, borderRadius: '50%', border: `6px solid ${C.danger}`, position: 'relative' }}>
           <div style={{ position: 'absolute', top: '50%', left: '8%', right: '8%', height: 6, background: C.danger, transform: 'translateY(-50%) rotate(45deg)' }} />
         </div>
-        <div style={{ fontSize: 46, fontWeight: 800 }}>시작하려면 화면을 누르세요</div>
-        <div style={{ fontSize: 26, fontWeight: 700, color: C.danger }}>환자에게서 모두 손을 떼세요.</div>
-        <div style={{ marginTop: 2 }}><Dot color={C.primary} label="화면 아무 곳이나 누르면 압박이 시작됩니다" size={14} fontSize={21} /></div>
+        {/* 지시는 손 떼기 하나. 화면 전체가 시작 버튼이다(10/5 한 화면에 지시 하나) */}
+        <div style={{ fontSize: 48, fontWeight: 800 }}>환자에게서 손을 떼세요</div>
+        <div style={{ marginTop: 2 }}><Dot color={C.primary} label="화면을 누르면 압박이 시작됩니다" size={14} fontSize={24} /></div>
         <Btn variant="ghost" w={160} fs={23} onPress={() => fire(EV.CANCEL)}
           style={{ position: 'absolute', left: 28, bottom: 24 }}>취소</Btn>
       </PressArea>

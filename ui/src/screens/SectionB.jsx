@@ -55,8 +55,9 @@ export function Screen12({ fire, waves }) {
         <div style={{ position: 'absolute', top: 24, left: 30, right: 30, bottom: 110, opacity: .22, overflow: 'hidden', borderRadius: 10 }}>
           <Wave d={waves.comp} color={C.wave} dur={null} double={false} />
         </div>
-        <div style={{ position: 'relative', fontSize: 46, fontWeight: 800 }}>재개하려면 누르세요</div>
-        <div style={{ position: 'relative', fontSize: 22, color: '#c5ccd6' }}>환자 상태를 확인하세요.</div>
+        {/* 지시는 하나(10/5): 환자 상태 확인. 다시 시작은 아래 [재개] 버튼 */}
+        <div style={{ position: 'relative', fontSize: 30, fontWeight: 700, color: '#c5ccd6' }}>압박을 멈췄습니다</div>
+        <div style={{ position: 'relative', fontSize: 46, fontWeight: 800 }}>환자 상태를 확인하세요</div>
         <div style={{ position: 'absolute', bottom: 24, display: 'flex', gap: 14 }}>
           <Btn w={230} fs={24} fw={700} onPress={() => fire(EV.RESUME)}>재개</Btn>
           <Btn variant="success" w={250} fs={20} onPress={() => fire(EV.AED_PAUSE)}>자동심장충격기 사용</Btn>

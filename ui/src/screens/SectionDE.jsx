@@ -1,15 +1,18 @@
 import React, { useState, useEffect, useContext } from 'react'
 import { C } from '../tokens'
 import { EV } from '../stateMachine'
-import { Light, Dark, Header, Btn } from '../ui'
+import { Light, Dark, Header, Btn, StepDots, useSteps } from '../ui'
 
 import { IMG } from '../images'
 import { VoiceCtx } from '../voice/VoiceContext'
 
-/* ================= 17 · 수동 해제 · S12 · UI-12 · 주의 ================= */
+/* ================= 17 · 수동 해제 · S12 · UI-12 · 주의 =================
+   한 화면에 지시 하나(10/5): ① 바닥 고정 풀기 → ② 장치를 가슴에서 떼기 → [완료].
+   음성 V27(진입) → V42(step:2) */
 export function Screen17({ fire }) {
+  const [i, go] = useSteps(2)
   const step = (n, imgAlt, extra) => (
-    <div style={{ width: 230, height: 150, background: '#fff', border: `1px solid ${C.lightLine}`, borderRadius: 10, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 10, position: 'relative' }}>
+    <div style={{ width: 260, height: 170, background: '#fff', border: `${n === i + 1 ? 3 : 1}px solid ${n === i + 1 ? C.caution : C.lightLine}`, borderRadius: 10, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 10, position: 'relative', opacity: n === i + 1 ? 1 : 0.35 }}>
       <img src={IMG.device} alt={imgAlt} style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain', display: 'block', ...(n === 2 ? { transform: 'translateY(-6px)' } : {}) }} />
       <span style={{ position: 'absolute', left: 8, top: 6, width: 28, height: 28, borderRadius: '50%', background: C.caution, color: '#fff', font: '700 16px sans-serif', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{n}</span>
       {extra}
@@ -19,17 +22,21 @@ export function Screen17({ fire }) {
   return (
     <Light band={C.caution} bandH={12}>
       <Header title="수동 해제" right="주의" rightColor="#9a7000" h={72} />
-      <div style={{ flex: 1, position: 'relative', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 18 }}>
-        <div style={{ fontSize: 42, fontWeight: 800 }}>장치를 가슴에서 떼세요</div>
-        <div style={{ fontSize: 22, color: '#3a4250' }}>바닥 고정을 푼 뒤 [완료]를 누르세요.</div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 18, marginTop: 6 }}>
+      <div style={{ flex: 1, position: 'relative', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 22, paddingBottom: 80 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 18 }}>
           {step(1, '바닥 고정 풀기')}
           <div style={{ fontSize: 30, color: '#8a929c' }}>→</div>
           {step(2, '장치 들어올리기',
             <span style={{ position: 'absolute', right: 10, bottom: 8, color: C.success, fontSize: 24, fontWeight: 800, animation: 'pulsedot 1.3s infinite' }}>↑</span>)}
         </div>
-        <Btn w={240} fs={24} fw={700} onPress={() => fire(EV.RELEASE_DONE)}
-          style={{ position: 'absolute', right: 28, bottom: 24 }}>완료</Btn>
+        <div style={{ fontSize: 46, fontWeight: 800 }}>{i === 0 ? '바닥 고정을 푸세요' : '장치를 가슴에서 떼세요'}</div>
+        {i > 0 && <Btn variant="ghost" w={160} fs={23} onPress={() => go(0)}
+          style={{ position: 'absolute', left: 28, bottom: 24 }}>이전</Btn>}
+        <div style={{ position: 'absolute', left: 0, right: 0, bottom: 44, display: 'flex', justifyContent: 'center', pointerEvents: 'none' }}>
+          <StepDots n={2} i={i} />
+        </div>
+        <Btn w={240} fs={24} fw={700} onPress={() => (i === 0 ? go(1) : fire(EV.RELEASE_DONE))}
+          style={{ position: 'absolute', right: 28, bottom: 24 }}>{i === 0 ? '다음' : '완료'}</Btn>
       </div>
     </Light>
   )

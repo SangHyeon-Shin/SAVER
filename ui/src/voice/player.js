@@ -44,6 +44,8 @@ export function createVoice({ prompts, base = 'voice/', makeAudio = defaultAudio
       last = ids; queue = queue.concat(ids); next()
     },
     /** 다시 듣기: 마지막으로 시작한 묶음 */
+    cue(when) { const ids = planEvent(prompts, node, when)   // 화면 안 단계: 앞 문구를 끊고 그 단계 문구
+      if (!ids.length) return; stop(); last = ids; queue = ids.slice(); next() },
     replay() { if (last.length) { stop(); queue = last.slice(); next() } },
     setMuted(m) { muted = !!m; if (muted) stop() },
     get muted() { return muted },

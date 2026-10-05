@@ -54,7 +54,7 @@ export function Screen09({ fire, ctx, search, searchCtl, setPatient }) {
           <Btn variant="ghost" w={150} h={64} fs={23} onPress={() => fire(EV.CANCEL)}>취소</Btn>
           <div style={{ flex: 1, fontSize: 16, color: MUTED, lineHeight: 1.35, textAlign: 'center' }}>
             누르는 부분이 가슴을 {v.rule && v.rule.press_mm ? v.rule.press_mm : '—'} mm 누른 채 이동하며 힘을 잽니다.<br />
-            환자 몸 위치를 먼저 확인하세요. 사람 몸에서는 검증되지 않았습니다.
+            사람 몸에서는 검증되지 않았습니다.
           </div>
           {action}
         </div>

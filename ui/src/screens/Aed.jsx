@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useContext } from 'react'
 import { C } from '../tokens'
 import { EV } from '../stateMachine'
-import { Light, Dark, Header, Btn, Dot } from '../ui'
+import { Light, Dark, Header, Btn } from '../ui'
 import { VoiceCtx } from '../voice/VoiceContext'
 
 /* ============================================================
@@ -33,13 +33,10 @@ export function Screen21({ fire }) {
           <AedMark size={128} />
         </div>
         <div style={{ flex: 1 }}>
-          <div style={{ fontSize: 40, fontWeight: 800, lineHeight: 1.3 }}>자동심장충격기가 있으면<br />지금 패드를 붙이세요</div>
-          <div style={{ fontSize: 21, color: '#3a4250', marginTop: 16, lineHeight: 1.55 }}>
-            패드를 붙일 곳은 패드에 그려진 그림을 따르세요.<br />
-            가슴 가운데 아래쪽(압박 위치)은 비워 두세요.
-          </div>
-          <div style={{ fontSize: 18, color: '#6b7280', marginTop: 12, lineHeight: 1.5 }}>
-            아직 없으면 [아직 없음]을 누르고 진행하세요. 압박 중에 도착하면 압박 화면의 [자동심장충격기 사용]을 누릅니다.
+          {/* 지시는 패드 붙이기 하나(10/5). 붙일 자리는 같은 지시의 설명이다. 없을 때는 [아직 없음] 버튼 */}
+          <div style={{ fontSize: 42, fontWeight: 800, lineHeight: 1.3 }}>자동심장충격기가 있으면<br />지금 패드를 붙이세요</div>
+          <div style={{ fontSize: 22, color: '#3a4250', marginTop: 16, lineHeight: 1.55 }}>
+            패드 그림대로 붙이고, 가슴 가운데(압박 위치)는 비워 둡니다.
           </div>
         </div>
         <Btn variant="ghost" w={150} fs={23} onPress={() => fire(EV.CANCEL)}
@@ -65,7 +62,6 @@ export function Screen22({ fire, ctx, aedWarnS }) {
   }, [])
   const warnSet = typeof aedWarnS === 'number' && aedWarnS > 0
   const over = warnSet && sec >= aedWarnS
-  const padsOn = ctx.aedPads === true
   // 장치 음성은 진입 1회 뒤 끈다. 경고 기준이 정해져 있고 넘었을 때만 V39 (voice/plan.js)
   const vc = useContext(VoiceCtx)
   useEffect(() => { if (over && vc) vc.voice.event('aed_pause_warn') }, [over])
@@ -92,17 +88,12 @@ export function Screen22({ fire, ctx, aedWarnS }) {
             <AedMark size={58} />
             <div style={{ fontSize: 34, fontWeight: 800, lineHeight: 1.2 }}>자동심장충격기의<br />음성 안내를 따르세요</div>
           </div>
-          {[
-            ['분석과 충격 중에는 환자에게서 손을 떼세요.', true],
-            ['자동심장충격기가 가슴 압박을 다시 하라고 하면 [압박 재개]를 누르세요.', true],
-            [padsOn ? '패드: 붙임 확인됨' : '패드를 아직 붙이지 않았다면 지금 붙이세요. 위치는 패드 그림을 따릅니다.', !padsOn],
-          ].map(([t, strong], i) => (
-            <div key={i} style={{ background: C.darkCard, borderRadius: 10, padding: '13px 16px', display: 'flex', alignItems: 'center', gap: 12 }}>
-              <span style={{ width: 10, height: 10, borderRadius: '50%', background: strong ? C.caution : C.success, flexShrink: 0 }} />
-              <div style={{ fontSize: 21, fontWeight: strong ? 700 : 500, color: strong ? C.darkText : '#b9c2cf' }}>{t}</div>
-            </div>
-          ))}
-          <div style={{ marginTop: 2 }}><Dot color={C.darkSub} label="이 장치의 음성은 꺼집니다 · 자동심장충격기 안내를 따르세요" size={9} fontSize={16} /></div>
+          {/* 지시는 하나(10/5): 자동심장충격기 음성 안내 따르기. 손 떼기, 패드 붙이기는 자동심장충격기가 직접 안내한다 */}
+          <div style={{ fontSize: 22, color: '#b9c2cf', lineHeight: 1.5, marginTop: 6 }}>
+            이 장치는 조용히 기다립니다.<br />
+            가슴 압박을 하라는 안내가 나오면<br />
+            아래 [압박 재개]를 누릅니다.
+          </div>
         </div>
       </div>
       <div style={{ height: 96, display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 26px', flexShrink: 0 }}>

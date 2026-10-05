@@ -111,6 +111,33 @@ export function Dot({ color, label, size = 12, fast = false, fontSize = 20 }) {
   )
 }
 
+/** 화면 안 단계 표시 (한 화면에 지시 하나, 10/5). n 단계 중 i 번째(0부터) */
+export function StepDots({ n, i, dark = false }) {
+  const on = dark ? '#e6ebf2' : C.primary
+  const off = dark ? 'rgba(255,255,255,.22)' : '#c9d2de'
+  return (
+    <div data-steps={`${i + 1}/${n}`} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+      {Array.from({ length: n }, (_, k) => (
+        <span key={k} style={{ width: k === i ? 26 : 10, height: 10, borderRadius: 5, background: k <= i ? on : off, transition: 'width .2s' }} />
+      ))}
+      <span style={{ marginLeft: 6, fontSize: 17, fontWeight: 700, color: dark ? '#b9c2cf' : '#6b7280' }}>{i + 1} / {n}</span>
+    </div>
+  )
+}
+
+/** 화면 안 단계 상태. 단계가 바뀌면 그 단계 음성(when 'step:N')을 앞 문구를 끊고 재생한다.
+    처음 보이는 단계의 음성은 화면 진입 문구(enter, 오류면 position_error)가 맡는다 */
+export function useSteps(n, start = 0) {
+  const vc = useContext(VoiceCtx)
+  const [i, setI] = React.useState(start)
+  const first = React.useRef(true)
+  React.useEffect(() => {
+    if (first.current) { first.current = false; return }   // 진입 음성은 App 이 재생
+    if (vc) vc.voice.cue('step:' + (i + 1))
+  }, [i])
+  return [i, (k) => setI(Math.max(0, Math.min(n - 1, k)))]
+}
+
 /** 불확정 진행 바 */
 export function Progress({ w = 300, color = C.success, dur = '1.8s' }) {
   return (
