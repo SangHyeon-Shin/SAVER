@@ -55,15 +55,13 @@ const check = (name, ok, detail = '') => {
 
   tap(B('이동 완료'))
   check('04 시작 대기', await until(has('시작 대기')))
-  // 한 화면에 지시 하나(10/5): 119 → 헤드셋 → 바닥, 단계마다 지시 하나만 보인다
+  // 한 화면에 지시 하나(D-42): 헤드셋이 먼저(D-43) → 119 [시작]. 단단한 바닥은 사용 조건 전제라 안내 없음
   const steps = () => d.querySelector('[data-steps]')?.getAttribute('data-steps')
-  check('04 ① 119 신고·자동심장충격기 요청 먼저, 다른 지시 없음', has('119에 신고하고')() && has('자동심장충격기를 가져다')()
-    && !has('헤드셋')() && !has('단단한 바닥')() && steps() === '1/3')
-  tap(BX('다음'))
-  check('04 ② 헤드셋 착용 안내 (D-40), 다른 지시 없음', await until(has('헤드셋을 착용해 주세요'))
-    && !!d.querySelector('[data-headset]') && !has('119에 신고')() && !has('단단한 바닥')() && steps() === '2/3')
-  tap(BX('다음'))
-  check('04 ③ 단단한 바닥, 시작 버튼', await until(has('단단한 바닥에 눕히세요')) && !has('헤드셋')() && !!BX('시작') && steps() === '3/3')
+  check('04 ① 헤드셋 착용이 가장 먼저, 다른 지시 없음 (D-43)', has('헤드셋을 착용해 주세요')() && !!d.querySelector('[data-headset]')
+    && !has('119에 신고')() && !has('단단한 바닥')() && steps() === '1/2')
+  tap(BX('헤드셋을 썼습니다'))
+  check('04 ② 119 신고·자동심장충격기 요청, 시작 버튼', await until(has('119에 신고하고')) && has('자동심장충격기를 가져다')()
+    && !has('헤드셋')() && !has('단단한 바닥')() && !!BX('시작') && steps() === '2/2')
 
   tap(BX('시작'))
   check('05 겉옷 제거 안내(인식 없음, D-38)', await until(has('겉옷을 벗겨 주세요'))
@@ -260,8 +258,11 @@ const check = (name, ok, detail = '') => {
   check('음성 문구: TTS 입력에 어려운 말 없음(일반인 기준, direction.plain)', VB.length >= 10
     && VP.prompts.every((p) => !VB.some((w) => p.say.includes(w))),
     VP.prompts.filter((p) => VB.some((w) => p.say.includes(w))).map((p) => p.id).join(','))
-  check('음성 문구: 시작 대기 첫 문구는 119 신고, 2단계 헤드셋 착용 (D-40)', VP.prompts.some((p) => p.node === 'S2' && p.when === 'enter' && p.say.includes('일일구'))
-    && VP.prompts.some((p) => p.node === 'S2' && p.when === 'step:2' && p.say.includes('헤드셋')))
+  check('음성 문구: 헤드셋 착용 전 화면은 무음, 첫 음성은 착용 뒤 119 안내 (D-43)',
+    ['S1', 'X_WHEELS', 'X_MOVE'].every((n) => VP.prompts.filter((p) => p.node === n).every((p) => p.silent))
+    && VP.prompts.filter((p) => p.node === 'S2' && p.when === 'enter').every((p) => p.silent)
+    && VP.prompts.some((p) => p.node === 'S2' && p.when === 'step:2' && p.say.includes('일일구') && !p.silent)
+    && !VP.prompts.some((p) => p.say.includes('단단한 바닥')))
   check('음성 문구: 바퀴를 내리거나 올리라는 문구 없음 (바퀴는 안전핀으로 저절로, 10/5)',
     VP.prompts.filter((p) => !p.hold).every((p) => !/바퀴를 (내리|올려)/.test(p.say)) && VP.prompts.find((p) => p.id === 'V02').hold === true)
   check('음성 문구: 시험 묶음이 목록에 있고 세 등급을 모두 포함', VP.pilot.every((i) => vids.includes(i))
@@ -299,8 +300,8 @@ const check = (name, ok, detail = '') => {
   // 음성 재생 규칙과 재생기 (voice/plan.js, voice/player.js)
   const VPl = await import('../src/voice/plan.js')
   const VPP = VP.prompts
-  check('재생 규칙: 시작 대기는 진입 때 119만, 헤드셋과 눕히기는 단계 문구', VPl.planEnter(VPP, 'S2').join() === 'V36'
-    && VPl.planEvent(VPP, 'S2', 'step:2').join() === 'V40' && VPl.planEvent(VPP, 'S2', 'step:3').join() === 'V04', VPl.planEnter(VPP, 'S2').join())
+  check('재생 규칙: 헤드셋 착용 전(부팅, 이동, 시작 대기 진입)은 무음, 착용 뒤 2단계에서 119 안내', ['S1', 'X_WHEELS', 'X_MOVE', 'S2'].every((n) => VPl.planEnter(VPP, n).length === 0)
+    && VPl.planEvent(VPP, 'S2', 'step:2').join() === 'V36', VPl.planEnter(VPP, 'S2').join())
   check('재생 규칙: 단계 화면 (몸 위치, 안전핀, 수동 해제)', VPl.planEnter(VPP, 'S3S4').join() === 'V08' && VPl.planEvent(VPP, 'S3S4', 'step:2').join() === 'V07'
     && VPl.planEnter(VPP, 'X_PIN').join() === 'V14' && VPl.planEvent(VPP, 'X_PIN', 'step:2').join() === 'V41'
     && VPl.planEnter(VPP, 'S12').join() === 'V27' && VPl.planEvent(VPP, 'S12', 'step:2').join() === 'V42'
@@ -324,13 +325,17 @@ const check = (name, ok, detail = '') => {
   await wait(10)
   check('재생기: 없는 파일은 건너뛰고 다음', fake.join() === 'voice/V20.mp3,voice/V22.mp3', fake.join())
   fake.length = 0
-  pv.enter('S2'); const o36 = objs[objs.length - 1]
-  o36.onended(); await wait(10)
-  check('재생기: 단계 문구는 구조자가 다음을 누르기 전에는 재생 안 함', fake.join() === 'voice/V36.mp3', fake.join())
-  pv.enter('S2'); const o36b = objs[objs.length - 1]
-  pv.cue('step:2'); pv.cue('step:3')
-  check('재생기: 단계를 넘기면 앞 문구를 끊고 그 단계 문구만', o36b.paused && objs[objs.length - 2].paused
-    && fake.slice(-2).join() === 'voice/V40.mp3,voice/V04.mp3' && pv.lastIds.join() === 'V04', fake.join())
+  pv.enter('S2')
+  check('재생기: 시작 대기 진입(헤드셋 착용 전)은 무음', fake.length === 0, fake.join())
+  pv.cue('step:2')
+  check('재생기: [헤드셋을 썼습니다] 뒤 119 안내가 첫 음성', fake.join() === 'voice/V36.mp3', fake.join())
+  pv.enter('S3S4'); const o08 = objs[objs.length - 1]
+  o08.onended(); await wait(10)
+  check('재생기: 단계 문구는 구조자가 다음을 누르기 전에는 재생 안 함', fake.slice(-1).join() === 'voice/V08.mp3', fake.join())
+  pv.enter('S3S4'); const o08b = objs[objs.length - 1]
+  pv.cue('step:2')
+  check('재생기: 단계를 넘기면 앞 문구를 끊고 그 단계 문구만', o08b.paused
+    && fake.slice(-1).join() === 'voice/V07.mp3' && pv.lastIds.join() === 'V07', fake.join())
   pv.enter('S6')
   check('재생기: 화면이 바뀌면 끊고 새 문구', objs[objs.length - 2].paused && fake[fake.length - 1] === 'voice/V16.mp3')
   pv.setMuted(true); pv.enter('S2'); pv.event('battery_low')

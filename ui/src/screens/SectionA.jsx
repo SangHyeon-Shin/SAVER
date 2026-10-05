@@ -103,21 +103,19 @@ function StepBody({ pic, title, sub, titleColor = '#1a1f29' }) {
 }
 
 /* ================= 04 · 시작 대기 · S2 · UI-02 =================
-   한 화면에 지시 하나(10/5): ① 119 신고와 자동심장충격기 요청 → ② 헤드셋 → ③ 단단한 바닥 → [시작].
-   119 신고와 자동심장충격기 요청이 장치 사용보다 먼저다(119 현장경험자 인터뷰 권고, v2.2).
-   블로워 소리가 커서 음성 안내는 헤드셋으로 듣는다(D-40). 음성 V36(진입) → V40(step:2) → V04(step:3) */
+   한 화면에 지시 하나(D-42): ① 헤드셋 착용 → ② 119 신고와 자동심장충격기 요청 [시작].
+   헤드셋이 가장 먼저다. 음성 안내(TTS)는 헤드셋으로만 내고, 구조자가 [헤드셋을 썼습니다]를
+   누른 뒤부터 쓴다(D-43). 그래서 이 화면 진입 음성(V40)과 그 앞 화면 음성(V01~V03)은 무음이고,
+   ②의 119 안내(V36)가 첫 음성이다. 단단한 바닥은 사용 조건으로 전제하므로 안내하지 않는다(D-43).
+   119 신고와 자동심장충격기 요청이 장치 사용보다 먼저다(119 현장경험자 인터뷰 권고, v2.2) */
 export function Screen04({ fire }) {
-  const [i, go] = useSteps(3)
+  const [i, go] = useSteps(2)
   const body = [
+    <div key="headset" data-headset style={{ position: 'absolute', inset: 0 }}>
+      <StepBody pic={<HeadsetIcon size={170} />} title="헤드셋을 착용해 주세요" sub="장치 소리가 커서, 음성 안내는 헤드셋으로만 나옵니다" />
+    </div>,
     <StepBody key="call" pic={<><PhoneIcon /><AedMark size={130} /></>}
       title={<>먼저 <span style={{ color: C.danger }}>119</span>에 신고하고<br />자동심장충격기를 가져다 달라고 하세요</>} />,
-    <div key="headset" data-headset style={{ position: 'absolute', inset: 0 }}>
-      <StepBody pic={<HeadsetIcon size={170} />} title="헤드셋을 착용해 주세요" sub="장치 소리가 커서, 음성 안내는 헤드셋으로 들립니다" />
-    </div>,
-    <StepBody key="floor" pic={
-      <div style={{ width: 540, height: 190, border: `1px solid ${C.lightLine}`, borderRadius: 10, overflow: 'hidden', background: '#0e1116' }}>
-        <img src={IMG.patient_angled} alt="환자를 바닥에 눕힌 모습" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
-      </div>} title="환자를 단단한 바닥에 눕히세요" />,
   ][i]
   return (
     <Light band={C.success}>
@@ -127,10 +125,10 @@ export function Screen04({ fire }) {
         {i > 0 && <Btn variant="ghost" w={160} fs={23} onPress={() => go(i - 1)}
           style={{ position: 'absolute', left: 28, bottom: 24 }}>이전</Btn>}
         <div style={{ position: 'absolute', left: 0, right: 0, bottom: 44, display: 'flex', justifyContent: 'center', pointerEvents: 'none' }}>
-          <StepDots n={3} i={i} />
+          <StepDots n={2} i={i} />
         </div>
-        <Btn w={240} fs={24} onPress={() => (i < 2 ? go(i + 1) : fire(EV.START_PRESSED))}
-          style={{ position: 'absolute', right: 28, bottom: 24 }}>{i < 2 ? '다음' : '시작'}</Btn>
+        <Btn w={i === 0 ? 300 : 240} fs={24} onPress={() => (i === 0 ? go(1) : fire(EV.START_PRESSED))}
+          style={{ position: 'absolute', right: 28, bottom: 24 }}>{i === 0 ? '헤드셋을 썼습니다' : '시작'}</Btn>
       </div>
     </Light>
   )

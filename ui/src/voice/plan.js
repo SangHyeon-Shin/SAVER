@@ -16,7 +16,7 @@ export function chain(prompts, first) {
     prompts.filter((q) => q.when === 'after:' + p.id).forEach(add)
   }
   first.forEach(add)
-  const held = new Set(prompts.filter((p) => p.hold).map((p) => p.id))
+  const held = new Set(prompts.filter((p) => p.hold || p.silent).map((p) => p.id))   // 보류(검토 전)와 무음(헤드셋 착용 전, D-43)
   return out.filter((id) => !held.has(id))
 }
 
