@@ -69,6 +69,11 @@ class CsvLogger(object):
     def event(self, source, name, **kw):
         self._row(source=source, decision=name)
 
+    def link(self, stats):
+        """링크 품질 누적 횟수를 한 줄로 남긴다(예: LINK link_up=1 link_down=0 ...)."""
+        self._row(source="link",
+                  decision="LINK " + " ".join("%s=%s" % (k, v) for k, v in stats.items()))
+
     def transition(self, frm, event, to, state):
         self.state = state or to
         self._row(source="fsm", decision="%s:%s->%s" % (event, frm, to))

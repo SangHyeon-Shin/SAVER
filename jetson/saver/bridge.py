@@ -123,11 +123,14 @@ def warn_unset():
 
 class Bridge(object):
 
+    LINK_LOG_S = 10.0       # 링크 품질 누적 횟수를 세션 기록에 남기는 주기
+
     def __init__(self, args):
         self.args = args
         self.clients = set()
         self.loop = None
         self.log = CsvLogger(args.logdir)
+        self._link_logged_at = time.monotonic()
 
         # 탐색으로 압박점 위로 이동을 마쳤는지. 3단계 탐색 모듈이 켠다.
         # 꺼져 있으면 SET_CP_POINT 를 보내지 않는다(압박점을 임의로 정하지 않는다).
@@ -282,8 +285,15 @@ class Bridge(object):
         elif sev == 2:                     # 경고 → 오류 화면
             self.fsm.fire("ERROR")
 
+    def log_link(self):
+        """링크 품질 누적 횟수를 세션 기록에 한 줄 남긴다(10/11 모터 없이, 10/12 모터 구동 비교용)."""
+        self._link_logged_at = time.monotonic()
+        self.log.link(self.link.link_stats())
+
     def _on_link(self, connected, port):
         self.log.event("sys", "LINK_UP" if connected else "LINK_DOWN")
+        if not connected:
+            self.log_link()
         self.push({"type": "link", "connected": connected, "port": port})
         self.init.on_link(connected)
         if not connected and self.fsm.is_running():
@@ -355,6 +365,8 @@ class Bridge(object):
             self.init.tick()
             if self.link.connected and self.link.is_stale() and self.link.last_tel_at:
                 self.push({"type": "telemetry", "stale": True})
+            if time.monotonic() - self._link_logged_at >= self.LINK_LOG_S:
+                self.log_link()
 
     async def main(self):
         self.loop = asyncio.get_event_loop()
@@ -408,6 +420,7 @@ def main():
         print("\n종료")
     finally:
         b.link.stop()
+        b.log_link()
         b.log.close()
 
 

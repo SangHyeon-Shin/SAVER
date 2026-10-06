@@ -12,6 +12,8 @@
     재부팅(boot_id 변화) 감지, tn 역전 폐기, 장치 플래그(mcu_flags)
   - 완료 이벤트 유실 때 같은 seq·aid 재전송(resend, 초안 §4.4)
   - 경과 시간은 단조 시계(time.monotonic)
+  - 링크 품질 기록: 끊김, 버린 줄, 재전송, 재부팅 등 누적 횟수(link_stats).
+    10/11(모터 없이)과 10/12(모터 구동)를 같은 항목으로 비교하기 위한 것(docs/noise_emi.md)
 
 담당하지 않는 것
   - 상태머신 판단 (state_machine.py)
@@ -31,6 +33,23 @@ except ImportError:                     # 없으면 raw 파일 IO 로 대체 (pt
     HAVE_PYSERIAL = False
 
 TEENSY_VID_PID = (0x16C0, 0x0483)
+
+# 링크 품질 기록 항목(누적 횟수). 순서는 기록 줄의 순서다
+LINK_STATS = (
+    "link_up",        # 연결(재연결 포함)
+    "link_down",      # 끊김
+    "bad_line",       # 깨진 줄(파싱 실패)을 버림
+    "overflow",       # 줄바꿈 없이 512 byte를 넘어 버퍼를 비움
+    "out_of_order",   # 같은 boot_id 에서 tn 이 줄어 버림
+    "ack_retry",      # ACK 가 없어 다시 보냄
+    "ack_timeout",    # 재전송 뒤에도 ACK 가 없어 통신 오류(2-CM-002)
+    "resend",         # 완료 이벤트 유실로 같은 seq·aid 재전송
+    "reboot",         # Teensy 재부팅(boot_id 변화)
+    "fault",          # 장치 상태가 FAULT 로 바뀜
+    "mcu_err",        # 장치가 보낸 오류 메시지
+    "stale",          # 텔레메트리가 끊겨 stale 로 바뀜
+    "tel_rx",         # 받은 텔레메트리(비교 기준)
+)
 
 
 def find_port():
@@ -126,6 +145,26 @@ class TeensyLink(object):
         self._pair = None               # (tel, mot, 수신 시각): 같은 tn 의 짝
         self._sent = collections.OrderedDict()   # seq -> 보낸 비조회 명령(재전송용, 최근 SENT_KEEP 개)
 
+        # 링크 품질 기록(누적). 송신은 다른 스레드에서도 불리므로 별도 잠금
+        self._stat_lock = threading.Lock()
+        self._stats = collections.OrderedDict((k, 0) for k in LINK_STATS)
+        self._was_stale = False
+
+    # ── 링크 품질 기록 ──────────────────────────────────────
+    def _count(self, key, n=1):
+        with self._stat_lock:
+            self._stats[key] += n
+
+    def link_stats(self):
+        """누적 링크 품질 횟수(사본, LINK_STATS 순서)."""
+        with self._stat_lock:
+            return collections.OrderedDict(self._stats)
+
+    def _set_mcu_state(self, state):
+        if state == "FAULT" and self.mcu_state != "FAULT":
+            self._count("fault")
+        self.mcu_state = state
+
     # ── 연결 ────────────────────────────────────────────────
     def _open(self):
         path = self.port_hint or find_port()
@@ -142,6 +181,8 @@ class TeensyLink(object):
         self._buf = b""
         self.connected = True
         self.comm_fault = False
+        self._was_stale = True          # 새 텔레메트리가 올 때까지는 끊김 중이라 stale 로 다시 세지 않는다
+        self._count("link_up")
         self.on_link(True, path)
         self._handshake()               # v1.1: 다른 명령보다 먼저 GET_INFO (§2.4)
         self.send("GET_STATUS")         # 재연결 시 상태 재동기화 (명세 §9)
@@ -186,6 +227,7 @@ class TeensyLink(object):
         self._ser = None
         if self.connected:
             self.connected = False
+            self._count("link_down")
             self.on_link(False, None)
 
     # ── 송신 ────────────────────────────────────────────────
@@ -232,6 +274,7 @@ class TeensyLink(object):
             if msg is None:
                 return False
             self._pending[seq] = [msg, time.monotonic(), 0]
+        self._count("resend")
         self._write(msg)
         if self.log:
             self.log.event("cmd", "RESEND:" + str(msg.get("cmd")), seq=seq)
@@ -269,15 +312,16 @@ class TeensyLink(object):
                 self.on_error({"code": msg.get("err", ""), "sev": P.severity(msg.get("err")),
                                "why": msg.get("why", ""), "seq": seq})
             if msg.get("state"):
-                self.mcu_state = msg["state"]
+                self._set_mcu_state(msg["state"])
             self.on_ack(msg)
 
         elif t == "tel":
             if not self._in_order("tel", msg):
                 return
+            self._count("tel_rx")
             self.last_tel = msg
             self.last_tel_at = time.monotonic()
-            self.mcu_state = msg.get("state", self.mcu_state)
+            self._set_mcu_state(msg.get("state", self.mcu_state))
             self.on_telemetry(msg)
 
         elif t == "mot":
@@ -295,6 +339,7 @@ class TeensyLink(object):
             self.on_event(msg)
 
         elif t == "err":
+            self._count("mcu_err")
             self.on_error(msg)
 
     def _read_once(self):
@@ -310,9 +355,12 @@ class TeensyLink(object):
             raw, self._buf = self._buf.split(b"\n", 1)
             msg = P.decode(raw)
             if msg is None:
+                if raw.strip():         # 빈 줄은 손상이 아니므로 세지 않는다
+                    self._count("bad_line")
                 continue                # 깨진 줄은 버리고 계속 (명세 §3)
             self._handle(msg)
         if len(self._buf) > P.MAX_LINE:
+            self._count("overflow")
             self._buf = b""             # 줄바꿈 없이 넘치면 버린다
 
     # ── ACK 감시 / 하트비트 ─────────────────────────────────
@@ -338,10 +386,18 @@ class TeensyLink(object):
                 else:
                     del self._pending[seq]
                     expired.append(("fail", ent[0]))
+        stale = bool(self._ser and self.last_tel_at and self.is_stale())
+        if stale and not self._was_stale:
+            self._count("stale")
+        self._was_stale = stale
         for kind, msg in expired:
             if kind == "retry":
+                self._count("ack_retry")
+                if self.log:
+                    self.log.event("cmd", "ACK_RETRY:" + str(msg.get("cmd")), seq=msg.get("seq"))
                 self._write(msg)
             else:
+                self._count("ack_timeout")
                 self.comm_fault = True
                 self.on_error({"code": "2-CM-002", "sev": 2, "seq": msg.get("seq"),
                                "why": "ACK_TIMEOUT:" + str(msg.get("cmd"))})
@@ -353,12 +409,14 @@ class TeensyLink(object):
             return True
         last = self._tn_last.get(kind)
         if last and last[0] == boot and tn < last[1]:
+            self._count("out_of_order")
             return False
         self._tn_last[kind] = (boot, tn)
         return True
 
     def _rebooted(self, new_boot):
         """Teensy 재부팅: 이전 값과 진행 중 요청을 버리고 GET_INFO 부터 다시(§2.5 재부팅, §3.3-3)."""
+        self._count("reboot")
         if self.log:
             self.log.event("sys", "MCU_REBOOT", seq=new_boot)
         self.boot_id = new_boot

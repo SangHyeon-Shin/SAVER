@@ -302,6 +302,10 @@ sim2 = subprocess.Popen([sys.executable, "-u",
     stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
 time.sleep(3.0)
 ck("자동 재연결", link.connected and not link.is_stale())
+ls = link.link_stats()
+ck("링크 품질: 고장 주입·송신 중단·재연결이 누적 횟수에 남음",
+   ls["link_up"] >= 2 and ls["link_down"] >= 1 and ls["stale"] >= 1 and ls["ack_timeout"] >= 1
+   and ls["fault"] >= 1 and ls["mcu_err"] >= 1 and ls["tel_rx"] > 20, str(dict(ls)))
 link.stop(); sim2.terminate(); sim2.wait()
 try: os.remove("/tmp/ttyFAKE_TEST")
 except OSError: pass
@@ -511,6 +515,50 @@ lk_e.proto, lk_e.info = "1.1", {"drv_enc_mode": 1, "drv_enc_side": "L"}
 mode_1 = lk_e.drv_enc_mode
 lk_e.info = {}
 ck("링크: v1.1 전 None, INFO 의 모드, 없으면 2", mode_none is None and mode_1 == 1 and lk_e.drv_enc_mode == 2)
+
+# 링크 품질 기록(노이즈 대책): 버린 줄, 재전송, 재부팅 등을 센다
+class _RW(object):
+    def __init__(self, chunks): self.chunks = list(chunks); self.out = []
+    def read(self, n): return self.chunks.pop(0) if self.chunks else b""
+    def write(self, b): self.out.append(P.decode(b))
+    def close(self): pass
+def _lk():
+    k = TeensyLink(port="/nonexistent"); k.proto = "1.0"; k.connected = True; k._ser = _RW([])
+    return k
+lq = _lk()
+lq._ser.chunks = [b'{"broken\n', b'\n',
+                  b'{"v":1,"t":"tel","tn":5,"boot_id":7,"state":"IDLE"}\n',
+                  b'{"v":1,"t":"tel","tn":3,"boot_id":7,"state":"IDLE"}\n',
+                  b'{"v":1,"t":"tel","tn":6,"boot_id":7,"state":"FAULT"}\n',
+                  b'{"v":1,"t":"tel","tn":7,"boot_id":7,"state":"FAULT"}\n',
+                  b'{"v":1,"t":"err","code":"3-CU-021","sev":3}\n',
+                  b"x" * 600]
+for _ in range(10): lq._read_once()
+st = lq.link_stats()
+ck("링크 품질: 깨진 줄 1(빈 줄은 세지 않음), tn 역전 1, 넘침 1",
+   st["bad_line"] == 1 and st["out_of_order"] == 1 and st["overflow"] == 1, str(dict(st)))
+ck("링크 품질: 텔레메트리 3, FAULT 전환 1(연속 FAULT 는 1회), 장치 오류 1",
+   st["tel_rx"] == 3 and st["fault"] == 1 and st["mcu_err"] == 1, str(dict(st)))
+lq.boot_id = 7
+lq._ser.chunks = [b'{"v":1,"t":"tel","tn":1,"boot_id":8,"state":"IDLE"}\n']
+lq._read_once()
+ck("링크 품질: boot_id 변화 → 재부팅 1", lq.link_stats()["reboot"] == 1, str(lq.link_stats()["reboot"]))
+lr = _lk(); sq = lr.send("ARM")
+for _ in range(3):
+    lr._pending[sq][1] -= 1.0
+    lr._tick()
+lr.resend(sq)
+st = lr.link_stats()
+ck("링크 품질: ACK 재전송 2회 뒤 통신 오류 1, 완료 이벤트 재전송 1",
+   st["ack_retry"] == 2 and st["ack_timeout"] == 1 and st["resend"] == 1, str(dict(st)))
+ls3 = _lk()
+ls3.last_tel_at = time.monotonic() - 1.0; ls3._tick(); ls3._tick()
+n_a = ls3.link_stats()["stale"]
+ls3.last_tel_at = time.monotonic(); ls3._tick()
+ls3.last_tel_at = time.monotonic() - 1.0; ls3._tick()
+ck("링크 품질: stale 은 전환만 셈(이어지는 동안은 1회)", n_a == 1 and ls3.link_stats()["stale"] == 2,
+   "%d %d" % (n_a, ls3.link_stats()["stale"]))
+ck("링크 품질: 항목 순서 고정", list(lq.link_stats())[:3] == ["link_up", "link_down", "bad_line"])
 
 nl = TeensyLink(port="/nonexistent")
 ck("GET_INFO 확인 전: 비조회 명령은 보류, 조회·정지는 즉시",
@@ -987,6 +1035,10 @@ ck("브리지: 비상정지가 눌린 채 다시 점검 → S10(원인 init), AR
 sim6.stdin.write(b"ok\n"); sim6.stdin.flush(); time.sleep(0.4)
 br.fsm.fire("RECHECK")
 ck("브리지: 비상정지 해제 뒤 재확인 → 다시 X_MOVE", wait_for(lambda: br.fsm.node == "X_MOVE", 5.0), br.fsm.node)
+br.log_link()
+with open(br.log.path) as _f:
+    _txt = _f.read()
+ck("브리지: 세션 기록에 링크 품질 줄(LINK link_up=1 ...)", "LINK link_up=1 link_down=0 bad_line=" in _txt)
 br.link.stop(); sim6.terminate(); sim6.wait()
 try: os.remove("/tmp/ttyFAKE_INIT")
 except OSError: pass
