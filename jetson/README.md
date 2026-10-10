@@ -13,6 +13,11 @@ React UI ──ws://:8765── bridge.py ──USB Serial── Teensy 4.1
                           └── logger.py         → logs/*.csv (W7 규격)
 ```
 
+## 젯슨 실기 설치
+
+젯팩 4.6 을 새로 깐 젯슨에서는 `bash setup/setup_jetson.sh` 한 번으로 패키지, 권한(Teensy udev), 브리지 서비스,
+키오스크, Claude Code, 자동 시험을 설정합니다. 자세한 내용은 `setup/README.md`.
+
 ## 실행
 
 **터미널 1 — 가짜 Teensy**
@@ -52,7 +57,7 @@ cd ../ui && npm install && npm run dev
 python3 tests/test_all.py
 ```
 
-프로토콜·상태머신·실제 시리얼 연결·고장 주입·자동 재연결·Jetson 재시작(Teensy 전원 유지)까지 45개 항목을 검사합니다.
+프로토콜·상태머신·실제 시리얼 연결·고장 주입·자동 재연결·Jetson 재시작(Teensy 전원 유지)·정적 UI 서빙(Python 3.6 경로 포함)까지 검사합니다.
 하드웨어가 하나도 없어도 전부 통과해야 합니다.
 
 ## 설정값 — 중요

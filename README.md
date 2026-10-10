@@ -140,15 +140,17 @@ cd ui && npm run build:single && npm run smoke               # 24항목
 
 ### 젯슨 실기 배포
 
-```bash
-# PC 에서 (실기용: 브리지 연결 전에는 화면이 스스로 넘어가지 않음, D-44)
-cd ui && npm run build:kiosk
-scp -r dist ../jetson <계정>@<젯슨IP>:~/SAVER/
+젯팩 4.6 을 새로 깐 젯슨에서 한 번 실행한다. 패키지, 권한, 브리지 서비스, 키오스크, Claude Code, 자동 시험까지 설정한다.
+자세한 내용은 `jetson/setup/README.md`.
 
-# 젯슨에서 (Python 3.6)
-python3 -m pip install --user 'websockets==9.1' pyserial
-cd ~/SAVER/jetson
-python3 -m saver.bridge --serial /dev/ttyACM0 --serve ../dist --http-port 8080
+```bash
+# 젯슨에서
+git clone --branch claude/saver-project-onboarding-xpmdhw https://github.com/SangHyeon-Shin/SAVER.git ~/SAVER
+bash ~/SAVER/jetson/setup/setup_jetson.sh        # 부팅 자동 시작까지: --autostart
+sudo reboot
+
+# UI 를 고쳤으면 PC 에서 실기용 묶음을 다시 만들어 커밋(젯슨은 Node 18 을 못 돌려 빌드하지 않는다)
+cd ui && npm run bundle:jetson                    # → jetson/ui_dist
 ```
 
 ### 제출 전 필수 점검
