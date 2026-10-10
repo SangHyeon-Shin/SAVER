@@ -15,6 +15,7 @@
     "prebuild": "node scripts/sync-protocol.mjs",
     "presmoke": "node scripts/sync-protocol.mjs && node -e \"require('fs').existsSync('dist-single/SAVER_UI.html')||process.exit(1)\" || npm run build:single",
     "build:kiosk": "node scripts/sync-protocol.mjs && VITE_KIOSK=1 vite build",
+    "bundle:jetson": "npm run -s build:kiosk && node scripts/bundle-jetson.mjs",
     "build:kiosk-single": "SINGLE=1 OUTDIR=dist-kiosk VITE_KIOSK=1 VITE_DEMO= VITE_WS_URL=ws://127.0.0.1:9 vite build --logLevel warn && OUTDIR=dist-kiosk node scripts/build-single.mjs"
   },
   "dependencies": {
