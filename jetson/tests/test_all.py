@@ -1043,5 +1043,36 @@ br.link.stop(); sim6.terminate(); sim6.wait()
 try: os.remove("/tmp/ttyFAKE_INIT")
 except OSError: pass
 
+print("\n== 정적 UI 서빙 (--serve, 젯슨 Python 3.6 경로 포함) ==")
+import socket, tempfile, urllib.request, urllib.error
+from http.server import HTTPServer
+def _free_port():
+    s_ = socket.socket(); s_.bind(("127.0.0.1", 0)); p_ = s_.getsockname()[1]; s_.close(); return p_
+def _get(port, path):
+    try:
+        r_ = urllib.request.urlopen("http://127.0.0.1:%d%s" % (port, path), timeout=3)
+        return r_.getcode(), r_.read()
+    except urllib.error.HTTPError as e_:
+        return e_.code, b""
+    except Exception as e_:
+        return None, str(e_).encode()
+_top = tempfile.mkdtemp(); _ui = os.path.join(_top, "ui"); os.makedirs(os.path.join(_ui, "assets"))
+with open(os.path.join(_ui, "index.html"), "w") as _f: _f.write("<p>saver-ui</p>")
+with open(os.path.join(_ui, "assets", "a.js"), "w") as _f: _f.write("var a=1;")
+with open(os.path.join(_top, "secret.txt"), "w") as _f: _f.write("secret")
+_cwd = os.getcwd()
+_p1 = _free_port(); B.serve_static(_ui, _p1); time.sleep(0.2)
+_c1, _b1 = _get(_p1, "/")
+ck("정적 UI: / 요청에 index.html, 작업 폴더 그대로(로그 경로 보존)", _c1 == 200 and b"saver-ui" in _b1 and os.getcwd() == _cwd,
+   "%s %s" % (_c1, _b1[:40]))
+_srv36 = HTTPServer(("127.0.0.1", 0), B.static_handler(_ui, legacy=True))
+threading.Thread(target=_srv36.serve_forever, daemon=True).start()
+_p2 = _srv36.server_address[1]
+_c2, _b2 = _get(_p2, "/"); _c3, _b3 = _get(_p2, "/assets/a.js"); _c4, _ = _get(_p2, "/../secret.txt")
+ck("정적 UI(3.6 처리기): /, /assets 응답, 상위 폴더 접근 404, 작업 폴더 그대로",
+   _c2 == 200 and b"saver-ui" in _b2 and _c3 == 200 and _b3 == b"var a=1;" and _c4 == 404 and os.getcwd() == _cwd,
+   "%s %s %s" % (_c2, _c3, _c4))
+_srv36.shutdown()
+
 print("\n%s  (통과 %d / 실패 %d)\n" % ("전체 통과" if P_["fail"] == 0 else "실패 있음", P_["pass"], P_["fail"]))
 sys.exit(0 if P_["fail"] == 0 else 1)

@@ -380,14 +380,30 @@ class Bridge(object):
         await self.ticker()
 
 
+def static_handler(directory, legacy=None):
+    """UI 정적 파일 처리기.
+
+    Python 3.7 이상은 directory 인자를 쓴다. 3.6(젯슨 나노)에는 이 인자가 없어
+    partial(directory=) 이 요청마다 TypeError 를 내고, chdir 은 상대 경로(--logdir 등)를
+    바꾸므로, 3.6 에서는 경로 변환만 directory 기준으로 바꾼다."""
+    from http.server import SimpleHTTPRequestHandler
+    root = os.path.abspath(directory)
+    if legacy is None:
+        legacy = sys.version_info < (3, 7)
+    if not legacy:
+        return functools.partial(SimpleHTTPRequestHandler, directory=root)
+
+    class Handler(SimpleHTTPRequestHandler):
+        def translate_path(self, path):
+            # 기본 처리(.. 제거)를 거친 현재 폴더 기준 경로를 root 기준으로 옮긴다
+            p = SimpleHTTPRequestHandler.translate_path(self, path)
+            return os.path.join(root, os.path.relpath(p, os.getcwd()))
+    return Handler
+
+
 def serve_static(directory, port):
-    from http.server import SimpleHTTPRequestHandler, HTTPServer
-    try:
-        h = functools.partial(SimpleHTTPRequestHandler, directory=directory)
-    except TypeError:                      # Python 3.6 은 directory 인자 없음
-        os.chdir(directory)
-        h = SimpleHTTPRequestHandler
-    srv = HTTPServer(("0.0.0.0", port), h)
+    from http.server import HTTPServer
+    srv = HTTPServer(("0.0.0.0", port), static_handler(directory))
     threading.Thread(target=srv.serve_forever, daemon=True).start()
     print("[http] %s → http://0.0.0.0:%d" % (directory, port))
 
