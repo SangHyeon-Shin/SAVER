@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { detectTip, cpDistance } from './search.js'
+import { detectTip, cp_distance } from './search.js'
 
 /* ============================================================
    압박점 탐색 시연 (브리지 미연결 전용)
@@ -53,7 +53,7 @@ export function* demoSearch({ eapd, flat = false, seed = 7 }) {
                  tip_x: null, candidates_x: [], candidate_groups: 0, target_x: null, pos_x: null,
                  head: {}, moved: false }
 
-  const D = cpDistance(eapd, p)
+  const D = cp_distance(eapd, p)
   if (D === null) {                          // 대체 상수 없이 시작하지 않는다(초안 §0.1-3)
     yield { snap: { ...base, phase: 'failed', reason: 'EAPD_MISSING' }, wait: 0 }
     return

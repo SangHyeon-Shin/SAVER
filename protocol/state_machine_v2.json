@@ -15,10 +15,11 @@
     "v2.3(2026-10-05, 한건민 합의 10/5): ① X_VENT 진입 명령에 PAUSE_CPR 추가(장치 압박과 사람 인공호흡을 동시에 하지 않음, D-44). ② 일시정지 노드(S8, S9, X_VENT, X_AED)에서 S7로 재개하는 이벤트는 장치가 CPR_PAUSED 일 때만 받는다(PAUSE_CPR 수락과 CPR_PAUSED 확인 전 재개 금지). 처음 S6 → S7 은 START_CPR, 재개는 RESUME_CPR(Jetson 이 장치 상태로 고름, v2.2). ③ S1 error_return 을 S1 로 두어 오류 확인 뒤 초기 점검(PING, GET_STATUS, ARM, HOME)을 다시 한다. ④ X_POSOUT 의 REALIGN_DONE(위치 다시 맞춘 뒤 재개)을 복구 절차가 정해질 때까지 없앤다. 위치 이탈은 STOP → S11 만 남는다.",
     "procedure: 진입 명령을 한꺼번에 보내지 않고 Jetson 이 ACK 와 장치 상태를 보며 차례로 보내는 절차. \"init\" = S1 초기화(jetson/saver/init_seq.py). offline_auto: 브리지 없는 오프라인 시연(UI)에서만 쓰는 자동 전이. Jetson 은 쓰지 않는다.",
     "error_return_by_event: 이 이벤트로 S10 에 갔으면 RECHECK 뒤 노드의 error_return 대신 여기 적힌 노드로 돌아간다.",
-    "v2.4(2026-10-05, 한건민 합의 10/5): ① X_WHEELS 와 WHEELS_DONE 삭제. 바퀴는 평소 내려가 있고 안전핀을 뽑으면 올라가므로 바퀴 내리기 단계가 없다(D-42). S1 INIT_DONE → X_MOVE. 표시 이름만 정리: X_MOVE \"환자에게 이동\", X_PIN \"안전핀 해제\". 상태 ID 와 Teensy 명령은 그대로. ② S1 은 3 s 타이머 없이 초기화 절차(procedure init)의 결과로 넘어간다. PING ACK → GET_STATUS(비상정지 아님, 활성 고장 없음) → 장치 상태별 ARM/HOME(IDLE: ARM 수락 뒤 HOME, ARMED: HOME, HOMED: 생략, FAULT·ESTOP·그 밖: INIT_ERROR, 자동 DISARM 안 함) → HOME ACK ok → INIT_DONE. 원점 완료(HOMING_DONE)는 뒤에서 기다리고, 그 사이 실패나 시간 초과면 탐색 전 노드(X_MOVE, S2, X_CLOTHES, X_AED_PAD, S3S4, X_PPG)에서도 INIT_ERROR → S10 → RECHECK → S1. 탐색·흡착 진입은 X_SEARCH, X_PIN 의 requires_mcu HOMED 가 막는다. 원점 시간 제한은 10/12 실측 뒤 정한다(Jetson 설정 home_timeout_s, 비어 있으면 검사 안 함). ③ X_VENT 에 STOP → S11. 장치가 멈췄다고 알리기 전이라도 언제든 누를 수 있고, STOP_CPR 는 PAUSE_CPR 응답을 기다리지 않는다(D-46)."
+    "v2.4(2026-10-05, 한건민 합의 10/5): ① X_WHEELS 와 WHEELS_DONE 삭제. 바퀴는 평소 내려가 있고 안전핀을 뽑으면 올라가므로 바퀴 내리기 단계가 없다(D-42). S1 INIT_DONE → X_MOVE. 표시 이름만 정리: X_MOVE \"환자에게 이동\", X_PIN \"안전핀 해제\". 상태 ID 와 Teensy 명령은 그대로. ② S1 은 3 s 타이머 없이 초기화 절차(procedure init)의 결과로 넘어간다. PING ACK → GET_STATUS(비상정지 아님, 활성 고장 없음) → 장치 상태별 ARM/HOME(IDLE: ARM 수락 뒤 HOME, ARMED: HOME, HOMED: 생략, FAULT·ESTOP·그 밖: INIT_ERROR, 자동 DISARM 안 함) → HOME ACK ok → INIT_DONE. 원점 완료(HOMING_DONE)는 뒤에서 기다리고, 그 사이 실패나 시간 초과면 탐색 전 노드(X_MOVE, S2, X_CLOTHES, X_AED_PAD, S3S4, X_PPG)에서도 INIT_ERROR → S10 → RECHECK → S1. 탐색·흡착 진입은 X_SEARCH, X_PIN 의 requires_mcu HOMED 가 막는다. 원점 시간 제한은 10/12 실측 뒤 정한다(Jetson 설정 home_timeout_s, 비어 있으면 검사 안 함). ③ X_VENT 에 STOP → S11. 장치가 멈췄다고 알리기 전이라도 언제든 누를 수 있고, STOP_CPR 는 PAUSE_CPR 응답을 기다리지 않는다(D-46).",
+    "v2.5(2026-10-11, 한건민 합의 10/11): S13 [대기로](BACK_TO_IDLE)의 목적지를 S2 에서 S1 로 바꿨다. S13 에 들어올 때 DISARM 하므로 S2 로 가면 원점이 풀린 채 남아 다음 사용에서 탐색(X_SEARCH, X_PIN 의 requires_mcu HOMED)이 막혔다. S1 에서 초기화 절차(PING, GET_STATUS, ARM, HOME)를 다시 한다. 음압이 남았거나 해제를 확인하지 못하면 S12 로 보내는 redirect 는 그대로다(D-47)."
   ],
-  "version": "2.4",
-  "updated": "2026-10-05",
+  "version": "2.5",
+  "updated": "2026-10-11",
 
   "events": {
     "INIT_DONE": "std", "INIT_ERROR": "std", "POWER_ON": "std", "POWER_OFF": "std",
@@ -143,7 +144,7 @@
     "S13": {
       "state": "S13", "ui": "UI-13", "screen": 18, "name": "종료 · 기록 저장", "alarm": "normal",
       "enter_cmds": ["DISARM"],
-      "on": { "BACK_TO_IDLE": "S2", "POWER_OFF": "S0" },
+      "on": { "BACK_TO_IDLE": "S1", "POWER_OFF": "S0" },
       "redirect": {
         "BACK_TO_IDLE": { "to": "S12", "when_mcu": { "rearm_lock": [true, null], "vac_released": [false, null] } }
       }

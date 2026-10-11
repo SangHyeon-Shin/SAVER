@@ -199,15 +199,15 @@ ck("보류 마감 지나면 버림(오래된 이벤트로 전이 안 함)", f5.r
 f5.force("S5"); mcu5["s"] = "HOMED"; f5.fire_device("VACUUM_OK", 0.5); f5.fire("CANCEL"); mcu5["s"] = "VACUUM_HOLD"
 ck("보류 중 노드가 바뀌면 버림", f5.retry_device() == ("expired", "VACUUM_OK") and f5.node == "S2")
 
-# S13 조건: 음압이 남아 있으면 S2 대신 S12 (v1.1 합의 12번)
+# S13 조건: 음압이 남아 있으면 S12 (v1.1 합의 12번). 아니면 S1 에서 초기화를 다시 한다(v2.5, D-47)
 flags = {"v": None}
 f4 = StateMachine(mcu_flags=lambda: flags["v"]); f4.force("S13")
-ck("플래그 미지원(v1.0)이면 S13 → S2", f4.fire("BACK_TO_IDLE") and f4.node == "S2")
+ck("플래그 미지원(v1.0)이면 S13 → S1(다시 초기화)", f4.fire("BACK_TO_IDLE") and f4.node == "S1")
 f4.force("S13"); flags["v"] = {"rearm_lock": True, "vac_released": False}
 ck("rearm_lock 이면 S13 → S12", f4.fire("BACK_TO_IDLE") and f4.node == "S12" and f4.log[-1].get("redirect"))
 ck("S12 해제 뒤 S13", f4.fire("RELEASE_DONE") and f4.node == "S13")
 flags["v"] = {"rearm_lock": False, "vac_released": True}
-ck("해제 확인되면 S13 → S2", f4.fire("BACK_TO_IDLE") and f4.node == "S2")
+ck("해제 확인되면 S13 → S1(다시 초기화)", f4.fire("BACK_TO_IDLE") and f4.node == "S1")
 for desc, fv in (("vac_released 없음", {"rearm_lock": False}),
                  ("rearm_lock 값 없음(오래됨)", {"rearm_lock": None, "vac_released": True}),
                  ("vac_released false", {"rearm_lock": False, "vac_released": False})):
@@ -1035,6 +1035,14 @@ ck("브리지: 비상정지가 눌린 채 다시 점검 → S10(원인 init), AR
 sim6.stdin.write(b"ok\n"); sim6.stdin.flush(); time.sleep(0.4)
 br.fsm.fire("RECHECK")
 ck("브리지: 비상정지 해제 뒤 재확인 → 다시 X_MOVE", wait_for(lambda: br.fsm.node == "X_MOVE", 5.0), br.fsm.node)
+# v2.5(D-47): 종료(S13)는 DISARM 한다. [대기로] 뒤 S1 에서 ARM, HOME 을 다시 보내 원점까지 확인해야 다음 탐색이 열린다
+br.link.send("DISARM"); time.sleep(0.5)
+br.fsm.force("S13")
+del sent6[:]
+br.fsm.fire("BACK_TO_IDLE")
+ok6c = wait_for(lambda: br.fsm.node == "X_MOVE" and br.init.homed, 8.0)
+ck("브리지: 종료 뒤 [대기로] → S1 초기화(ARM, HOME 다시) → X_MOVE",
+   ok6c and "ARM" in sent6 and "HOME" in sent6 and sent6.index("ARM") < sent6.index("HOME"), "%s %s" % (br.fsm.node, sent6))
 br.log_link()
 with open(br.log.path) as _f:
     _txt = _f.read()

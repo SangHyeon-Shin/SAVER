@@ -180,8 +180,8 @@ const check = (name, ok, detail = '') => {
   check('판정: 시작 N 점 안 급감은 N 번째 점', S.detectTip(xs.slice(0, 6), [40, 12, 12, 12, 12, 12], 3, 0.3).tipIndex === 3)
   const P7 = { cp_dist_ref_mm: 89.7, eapd_ref_mm: 205.8, cp_dist_max_mm: 95 }
   check('D: 식 (7), 상한, EAPD 없으면 null',
-    Math.abs(S.cpDistance(205.8, P7) - 89.7) < 1e-9 && S.cpDistance(250, P7) === 95
-    && [null, 0, -1, NaN, '205.8'].every((e) => S.cpDistance(e, P7) === null))
+    Math.abs(S.cp_distance(205.8, P7) - 89.7) < 1e-9 && S.cp_distance(250, P7) === 95
+    && [null, 0, -1, NaN, '205.8'].every((e) => S.cp_distance(e, P7) === null))
 
   const cfg = JSON.parse(readFileSync('../jetson/config.sim.json', 'utf8'))
   check('시연 값 = jetson/config.sim.json', Object.entries(SD.DEMO).every(([k, v]) => cfg[k] === v),
@@ -233,7 +233,8 @@ const check = (name, ok, detail = '') => {
   tap([...d4.querySelectorAll('#root button')].find((b) => b.textContent.trim() === '완료'))
   await until(() => T4().includes('대기로'), 3000)
   tap([...d4.querySelectorAll('#root button')].find((b) => b.textContent.includes('대기로')))
-  check('해제 완료 뒤 대기로 → 시작 대기(S2)', await until(() => T4().includes('시작 대기'), 3000))
+  check('해제 완료 뒤 대기로 → 시스템 점검(S1, v2.5)', await until(() => T4().includes('시스템 점검 중'), 3000))
+  check('대기로 뒤 점검을 마치면 환자에게 이동(오프라인 시연 3 s)', await until(() => T4().includes('환자에게 이동'), 6000))
   // 인공호흡 안내: 시간이 끝나도 압박을 자동으로 다시 시작하지 않는다
   const d5 = openDom('?start=X_VENT').window.document
   const T5 = () => (d5.querySelector('#root')?.textContent || '')

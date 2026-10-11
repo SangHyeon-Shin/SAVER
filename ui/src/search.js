@@ -5,7 +5,7 @@
      말단 판정, 식 (5)  r_i = 1 - F_i / Fref_i >= tip_drop_ratio,  Fref_i = 직전 N 점 평균
      압박점 거리, 식 (7) D = min(cp_dist_max_mm, cp_dist_ref_mm × EAPD / eapd_ref_mm)
    브리지에 연결돼 있으면 UI 는 계산하지 않고 받은 값만 그린다.
-   여기 detectTip·cpDistance 는 미연결 시연(searchDemo.js)에서만 쓴다.
+   여기 detectTip·cp_distance 는 미연결 시연(searchDemo.js)에서만 쓴다.
    판정과 D 는 설계 가설이며 인체에서 검증되지 않았다.
    ============================================================ */
 
@@ -28,7 +28,8 @@ export function detectTip(xs, fs, n, ratio) {
   return { tipIndex: tip, tipX: tip === null ? null : xs[tip], ref, r, candidates: cand, groups }
 }
 
-export function cpDistance(eapd, p) {
+// 이름은 jetson/saver/search.py 의 cp_distance 와 같게 둔다
+export function cp_distance(eapd, p) {
   if (!num(eapd) || eapd <= 0) return null
   return Math.min(p.cp_dist_max_mm, (p.cp_dist_ref_mm * eapd) / p.eapd_ref_mm)
 }
