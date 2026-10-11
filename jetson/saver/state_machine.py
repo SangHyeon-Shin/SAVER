@@ -20,7 +20,7 @@ class StateMachine(object):
                  mcu_state=None, mcu_flags=None):
         import threading
         self._lock = threading.RLock()   # 리더 스레드와 asyncio 틱이 함께 호출한다
-        with open(spec_path or DEFAULT_SPEC, "r") as f:
+        with open(spec_path or DEFAULT_SPEC, "r", encoding="utf-8") as f:   # 한국어 Windows 기본(cp949)으로 읽지 않게
             self.spec = json.load(f)
         self.nodes = self.spec["nodes"]
         self.events = self.spec["events"]

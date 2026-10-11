@@ -18,6 +18,23 @@ React UI ──ws://:8765── bridge.py ──USB Serial── Teensy 4.1
 젯팩 4.6 을 새로 깐 젯슨에서는 `bash setup/setup_jetson.sh` 한 번으로 패키지, 권한(Teensy udev), 브리지 서비스,
 키오스크, Claude Code, 자동 시험을 설정합니다. 자세한 내용은 `setup/README.md`.
 
+## 노트북 대체 실행 (젯슨이 안 될 때)
+
+브리지와 UI 는 노트북에서도 돕니다. 레이더, 카메라, 키오스크, `saver-*` 명령은 젯슨 전용입니다.
+
+```bash
+cd SAVER/jetson
+python -m pip install websockets pyserial     # Python 3.7~3.14 (시험: 리눅스 3.11, 3.13, 3.14)
+python -m saver.bridge --serve ui_dist        # Teensy 는 VID/PID 로 자동 탐색. 지정하려면 --serial COM5
+# 브라우저에서 http://127.0.0.1:8080
+```
+
+- **Windows 실행은 아직 확인하지 않았습니다(10/12).** 한국어 Windows 기본 인코딩(cp949)으로 상태머신 JSON 을 읽다가
+  멈추는 문제와 Python 3.14 에서 시작하자마자 멈추는 문제는 고쳤고, 리눅스에서 같은 조건을 만든 시험으로 막아 두었습니다.
+- 가짜 Teensy(`simulators/fake_teensy.py`)는 pty 를 써서 Windows 에서 돌지 않습니다. Windows 에서는 실물 Teensy 로만 봅니다.
+- 안전 규칙은 젯슨과 같습니다. 브리지는 S1 에서 `ARM`, `HOME` 을 보내므로 처음 연결은 모터와 블로워 전원을 끈 상태에서
+  하고, `config.sim.json` 은 쓰지 않습니다.
+
 ## 실행
 
 **터미널 1 — 가짜 Teensy**
@@ -57,7 +74,7 @@ cd ../ui && npm install && npm run dev
 python3 tests/test_all.py
 ```
 
-프로토콜·상태머신·실제 시리얼 연결·고장 주입·자동 재연결·Jetson 재시작(Teensy 전원 유지)·정적 UI 서빙(Python 3.6 경로 포함)까지 검사합니다.
+프로토콜·상태머신·실제 시리얼 연결·고장 주입·자동 재연결·Jetson 재시작(Teensy 전원 유지)·정적 UI 서빙(Python 3.6 경로 포함)·브리지 기동·UTF-8 아닌 기본 인코딩까지 검사합니다.
 하드웨어가 하나도 없어도 전부 통과해야 합니다.
 
 ## 설정값 — 중요

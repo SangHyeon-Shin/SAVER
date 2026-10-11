@@ -100,7 +100,7 @@ def load_config(path):
     config.sim.json 은 시뮬레이션 전용이며 의학적 근거가 없습니다."""
     if not path:
         return
-    with open(path) as f:
+    with open(path, encoding="utf-8") as f:
         data = json.load(f)
     sim = bool(data.pop("_simulation_only", False))
     if not sim and "sim_eapd_mm" in data:
@@ -427,8 +427,12 @@ def main():
     b = Bridge(a)
     try:
         if sys.version_info >= (3, 7):
-            asyncio.get_event_loop().run_until_complete(b.main())
-            asyncio.get_event_loop().run_forever()
+            # 실행 중인 루프 없이 get_event_loop() 를 부르면 3.12~3.13 은 경고, 3.14 부터는 RuntimeError.
+            # 노트북 대체 실행(새 Python)에서도 뜨도록 루프를 직접 만든다. 3.6(젯슨) 경로는 그대로 둔다
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            loop.run_until_complete(b.main())
+            loop.run_forever()
         else:
             loop = asyncio.get_event_loop()
             loop.run_until_complete(b.main())

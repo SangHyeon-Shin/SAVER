@@ -41,7 +41,7 @@ class CsvLogger(object):
             pass
         name = datetime.now().strftime(prefix + "_%Y%m%d_%H%M%S.csv")
         self.path = os.path.join(outdir, name)
-        self.fp = open(self.path, "w", newline="")
+        self.fp = open(self.path, "w", newline="", encoding="utf-8")
         self.w = csv.DictWriter(self.fp, fieldnames=HEADER, extrasaction="ignore")
         self.w.writeheader()
         self.fp.flush()

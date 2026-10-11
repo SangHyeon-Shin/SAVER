@@ -1082,5 +1082,62 @@ ck("정적 UI(3.6 처리기): /, /assets 응답, 상위 폴더 접근 404, 작�
    "%s %s %s" % (_c2, _c3, _c4))
 _srv36.shutdown()
 
+print("\n== 브리지 기동 (python -m saver.bridge, 이 Python %d.%d) ==" % sys.version_info[:2])
+# 노트북 대체 실행(새 Python)에서도 main() 이 뜨는지 본다(3.14 는 get_event_loop() 가 RuntimeError).
+# --serial 에 없는 경로를 줘 실제 장치를 찾지 않는다. 젯슨에서 saver-test 를 돌릴 때 Teensy 가 꽂혀 있어도
+# 이 시험이 ARM, HOME 을 보내지 않게 한다
+_jdir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+_tmpb = tempfile.mkdtemp()
+_pb = _free_port()
+_bp = subprocess.Popen([sys.executable, "-u", "-m", "saver.bridge", "--port", str(_pb),
+                        "--serial", os.path.join(_tmpb, "no_such_tty"), "--logdir", os.path.join(_tmpb, "logs")],
+                       cwd=_jdir, env=dict(os.environ, PYTHONIOENCODING="utf-8"),
+                       stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+_bl = []
+def _rd():
+    for _ln in iter(_bp.stdout.readline, b""):
+        _bl.append(_ln.decode("utf-8", "replace").rstrip())
+threading.Thread(target=_rd, daemon=True).start()
+_up = False
+_t0 = time.monotonic()
+try:
+    while time.monotonic() - _t0 < 10.0 and _bp.poll() is None:
+        if any(l_.startswith("[ws]") for l_ in _bl):
+            try:
+                socket.create_connection(("127.0.0.1", _pb), timeout=0.5).close()
+                _up = True
+                break
+            except OSError:
+                pass
+        time.sleep(0.1)
+finally:
+    _bp.terminate()
+    try:
+        _bp.wait(timeout=5)
+    except subprocess.TimeoutExpired:
+        _bp.kill(); _bp.wait()
+_last = [l_ for l_ in _bl if l_.strip()]
+ck("브리지 기동: WebSocket 접속을 받음, 없는 시리얼 경로라 실제 장치는 찾지 않음", _up,
+   _last[-1] if _last else "출력 없음")
+
+# 기본 인코딩이 UTF-8 이 아닌 환경(한국어 Windows 는 cp949)에서도 상태머신, 설정을 읽고 기록을 쓰는지 본다.
+# 리눅스에서는 C 로캘에 UTF-8 모드를 끄면 같은 조건이 된다(3.6 은 C 로캘이면 그대로 ASCII)
+_probe = ("import sys, os, locale\n"
+          "sys.path.insert(0, sys.argv[1])\n"
+          "from saver.state_machine import StateMachine\n"
+          "from saver.logger import CsvLogger\n"
+          "from saver import bridge as B\n"
+          "StateMachine(on_command=lambda c: None)\n"
+          "B.load_config(os.path.join(sys.argv[1], 'config.sim.json'))\n"
+          "lg = CsvLogger(sys.argv[2]); lg.event('sys', u'\\uc2dc\\ud5d8'); lg.close()\n"
+          "print('ENC_OK ' + locale.getpreferredencoding(False))\n")
+_envc = dict(os.environ, LC_ALL="C", LANG="C", PYTHONUTF8="0", PYTHONCOERCECLOCALE="0", PYTHONIOENCODING="utf-8")
+_pc = subprocess.Popen([sys.executable, "-c", _probe, _jdir, os.path.join(_tmpb, "enc_logs")], cwd=_jdir, env=_envc,
+                       stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+_oc = _pc.communicate(timeout=30)[0].decode("utf-8", "replace")
+_lc = [l_ for l_ in _oc.splitlines() if l_.strip()]
+ck("파일 인코딩: UTF-8 아닌 기본 인코딩에서 상태머신, 설정 읽기와 한글 기록 쓰기",
+   _pc.returncode == 0 and "ENC_OK" in _oc, _lc[-1] if _lc else "출력 없음")
+
 print("\n%s  (통과 %d / 실패 %d)\n" % ("전체 통과" if P_["fail"] == 0 else "실패 있음", P_["pass"], P_["fail"]))
 sys.exit(0 if P_["fail"] == 0 else 1)
