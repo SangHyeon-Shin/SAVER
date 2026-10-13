@@ -415,6 +415,8 @@ const check = (name, ok, detail = '') => {
   check('재생기: 같은 경고가 겹치면 한 번만', pv3.played.length === 1 && (objs[objs.length - 1].onended(), objs[objs.length - 1].onended(), objs[objs.length - 1].onended(), pv3.played.filter((i) => i === 'V35').length === 1), pv3.played.join())
   const vb = d.querySelector('#root [data-voice]')
   check('화면: 헤더에 다시 듣기와 소리 끄기 버튼', !!vb && vb.textContent.includes('다시 듣기') && vb.querySelectorAll('button').length === 2)
+  // 10/13: 운영체제 애니메이션 효과를 끈 PC에서 진행 막대와 파형이 멈춰 장치가 멈춘 것처럼 보였다(index.css 주석)
+  check('모션 최소화 설정에서도 진행 막대와 파형이 멈추지 않음 (10/13)', !/prefers-reduced-motion/.test(HTML))
   check('런타임 오류 없음 (시나리오 포함)', errors.length === 0, errors[0] || '')
 
   console.log(`\n${fail === 0 ? '✅ 전체 통과' : '❌ 실패 있음'}  (통과 ${pass} / 실패 ${fail})\n`)

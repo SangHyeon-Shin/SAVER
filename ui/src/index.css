@@ -50,7 +50,6 @@ button:focus-visible, [data-press]:focus-visible { outline: 3px solid #00C8FF; o
 @keyframes arrowmove  { 0%,100% { transform:translateX(0) } 50% { transform:translateX(12px) } }
 @keyframes scanmove   { 0% { left:22%; top:43% } 50% { left:43%; top:50% } 100% { left:22%; top:43% } }
 
-/* 접근성: 모션 최소화 설정을 존중 (경고 깜빡임은 안전상 유지) */
-@media (prefers-reduced-motion: reduce) {
-  *:not([data-safety-blink]) { animation-duration: .01ms !important; animation-iteration-count: 1 !important; }
-}
+/* 모션 최소화 설정(prefers-reduced-motion)은 따르지 않는다(10/13). 이 화면의 움직임은 진행 표시, 실시간 파형, 경고라
+   기능이다. 운영체제에서 애니메이션 효과를 끄면(Windows 접근성 설정, 원격 데스크톱, 절전 설정 등) 브라우저가 이 설정을
+   알리는데, 그때 진행 막대가 왼쪽 42 % 자리에 멈춘 채 남고 파형이 서서 장치가 멈춘 것처럼 보였다. */
