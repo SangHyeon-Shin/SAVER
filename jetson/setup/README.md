@@ -116,6 +116,8 @@ git add ../jetson/ui_dist && git commit -m "[ui] 젯슨 UI 묶음 갱신"
 
 | 증상 | 확인 |
 |---|---|
+| `git clone` 이나 설치가 `Could not resolve host` 로 실패 | 비공개 저장소 문제가 아니라 네트워크 문제다(비공개면 사용자 이름과 토큰을 묻는다). `ping -c 3 8.8.8.8` 이 되면 DNS 만 문제: `nmcli -t -f NAME con show --active` 로 연결 이름을 보고 `sudo nmcli con mod "<이름>" ipv4.dns "8.8.8.8 1.1.1.1" ipv4.ignore-auto-dns yes` 뒤 `sudo nmcli con up "<이름>"`. ping 도 안 되면 인터넷 연결 자체가 없다(케이블, 학교망 등록이나 로그인, 휴대폰 핫스팟) |
+| 비공개 저장소 인증 | `Username` 에 GitHub 아이디, `Password` 에 GitHub 개인 액세스 토큰(계정 비밀번호는 안 됨. SAVER 저장소 Contents 읽기 권한) |
 | `/dev/saver-teensy` 없음 | `lsusb` 에 `16c0:0483`. 다른 USB 케이블(데이터선) |
 | 터치 좌표가 어긋남 | `xinput list` 로 터치 장치 ID, `xinput map-to-output <ID> HDMI-0` |
 | 소리 안 남 | `saver-sound` (HDMI 출력 프로필이 꺼져 있으면 켠다), `saver-sound list`. 모니터 음량과 헤드셋 단자 확인 |

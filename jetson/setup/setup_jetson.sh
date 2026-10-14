@@ -204,7 +204,7 @@ fi
 if url_ok https://pypi.org/simple/pip/; then
   ok "인터넷 연결"
 else
-  [ "$SKIP_APT" -eq 1 ] || [ "$DRY_RUN" -eq 1 ] || die "인터넷에 연결되지 않습니다(pypi.org). 와이파이나 유선을 연결한 뒤 다시 실행하세요"
+  [ "$SKIP_APT" -eq 1 ] || [ "$DRY_RUN" -eq 1 ] || die "인터넷에 연결되지 않습니다(pypi.org). ping -c 3 8.8.8.8 이 되면 DNS 문제, 안 되면 연결 자체 문제(jetson/setup/README.md 문제 해결)"
   warn "인터넷 확인 실패"
 fi
 
