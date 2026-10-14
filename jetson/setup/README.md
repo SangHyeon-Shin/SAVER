@@ -31,10 +31,11 @@ git 이 없는 새 젯팩이면 `sudo apt-get install -y git` 을 먼저 하거�
 | 4 | Python: `websockets==9.1`(3.6 고정, AGENTS.md), `pyserial==3.5`, pip 21.3.1 (사용자 영역 `--user`) |
 | 5 | 장치 권한: dialout, video, audio, plugdev 그룹. Teensy udev 규칙(`/etc/udev/rules.d/49-saver-teensy.rules`, 고정 이름 `/dev/saver-teensy`). ModemManager 끔(ttyACM 에 AT 명령을 보내지 않게). nvgetty 끔(40핀 UART `/dev/ttyTHS1` 을 레이더용으로 비움) |
 | 6 | 브리지 서비스 `saver-bridge.service`: UI `http://127.0.0.1:8080`, WebSocket 8765, 기록 `~/saver_logs`, UTF-8 로캘, MR60BHA2 레이더 `--radar /dev/ttyTHS1`(포트가 없으면 연결될 때까지 기다림. 가슴 두께는 `jetson/config.json` 의 `radar_floor_mm` 실측값이 있어야 계산) |
-| 7 | 키오스크 `saver-kiosk`: Chromium 전체 화면, 화면 꺼짐과 잠금 끔, 커서 숨김, 1024x600, 음성 자동 재생 허용. 시작할 때 소리 기본 출력을 마지막으로 고른 종류(기본 HDMI)로 맞춤 |
-| 8 | 명령과 바탕화면 아이콘(아래 표) |
-| 9 | Claude Code (공식 설치기, `~/.local/bin/claude`) |
-| 10 | 자동 시험 `jetson/tests/test_all.py` (하드웨어 없이) |
+| 7 | 냉각 팬 `saver-fan.service`: 젯슨 방열판 팬을 CPU, GPU 온도에 비례해 2초마다 조절(아래 "냉각 팬") |
+| 8 | 키오스크 `saver-kiosk`: Chromium 전체 화면, 화면 꺼짐과 잠금 끔, 커서 숨김, 1024x600, 음성 자동 재생 허용. 시작할 때 소리 기본 출력을 마지막으로 고른 종류(기본 HDMI)로 맞춤 |
+| 9 | 명령과 바탕화면 아이콘(아래 표) |
+| 10 | Claude Code (공식 설치기, `~/.local/bin/claude`) |
+| 11 | 자동 시험 `jetson/tests/test_all.py` (하드웨어 없이) |
 
 ## 명령
 
@@ -43,12 +44,13 @@ git 이 없는 새 젯팩이면 `sudo apt-get install -y git` 을 먼저 하거�
 | `saver-start` | 브리지 서비스와 키오스크 시작 (바탕화면 "SAVER 시작") |
 | `saver-stop` | 키오스크와 브리지 정지 (바탕화면 "SAVER 정지") |
 | `saver-off` | 키오스크와 브리지를 멈추고 젯슨을 끈다 (바탕화면 "SAVER 끄기"). 모니터에 신호 없음이 뜨고 20초 뒤 배터리(XT90)를 뽑는다. 전원을 그냥 끊으면 SD 카드 파일 시스템이 손상될 수 있다 |
-| `saver-status` | 서비스, `/dev/saver-teensy`, 시리얼 포트, UI 응답, 최근 기록의 마지막 단계와 사건 8개(S1 점검 통과 여부), 시각과 동기화, IP 주소, 소리 출력 |
+| `saver-status` | 서비스, `/dev/saver-teensy`, 시리얼 포트, UI 응답, 최근 기록의 마지막 단계와 사건 8개(S1 점검 통과 여부), 냉각 팬, 시각과 동기화, IP 주소, 소리 출력 |
 | `saver-logs` | 브리지 실시간 기록 (`journalctl -u saver-bridge -f`) |
 | `saver-link` | 최근 세션 기록의 링크 품질(처음과 마지막). 모터 끔 30분과 모터 켬 30분 비교용(`docs/noise_emi.md` 6절) |
 | `saver-sound` | 소리 출력을 HDMI(모니터 3.5 mm 단자의 헤드셋)로 맞추고 음성 하나를 재생. `saver-sound usb`(USB 헤드셋), `saver-sound list` |
 | `saver-time` | 인터넷(HTTP Date)으로 시각 맞춤. 인터넷이 없으면 `saver-time "2026-10-24 09:30"`(한국 시각) |
 | `saver-radar` | MR60BHA2 레이더 값을 1초마다 보기(호흡, 심박, 거리, `--floor 높이` 를 주면 가슴 두께). 브리지와 같은 포트를 읽으므로 `saver-stop` 뒤에 쓴다 |
+| `saver-fan` | 냉각 팬 상태(서비스, CPU, GPU 온도, PWM, 설정). `saver-fan test` 는 5초 동안 최대로 돌려 팬과 배선 확인(비밀번호), `saver-fan log` 는 서비스 기록 |
 | `saver-test` | 자동 시험 |
 | `saver-update` | `git pull --ff-only` 뒤 브리지 다시 시작 |
 | `saver-kiosk` | 키오스크만 다시 띄우기 |
@@ -64,6 +66,7 @@ git 이 없는 새 젯팩이면 `sudo apt-get install -y git` 을 먼저 하거�
 | `--maxn` | 전원 모드 MAXN(10 W). 5 V 4 A 배럴잭 전원(J48 점퍼)일 때만 |
 | `--radar-port PATH` | MR60BHA2 레이더 포트(기본 `/dev/ttyTHS1`, 40핀 8번 TX, 10번 RX). USB 변환기면 `/dev/ttyUSB0` 등 |
 | `--no-radar` | 레이더를 쓰지 않는다(브리지에 `--radar` 를 주지 않음) |
+| `--no-fan` | 냉각 팬 자동 제어를 설치하지 않는다. 이미 있으면 끄고 커널 자동 제어로 돌린다 |
 | `--branch`, `--repo-dir` | 복제 브랜치, 저장소 위치 |
 | `--dry-run` | 바꾸지 않고 할 일만 출력 |
 
@@ -108,6 +111,24 @@ git 이 없는 새 젯팩이면 `sudo apt-get install -y git` 을 먼저 하거�
 3, 4번은 실물에서 아직 확인하지 않았다. Teensy 를 먼저 켜면 S1 점검이 실패할 수 있다는 코드 대조 결과(10/11)가 있어
 나온 결과를 그대로 기록한다.
 
+## 냉각 팬 (`saver-fan`)
+
+젯슨 방열판 팬(캐리어 보드 팬 단자, 5 V PWM)을 CPU, GPU 온도에 비례해 2초마다 조절한다. 냉각 팬 설치 안내
+(jugfk/downloadManuals `01_How_To_Install_The_CoolingFan.txt`)가 쓰는 jetson-fan-ctl 과 같은 곡선이고, 외부 설치
+스크립트를 root 로 돌리지 않도록 저장소 안에 Python 3.6 판(`setup/saver_fan.py`)으로 넣었다.
+장치 냉각팬 1, 2(Teensy 핀 5, 2, `TEMP_FAN_ON_C`, `docs/hardware_mapping.md` 5절)와는 별개다.
+
+| 항목 | 내용 |
+|---|---|
+| 곡선 | `PWM = 255 × (T − 20) / (50 − 20)`, 0~255 로 자름. 20 °C 이하 정지, 50 °C 이상 최대. 참고 구현의 기본값이며 실측으로 정한 값이 아니다 |
+| 판단 온도 T | CPU, GPU 온도 영역의 최댓값(참고 구현은 `thermal_zone0` 하나). PMIC-Die 는 고정값(100 °C)으로 알려져 쓰지 않는다. 온도를 못 읽으면 255 |
+| 설정 | `/etc/saver/fan.json` 의 `fan_off_temp_C`, `fan_max_temp_C`, `interval_s`. `sudo nano` 로 고치면 다음 주기에 반영, 잘못된 값은 기본값. 설치 스크립트를 다시 돌려도 덮어쓰지 않는다 |
+| 서비스 | `saver-fan.service`: root, 부팅하면 자동 시작, 브리지와 무관. root 가 사용자 파일을 실행하지 않게 root 소유 사본 `/usr/local/lib/saver/saver_fan.py` 를 쓴다(설치 스크립트를 다시 돌리면 갱신) |
+| 멈출 때 | 커널 자동 제어(`temp_control`)를 다시 켠다. 그 기능이 없으면 255. 참고 구현처럼 0(정지)으로 두지 않는다 |
+| 참고 구현과 다른 점 | `jetson_clocks`(클럭 최대 고정)를 부르지 않는다. 배터리 전원이고 발열만 늘린다 |
+| jetson-fan-ctl 이 이미 있으면 | `automagic-fan.service` 가 켜져 있으면 saver-fan 을 설치하지 않는다(둘이 같은 팬을 다툼). 바꾸려면 `sudo systemctl disable --now automagic-fan` 뒤 설치 스크립트를 다시 실행 |
+| 확인 | `saver-fan`, `saver-fan test`, `saver-fan log`, `saver-status` 의 "냉각 팬" 줄 |
+
 ## UI 묶음 (`jetson/ui_dist`)
 
 젯슨(glibc 2.27)은 Vite 5 가 요구하는 Node 18 을 돌리지 못해 UI 를 젯슨에서 빌드하지 않는다.
@@ -144,6 +165,7 @@ git add ../jetson/ui_dist && git commit -m "[ui] 젯슨 UI 묶음 갱신"
 | 한글이 네모로 보임 | `fc-list : family \| grep -i -e pretendard -e "noto sans cjk"` |
 | UI 가 옛 화면 | `saver-update`, 키오스크 다시 시작(`saver-stop` 뒤 `saver-start`) |
 | SSH 에서 `saver-start` 를 했는데 화면에 키오스크가 안 뜸 | SSH 세션에는 화면 권한이 없다. 젯슨 화면의 바탕화면 아이콘 "SAVER 시작"으로 띄운다 |
+| 냉각 팬이 돌지 않음 | `saver-fan test`. 5초 최대에서도 돌지 않으면 팬 단자 연결(4핀, 방향)이나 팬 문제. 서비스가 멈춰 있으면 `saver-fan log` |
 
 ## 검증 범위
 
@@ -160,6 +182,12 @@ git add ../jetson/ui_dist && git commit -m "[ui] 젯슨 UI 묶음 갱신"
   으로 바꾸고, 같은 꼴의 `| head` 3곳(nvpmodel, claude --version)을 끝까지 읽는 awk 로 바꿨다(가짜 ldd 로 재현과 수정 확인).
   고친 판으로 다시 실행해 10~12단계도 끝났다: Claude Code 2.1.299 설치와 `claude --version` 확인(18.04 에서도 실행됨,
   로그인은 미확인), 자동 시험 252/252 통과(젯슨 Python 3.6). gdm3 자동 로그인(`--autostart`)은 아직 쓰지 않았다.
+- 10/15 냉각 팬(`saver-fan`): 가짜 sysfs(젯슨 나노 온도 영역 6개, `temp_control` 있음과 없음)로 곡선, 판단 온도 선택,
+  잘못된 설정, 서비스 주기 반영(온도 상승, 설정 변경, 온도 읽기 실패), SIGTERM 과 `--release` 뒤 복귀, 팬 PWM 없음을
+  시험 20개로 확인했다(Python 3.6.15, 3.11, 3.13, 3.14 에서 자동 시험 298/298, 로캘 C 출력 포함). 설치 단계는 `--dry-run`
+  (기본, `--no-fan`, jetson-fan-ctl 이 켜진 경우), 생성 명령은 shellcheck 와 가짜 sysfs 실행, 서비스 단위는
+  `systemd-analyze verify` 로 확인했다. 젯슨 실기에서는 확인하지 않았다: 실제 `/sys/devices/pwm-fan` 의 `temp_control`,
+  `cur_pwm`, `rpm_measured` 유무와 동작, 팬 회전, 커널 자동 제어로 되돌린 뒤의 동작.
 - Teensy 를 연결하지 않으면 키오스크는 S1 "시스템 점검 중" 화면에 머문다. 브리지 초기화가 USB 링크를 기다리는
   단계(wait_link)에서 시간 제한 없이 기다리기 때문이고, 연결 전에는 화면이 스스로 넘어가지 않는 설계(D-44)대로다.
   브리지(WebSocket)가 끊겼을 때만 "장치와 연결하고 있습니다" 화면이 나온다.

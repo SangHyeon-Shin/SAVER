@@ -16,7 +16,7 @@ React UI ──ws://:8765── bridge.py ──USB Serial── Teensy 4.1
 ## 젯슨 실기 설치
 
 젯팩 4.6 을 새로 깐 젯슨에서는 `bash setup/setup_jetson.sh` 한 번으로 패키지, 권한(Teensy udev), 브리지 서비스,
-키오스크, Claude Code, 자동 시험을 설정합니다. 자세한 내용은 `setup/README.md`.
+냉각 팬 자동 제어(`saver-fan`), 키오스크, Claude Code, 자동 시험을 설정합니다. 자세한 내용은 `setup/README.md`.
 
 ## MR60BHA2 레이더 (D-50)
 

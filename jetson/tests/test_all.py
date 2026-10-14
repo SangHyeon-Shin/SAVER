@@ -1182,6 +1182,153 @@ try:
 except OSError:
     pass
 
+print("\n== 12. 젯슨 냉각 팬 (setup/saver_fan.py, 가짜 sysfs) ==")
+import importlib.util as _ilu
+import shutil as _sh
+import signal as _sg
+_fanpy = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "setup", "saver_fan.py")
+_spec = _ilu.spec_from_file_location("saver_fan", _fanpy)
+F = _ilu.module_from_spec(_spec)
+_spec.loader.exec_module(F)
+_fan_tmp = []
+
+def _fanroot(zones, tc=None, pwm="0"):
+    """가짜 sysfs: pwm-fan(target_pwm, cur_pwm, 선택 temp_control)과 thermal_zone0.. (종류, 밀리도)."""
+    r_ = _tf.mkdtemp(prefix="saver_fan_")
+    _fan_tmp.append(r_)
+    d_ = os.path.join(r_, "sys", "devices", "pwm-fan")
+    os.makedirs(d_)
+    files_ = [("target_pwm", pwm), ("cur_pwm", pwm)] + ([("temp_control", tc)] if tc is not None else [])
+    for f_, v_ in files_:
+        with open(os.path.join(d_, f_), "w") as fp_:
+            fp_.write(v_ + "\n")
+    for i_, (kind_, milli_) in enumerate(zones):
+        z_ = os.path.join(r_, "sys", "devices", "virtual", "thermal", "thermal_zone%d" % i_)
+        os.makedirs(z_)
+        with open(os.path.join(z_, "type"), "w") as fp_:
+            fp_.write(kind_ + "\n")
+        with open(os.path.join(z_, "temp"), "w") as fp_:
+            fp_.write(str(milli_) + "\n")
+    return r_
+
+def _fread(r_, name):
+    try:
+        with open(os.path.join(r_, "sys", "devices", "pwm-fan", name)) as fp_:
+            return fp_.read().strip()
+    except OSError:
+        return None
+
+def _zone_temp(r_, i_, milli_):
+    with open(os.path.join(r_, "sys", "devices", "virtual", "thermal", "thermal_zone%d" % i_, "temp"), "w") as fp_:
+        fp_.write(str(milli_) + "\n")
+
+def _wait_pwm(r_, want, limit=5.0):
+    end_ = time.monotonic() + limit
+    while time.monotonic() < end_:
+        if _fread(r_, "target_pwm") == want:
+            return True
+        time.sleep(0.05)
+    return False
+
+def _fan_proc(r_, cfg_, extra=()):
+    # 로캘 C, 출력 인코딩 ASCII 에서도 한글 기록 때문에 멈추지 않는지 함께 본다(서비스 환경)
+    env_ = dict(os.environ, LC_ALL="C", LANG="C", PYTHONIOENCODING="ascii")
+    return subprocess.Popen([sys.executable, "-u", _fanpy, "--root", r_, "--config", cfg_] + list(extra), env=env_,
+                            stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+
+ck("곡선: 20 °C 이하 0, 50 °C 이상 255, 사이는 비례(35 °C → 127)",
+   [F.fan_curve(t_, 20.0, 50.0) for t_ in (10, 20, 35, 50, 70)] == [0, 0, 127, 255, 255])
+ck("곡선: 온도 모름(None, NaN)이나 뒤집힌 설정이면 최대 255",
+   F.fan_curve(None, 20.0, 50.0) == 255 and F.fan_curve(float("nan"), 20.0, 50.0) == 255
+   and F.fan_curve(30.0, 50.0, 20.0) == 255)
+_NANO = [("AO-therm", 38000), ("CPU-therm", 41500), ("GPU-therm", 43000), ("PLL-therm", 39000),
+         ("PMIC-Die", 100000), ("thermal-fan-est", 40500)]
+_r1 = _fanroot(_NANO + [("broken", "abc")], tc="1")
+_z = F.read_zones(_r1)
+ck("온도: CPU, GPU 최댓값(43.0 °C). PMIC 고정값 100 °C 는 판단에서 빼고, 읽을 수 없는 영역은 버림",
+   F.pick_temp(_z) == 43.0 and len(_z) == 6, str(_z))
+ck("온도: CPU, GPU 영역이 없으면 thermal_zone0, 아무것도 없으면 None",
+   F.pick_temp([("thermal_zone0", "AO-therm", 37.0), ("thermal_zone4", "PMIC-Die", 100.0)]) == 37.0
+   and F.pick_temp([]) is None)
+
+_cdir = _tf.mkdtemp(prefix="saver_fancfg_")
+_fan_tmp.append(_cdir)
+def _cfg(name, text):
+    p_ = os.path.join(_cdir, name)
+    with open(p_, "w", encoding="utf-8") as fp_:
+        fp_.write(text)
+    return p_
+_nocfg = os.path.join(_cdir, "none.json")
+_c, _bad = F.load_config(_nocfg)
+ck("설정: 파일이 없으면 기본값 20 °C, 50 °C, 2 s", _c == F.DEFAULTS and _bad == [])
+_c, _bad = F.load_config(_cfg("a.json", u'{"_설명": "x", "fan_off_temp_C": 30, "fan_max_temp_C": 60, "interval_s": 1}'))
+ck("설정: 파일 값을 쓰고 설명 칸은 무시",
+   (_c["fan_off_temp_C"], _c["fan_max_temp_C"], _c["interval_s"]) == (30.0, 60.0, 1.0) and _bad == [])
+_c, _bad = F.load_config(_cfg("b.json", '{"fan_off_temp_C": "hot", "fan_max_temp_C": 10, "interval_s": 0}'))
+ck("설정: 잘못된 항목(글자, 뒤집힌 온도, 범위 밖 주기)은 기본값, 무시한 항목 3개를 알림",
+   _c == F.DEFAULTS and len(_bad) == 3, str(_bad))
+_c, _bad = F.load_config(_cfg("c.json", '{"fan_off_temp_C": 2'))
+_c2, _bad2 = F.load_config(_cfg("d.json", "[20, 50]"))
+ck("설정: 깨진 JSON, 객체가 아닌 JSON 은 모두 기본값", _c == F.DEFAULTS and _bad and _c2 == F.DEFAULTS and _bad2)
+
+_fc = F.FanControl(_r1, _nocfg)
+_st = _fc.step()
+ck("한 주기: 43 °C → PWM 195 를 target_pwm 에 씀", _st[1] == 195 and _fread(_r1, "target_pwm") == "195")
+with open(os.path.join(_r1, "sys", "devices", "pwm-fan", "target_pwm"), "w") as _f:
+    _f.write("7\n")
+_po = _fan_proc(_r1, _nocfg, ["--show"])
+_so = _po.communicate(timeout=10)[0].decode("utf-8", "replace")
+ck("--show: 온도, PWM, 설정 3줄만 보이고 쓰지 않음(로캘 C)", _po.returncode == 0 and _fread(_r1, "target_pwm") == "7"
+   and "곡선 195" in _so and "커널 자동 제어 켜짐" in _so and len(_so.strip().splitlines()) == 3, _so.strip()[-80:])
+
+_r2 = _fanroot(_NANO, tc="1")
+_svc = _cfg("svc.json", '{"interval_s": 0.5}')
+_p2 = _fan_proc(_r2, _svc)
+ck("서비스: 커널 자동 제어를 끄고(temp_control 0) 43 °C → PWM 195",
+   _wait_pwm(_r2, "195") and _fread(_r2, "temp_control") == "0", "%s %s" % (_fread(_r2, "target_pwm"), _fread(_r2, "temp_control")))
+_zone_temp(_r2, 1, 61000)
+ck("서비스: CPU 61 °C 로 오르면 다음 주기에 255", _wait_pwm(_r2, "255"))
+_zone_temp(_r2, 1, 41500)
+_cfg("svc.json", '{"interval_s": 0.5, "fan_max_temp_C": 70}')
+ck("서비스: 설정을 고치면 재시작 없이 반영(43 °C, 20~70 °C → 117)", _wait_pwm(_r2, "117"))
+for _i in (1, 2):
+    _zone_temp(_r2, _i, "x")
+ck("서비스: CPU, GPU 온도를 못 읽으면 thermal_zone0 기준(38 °C, 20~70 °C → 91)", _wait_pwm(_r2, "91"))
+for _i in range(len(_NANO)):
+    _zone_temp(_r2, _i, "x")
+ck("서비스: 온도를 하나도 못 읽으면 최대 255", _wait_pwm(_r2, "255"))
+_p2.send_signal(_sg.SIGTERM)
+try:
+    _rc2 = _p2.wait(timeout=5)
+except subprocess.TimeoutExpired:
+    _p2.kill(); _rc2 = _p2.wait()
+_o2 = _p2.stdout.read().decode("utf-8", "replace")
+ck("서비스: SIGTERM 으로 끝나면 커널 자동 제어를 되돌림(temp_control 1), 종료 코드 0",
+   _rc2 == 0 and _fread(_r2, "temp_control") == "1", "rc=%s tc=%s" % (_rc2, _fread(_r2, "temp_control")))
+ck("서비스: 로캘 C 에서도 한글 기록(온도 → PWM)", u"43.0 °C → PWM 195" in _o2 and u"모름(최대) → PWM 255" in _o2,
+   _o2.strip().splitlines()[-1] if _o2.strip() else "출력 없음")
+
+_r3 = _fanroot(_NANO)
+_p3 = _fan_proc(_r3, _nocfg)
+_ok3 = _wait_pwm(_r3, "195")
+_p3.send_signal(_sg.SIGTERM)
+_p3.wait(timeout=5)
+ck("서비스: 커널 자동 제어(temp_control)가 없는 장치면 끝날 때 최대 255", _ok3 and _fread(_r3, "target_pwm") == "255")
+_r4 = _fanroot(_NANO, tc="0", pwm="40")
+_r5 = _fanroot(_NANO, pwm="40")
+_rc45 = [subprocess.call([sys.executable, _fanpy, "--root", r_, "--release"]) for r_ in (_r4, _r5)]
+ck("--release(서비스가 죽은 뒤 ExecStopPost): 커널 자동 제어 켬, 그 기능이 없으면 255",
+   _rc45 == [0, 0] and _fread(_r4, "temp_control") == "1" and _fread(_r5, "target_pwm") == "255")
+_r6 = _tf.mkdtemp(prefix="saver_fan_none_")
+_fan_tmp.append(_r6)
+_t6 = time.monotonic()
+_p6 = _fan_proc(_r6, _nocfg, ["--wait-s", "1.5"])
+_o6 = _p6.communicate(timeout=10)[0].decode("utf-8", "replace")
+ck("팬 PWM 파일이 없으면(젯슨 나노가 아님) 잠시(--wait-s) 기다린 뒤 0 으로 끝나 재시작을 되풀이하지 않고 아무것도 만들지 않음",
+   _p6.returncode == 0 and not os.path.exists(os.path.join(_r6, "sys")) and 1.0 <= time.monotonic() - _t6 < 8.0, _o6.strip())
+for _d in _fan_tmp:
+    _sh.rmtree(_d, ignore_errors=True)
+
 print("\n== 정적 UI 서빙 (--serve, 젯슨 Python 3.6 경로 포함) ==")
 import socket, tempfile, urllib.request, urllib.error
 from http.server import HTTPServer

@@ -14,12 +14,15 @@
 #                              ModemManager 끔, nvgetty 끔(40핀 UART /dev/ttyTHS1 을 레이더용으로 비움)
 #    6. 브리지 서비스          saver-bridge.service (UI http://127.0.0.1:8080, WebSocket 8765, 로그 ~/saver_logs),
 #                              MR60BHA2 레이더 기본 /dev/ttyTHS1 (--radar-port, --no-radar)
-#    7. 키오스크               Chromium 전체 화면, 화면 꺼짐 방지, 커서 숨김, 음성 자동 재생 허용,
+#    7. 냉각 팬                saver-fan.service: 젯슨 방열판 팬을 CPU, GPU 온도에 따라 2초마다 조절
+#                              (jugfk/jetson-fan-ctl 방식, 20 °C 정지 ~ 50 °C 최대, /etc/saver/fan.json, --no-fan)
+#    8. 키오스크               Chromium 전체 화면, 화면 꺼짐 방지, 커서 숨김, 음성 자동 재생 허용,
 #                              시작할 때 소리 출력을 HDMI(모니터 3.5 mm 단자의 헤드셋)로
-#    8. 편의 명령              saver-start, saver-stop, saver-off, saver-status, saver-logs, saver-link,
-#                              saver-sound, saver-time, saver-radar, saver-kiosk, saver-test, saver-update, 바탕화면 아이콘
-#    9. Claude Code
-#   10. 자동 시험              jetson/tests/test_all.py (하드웨어 없이)
+#    9. 편의 명령              saver-start, saver-stop, saver-off, saver-status, saver-logs, saver-link,
+#                              saver-sound, saver-time, saver-radar, saver-fan, saver-kiosk, saver-test, saver-update,
+#                              바탕화면 아이콘
+#   10. Claude Code
+#   11. 자동 시험              jetson/tests/test_all.py (하드웨어 없이)
 #
 # 사용 (sudo 없이 실행. 필요할 때 비밀번호를 묻는다)
 #   bash jetson/setup/setup_jetson.sh                # 설치만. 부팅 자동 시작은 켜지 않는다
@@ -36,7 +39,7 @@
 # ============================================================================
 set -Eeuo pipefail
 
-SCRIPT_VERSION="2026-10-15"
+SCRIPT_VERSION="2026-10-15.2"
 DEFAULT_REPO_URL="https://github.com/SangHyeon-Shin/SAVER.git"
 # jetson/, ui/ 최신 작업 브랜치(10/14 기준 main 은 10/4 이후 변경이 반영되지 않았다)
 DEFAULT_BRANCH="claude/saver-project-onboarding-xpmdhw"
@@ -52,6 +55,7 @@ DRY_RUN=0
 MAXN=0
 RADAR=1
 RADAR_PORT="${SAVER_RADAR_PORT:-/dev/ttyTHS1}"   # MR60BHA2: 40핀 UART(8번 TX, 10번 RX)
+FAN=1
 BRANCH="${SAVER_BRANCH:-$DEFAULT_BRANCH}"
 REPO_URL="${SAVER_REPO_URL:-$DEFAULT_REPO_URL}"
 REPO_DIR="${SAVER_REPO_DIR:-}"
@@ -70,6 +74,7 @@ SAVER 젯슨 나노 일괄 설정 ($SCRIPT_VERSION)
   --maxn             전원 모드를 MAXN(10 W)으로. 5 V 4 A 배럴잭 전원(J48 점퍼)일 때만
   --radar-port PATH  MR60BHA2 레이더 포트 (기본: /dev/ttyTHS1, USB 변환기면 /dev/ttyUSB0 등)
   --no-radar         레이더를 쓰지 않는다
+  --no-fan           냉각 팬 자동 제어(saver-fan)를 설치하지 않는다(이미 있으면 끈다)
   --branch NAME      저장소를 새로 복제할 때 쓸 브랜치 (기본: $DEFAULT_BRANCH)
   --repo-dir DIR     저장소 위치를 직접 지정
   --dry-run          바꾸지 않고 할 일만 출력
@@ -87,6 +92,7 @@ while [ $# -gt 0 ]; do
     --skip-apt) SKIP_APT=1 ;;
     --maxn) MAXN=1 ;;
     --no-radar) RADAR=0 ;;
+    --no-fan) FAN=0 ;;
     --radar-port) RADAR_PORT="${2:?--radar-port 뒤에 경로}"; shift ;;
     --dry-run) DRY_RUN=1 ;;
     --branch) BRANCH="${2:?--branch 뒤에 이름}"; shift ;;
@@ -389,7 +395,78 @@ else
   ok "saver-bridge 설치 (부팅 자동 시작 꺼짐. saver-start 로 시작)"
 fi
 
-# ---------------------------------------------------------------- 7. 키오스크와 화면
+# ---------------------------------------------------------------- 7. 냉각 팬
+step "냉각 팬 자동 제어 saver-fan"
+# 젯슨 방열판 팬(캐리어 보드 팬 단자)을 CPU, GPU 온도에 비례해 2초마다 조절한다(jugfk/jetson-fan-ctl 방식).
+# 장치 냉각팬 1, 2(Teensy)와는 별개다. 서비스는 root 로 돌므로 사용자가 고칠 수 있는 저장소 파일 대신 root 소유 사본을 실행한다
+FAN_PY="/usr/local/lib/saver/saver_fan.py"
+FAN_CONF="/etc/saver/fan.json"
+FAN_STATUS="건너뜀(--no-fan)"
+OTHER_FAN=""
+if systemctl is-enabled --quiet automagic-fan.service 2>/dev/null || systemctl is-active --quiet automagic-fan.service 2>/dev/null; then
+  OTHER_FAN="automagic-fan.service"
+fi
+if [ "$FAN" -eq 0 ]; then
+  if have_unit saver-fan.service; then
+    run sudo systemctl disable --now saver-fan.service || true
+    info "이전에 설치한 saver-fan 을 끔(팬은 커널 자동 제어로 돌아감)"
+  fi
+  info "건너뜀(--no-fan)"
+elif [ -n "$OTHER_FAN" ]; then
+  FAN_STATUS="설치 안 함 (jetson-fan-ctl $OTHER_FAN 사용 중)"
+  if have_unit saver-fan.service; then run sudo systemctl disable --now saver-fan.service || true; fi
+  warn "이미 jetson-fan-ctl($OTHER_FAN)로 팬을 제어하고 있어 saver-fan 을 설치하지 않음(둘이 같은 팬을 다툼). 바꾸려면 sudo systemctl disable --now $OTHER_FAN 뒤 이 스크립트를 다시 실행"
+else
+  [ -e /sys/devices/pwm-fan/target_pwm ] || [ "$DRY_RUN" -eq 1 ] || warn "/sys/devices/pwm-fan/target_pwm(젯슨 나노 팬 PWM)이 없음. 서비스는 설치하지만 팬 PWM 이 없으면 바로 끝난다"
+  run sudo install -D -m 0644 -o root -g root "$JETSON_DIR/setup/saver_fan.py" "$FAN_PY"
+  if [ -f "$FAN_CONF" ]; then
+    info "설정 $FAN_CONF 는 그대로 둠(직접 고친 값 보존)"
+  else
+    write_root "$FAN_CONF" 0644 <<'EOF'
+{
+  "_설명": "젯슨 방열판 팬(saver-fan). fan_off_temp_C 이하 정지, fan_max_temp_C 이상 최대, 사이는 비례. interval_s 초마다 갱신. 고치면 다음 주기에 반영되고, 잘못된 값은 기본값(20, 50, 2)을 쓴다",
+  "fan_off_temp_C": 20,
+  "fan_max_temp_C": 50,
+  "interval_s": 2
+}
+EOF
+  fi
+  write_root /etc/systemd/system/saver-fan.service 0644 <<EOF
+# SAVER 젯슨 방열판 냉각 팬 자동 제어. jetson/setup/setup_jetson.sh 가 만든다.
+# CPU, GPU 온도에 비례해 /sys/devices/pwm-fan/target_pwm 을 쓴다(설정 $FAN_CONF, 고치면 다음 주기에 반영).
+# 멈추면 커널 자동 제어로 되돌리고, 그 기능이 없으면 최대(255)로 둔다. 브리지와 무관하게 부팅하면 늘 돈다.
+[Unit]
+Description=SAVER Jetson cooling fan (CPU/GPU temperature to PWM)
+
+[Service]
+Type=simple
+Environment=PYTHONIOENCODING=utf-8
+ExecStart=$PY_BIN -u $FAN_PY --config $FAN_CONF
+ExecStopPost=$PY_BIN $FAN_PY --release
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+EOF
+  run sudo systemctl daemon-reload
+  run sudo systemctl enable saver-fan.service
+  run sudo systemctl restart saver-fan.service
+  if [ "$DRY_RUN" -eq 1 ]; then
+    FAN_STATUS="(dry-run)"
+  else
+    sleep 3
+    if systemctl is-active --quiet saver-fan.service; then
+      FAN_STATUS="동작 중, $(python3 "$FAN_PY" --show --config "$FAN_CONF" 2>/dev/null | awk 'NR == 2 {sub(/^ *PWM +/, ""); print}' || true)"
+      ok "saver-fan $FAN_STATUS"
+    else
+      FAN_STATUS="멈춤 (journalctl -u saver-fan)"
+      warn "saver-fan 이 동작하지 않음: journalctl -u saver-fan -n 20"
+    fi
+  fi
+fi
+
+# ---------------------------------------------------------------- 8. 키오스크와 화면
 step "키오스크 (Chromium 전체 화면)"
 BIN="$HOME/.local/bin"
 write_user "$BIN/saver-kiosk" 0755 <<EOF
@@ -424,7 +501,7 @@ exec chromium-browser --kiosk "\$URL" \\
 EOF
 ok "saver-kiosk"
 
-# ---------------------------------------------------------------- 8. 편의 명령과 아이콘
+# ---------------------------------------------------------------- 9. 편의 명령과 아이콘
 step "편의 명령 (~/.local/bin)"
 write_user "$BIN/saver-start" 0755 <<EOF
 #!/usr/bin/env bash
@@ -452,8 +529,10 @@ sync
 systemctl poweroff 2>/dev/null || sudo $SYSTEMCTL poweroff
 EOF
 write_cmd "$BIN/saver-status" "HTTP_PORT=$HTTP_PORT
-LOG_DIR=\"$LOG_DIR\"" <<'EOF'
-# 한눈에 보기: 서비스, Teensy, UI, 마지막 단계와 사건(S1 점검 통과 여부), 시각, 주소, 소리 출력
+LOG_DIR=\"$LOG_DIR\"
+FAN_PY=\"$FAN_PY\"
+FAN_CONF=\"$FAN_CONF\"" <<'EOF'
+# 한눈에 보기: 서비스, Teensy, UI, 마지막 단계와 사건(S1 점검 통과 여부), 냉각 팬, 시각, 주소, 소리 출력
 echo "== 브리지 서비스"; systemctl --no-pager --lines=5 status saver-bridge 2>/dev/null | sed -n '1,8p'
 echo "== Teensy";       ls -l /dev/saver-teensy 2>/dev/null || echo "  /dev/saver-teensy 없음 (USB 연결 확인)"
 echo "== 시리얼 포트";  ls /dev/ttyACM* /dev/ttyUSB* /dev/ttyTHS* 2>/dev/null | tr '\n' ' '; echo
@@ -494,6 +573,11 @@ PY
 else
   echo "  기록 없음 (브리지를 한 번도 시작하지 않음)"
 fi
+if [ ! -f "$FAN_PY" ]; then fs="설치 안 됨"
+elif systemctl is-active --quiet saver-fan 2>/dev/null; then fs="동작 중"
+else fs="멈춤 (sudo systemctl start saver-fan)"; fi
+echo "== 냉각 팬 saver-fan: $fs"
+if [ -f "$FAN_PY" ]; then PYTHONIOENCODING=utf-8 python3 "$FAN_PY" --show --config "$FAN_CONF" 2>/dev/null; fi
 echo "== 시각";          date '+  %Y-%m-%d %H:%M:%S %Z'; timedatectl status 2>/dev/null | grep -i 'synchronized' | sed 's/^ */  /'
 echo "== 주소 (SSH)";    echo "  $(hostname -I 2>/dev/null)"
 echo "== 소리 출력";     echo "  기본 $(pactl info 2>/dev/null | awk -F': ' '/^Default Sink/ {print $2}')"
@@ -568,6 +652,32 @@ case "${1:-}" in /dev/*|/tmp/*) port="$1"; shift ;; esac
 cd "$JETSON_DIR" || exit 1
 exec env LANG=C.UTF-8 LC_ALL=C.UTF-8 PYTHONIOENCODING=utf-8 python3 -m saver.radar "$port" "$@"
 EOF
+write_cmd "$BIN/saver-fan" "FAN_PY=\"$FAN_PY\"
+FAN_CONF=\"$FAN_CONF\"
+JETSON_DIR=\"$JETSON_DIR\"" <<'EOF'
+# 젯슨 방열판 냉각 팬. saver-fan 서비스가 CPU, GPU 온도에 비례해 2초마다 PWM 을 바꾼다(jetson/setup/saver_fan.py).
+#   saver-fan          상태: 서비스, 온도, PWM, 설정
+#   saver-fan test     5초 동안 최대로 돌려 팬과 배선 확인(비밀번호를 묻는다). 끝나면 자동 제어로 돌아간다
+#   saver-fan log      서비스 기록
+#   설정 바꾸기: sudo nano /etc/saver/fan.json (다음 주기에 반영. 잘못된 값은 기본값 20, 50, 2)
+if [ ! -f "$FAN_PY" ]; then
+  echo "saver-fan 이 설치되지 않았습니다(--no-fan 또는 jetson-fan-ctl 사용 중). 설치: bash $JETSON_DIR/setup/setup_jetson.sh --skip-apt"
+  exit 1
+fi
+case "${1:-}" in
+  "")
+    if systemctl is-active --quiet saver-fan; then echo "서비스 동작 중"; else echo "서비스 멈춤 (시작: sudo systemctl start saver-fan)"; fi
+    exec env PYTHONIOENCODING=utf-8 python3 "$FAN_PY" --show --config "$FAN_CONF" ;;
+  test)
+    if systemctl is-active --quiet saver-fan; then
+      sudo systemctl stop saver-fan || exit 1
+      trap 'sudo systemctl start saver-fan && echo "자동 제어로 돌아감"' EXIT
+    fi
+    sudo env PYTHONIOENCODING=utf-8 python3 "$FAN_PY" --test 5 ;;
+  log) exec journalctl -u saver-fan -n 30 --no-pager ;;
+  *) echo "사용: saver-fan [test|log]"; exit 2 ;;
+esac
+EOF
 write_cmd "$BIN/saver-time" "" <<'EOF'
 # 젯슨 시각 맞추기. 젯슨에는 RTC 전지가 없어 인터넷 없이 켜면 시각이 틀리고, 기록 파일의 시각도 틀린다.
 #   saver-time                       인터넷(HTTP 응답의 Date)으로 맞춤. 휴대폰 핫스팟이면 충분
@@ -634,7 +744,7 @@ Terminal=false
 EOF
   if [ "$DRY_RUN" -eq 0 ]; then gio set "$DESK/saver-$name.desktop" metadata::trusted true 2>/dev/null || true; fi
 done
-ok "saver-start, saver-stop, saver-off, saver-status, saver-logs, saver-link, saver-sound, saver-time, saver-radar, saver-test, saver-update, 바탕화면 아이콘 3개"
+ok "saver-start, saver-stop, saver-off, saver-status, saver-logs, saver-link, saver-sound, saver-time, saver-radar, saver-fan, saver-test, saver-update, 바탕화면 아이콘 3개"
 # 화면 세션에서 실행 중이면 소리 기본 출력을 바로 HDMI 로(SSH 로 실행했거나 모니터가 꺼져 있으면 재부팅 뒤 saver-sound)
 if [ "$DRY_RUN" -eq 1 ]; then
   info "(dry-run) saver-sound --auto"
@@ -737,7 +847,7 @@ else
   info "전원 모드는 그대로 (${PM:-확인 안 됨})"
 fi
 
-# ---------------------------------------------------------------- 9. Claude Code
+# ---------------------------------------------------------------- 10. Claude Code
 step "Claude Code"
 # 공식 설치기(code.claude.com/docs/en/setup): ~/.local/bin/claude 에 설치하고 PATH 는 바꾸지 않는다.
 # 공식 지원은 Ubuntu 20.04 이상, ARM64, 메모리 4 GB 이상이다. 젯팩 4.6(Ubuntu 18.04, glibc 2.27)은
@@ -784,7 +894,7 @@ if [ "$INSTALL_CLAUDE" -eq 1 ]; then
   install_claude
 fi
 
-# ---------------------------------------------------------------- 10. 자동 시험
+# ---------------------------------------------------------------- 11. 자동 시험
 step "자동 시험 (하드웨어 없이)"
 TEST_STATUS="건너뜀(--no-test)"
 if [ "$RUN_TEST" -eq 1 ] && [ "$DRY_RUN" -eq 0 ]; then
@@ -810,6 +920,7 @@ cat <<EOF
     주소 (SSH)    $(hostname -I 2>/dev/null | awk '{print $1}')  (노트북에서 ssh $USER_NAME@주소)
     시각          $(date '+%Y-%m-%d %H:%M %Z')
     Claude Code   $CLAUDE_STATUS
+    냉각 팬       $FAN_STATUS
     자동 시험     $TEST_STATUS
 EOF
 if [ "${#WARNINGS[@]}" -gt 0 ]; then
@@ -823,7 +934,8 @@ cat <<'EOF'
       2. 헤드셋을 모니터 3.5 mm 단자에 꽂고 saver-sound (HDMI 로 맞추고 음성 하나 재생. USB 헤드셋이면 saver-sound usb)
       3. 모터와 블로워 전원을 끈 채 Teensy 를 USB 로 연결하고 saver-start
       4. saver-status 로 /dev/saver-teensy, UI 응답, 마지막 단계(S1 점검 통과면 INIT_DONE:S1->X_MOVE) 확인. 기록은 saver-logs
-      5. 시각이 틀리면 saver-time (인터넷) 또는 saver-time "YYYY-MM-DD HH:MM"
-      6. 끌 때는 saver-off (바탕화면 'SAVER 끄기'). 모니터에 신호 없음이 뜨고 20초 뒤 배터리(XT90) 분리
-      7. Claude Code: 새 터미널에서 claude 를 실행해 로그인 (실행이 안 되면 노트북에서 SSH 로 작업)
+      5. 냉각 팬: saver-fan 으로 온도와 PWM 확인, 처음 한 번 saver-fan test (5초 최대 회전으로 배선 확인)
+      6. 시각이 틀리면 saver-time (인터넷) 또는 saver-time "YYYY-MM-DD HH:MM"
+      7. 끌 때는 saver-off (바탕화면 'SAVER 끄기'). 모니터에 신호 없음이 뜨고 20초 뒤 배터리(XT90) 분리
+      8. Claude Code: 새 터미널에서 claude 를 실행해 로그인 (실행이 안 되면 노트북에서 SSH 로 작업)
 EOF
