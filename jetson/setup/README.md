@@ -138,6 +138,8 @@ git add ../jetson/ui_dist && git commit -m "[ui] 젯슨 UI 묶음 갱신"
 - 10/15 판: `saver-status` 의 기록 요약을 Python 3.6.15(로캘 C 포함)에서 실제 `CsvLogger` 기록으로 확인했다.
   `saver-sound` 는 모의 `pactl`(HDMI 있음, HDMI 프로필 꺼짐, USB, 장치 없음), `saver-time` 과 시각 맞춤 함수는
   모의 HTTP 응답으로 확인했다. 실제 HTTP Date 응답은 작업 환경에서 80번 포트가 막혀 확인하지 못했다.
-  **젯슨 실기에서는 아직 실행하지 않았다.**
-  apt 패키지 이름, Chromium 플래그, gdm3 자동 로그인, HDMI 소리 장치 이름(`hdmi` 포함 여부), Claude Code 실행 여부는
-  실기에서 확인한다.
+- 10/15 젯슨 실기 첫 실행(JetPack 4.6): 1~9단계 완료(시각, apt, 저장소, Python, 장치 권한, 서비스, 키오스크 명령,
+  보조 명령, 글꼴과 시간대). 소리 기본 출력이 `alsa_output.platform-70030000.hda.hdmi-stereo` 로 자동 선택됨을 확인했다.
+  10단계(Claude Code)에서 `ldd --version | head -n 1` 이 SIGPIPE(141)로 끊겨 pipefail 로 멈췄다. `getconf GNU_LIBC_VERSION`
+  으로 바꾸고, 같은 꼴의 `| head` 3곳(nvpmodel, claude --version)을 끝까지 읽는 awk 로 바꿨다(가짜 ldd 로 재현과 수정 확인).
+  10단계 이후(Claude Code, 자동 시험, 요약)와 Chromium 키오스크 화면, gdm3 자동 로그인은 다시 실행해 확인한다.

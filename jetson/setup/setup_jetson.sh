@@ -698,7 +698,9 @@ if [ "$MAXN" -eq 1 ]; then
   run sudo nvpmodel -m 0
   ok "전원 모드 MAXN (5 V 4 A 배럴잭 전원 전제)"
 else
-  info "전원 모드는 그대로 ($(sudo -n nvpmodel -q 2>/dev/null | head -n 1 || echo '확인 안 됨'))"
+  # nvpmodel -q 첫 줄은 'NVPM WARN: fan mode is not set!' 일 수 있어 'NV Power Mode' 줄을 고른다
+  PM="$(sudo -n nvpmodel -q 2>/dev/null | awk -F': *' '/Power Mode/ {print $2}' || true)"
+  info "전원 모드는 그대로 (${PM:-확인 안 됨})"
 fi
 
 # ---------------------------------------------------------------- 9. Claude Code
@@ -711,7 +713,9 @@ CLAUDE_STATUS="건너뜀(--no-claude)"
 install_claude() {
   local mem_mb glibc tmp
   mem_mb="$(awk '/MemTotal/ {print int($2 / 1024)}' /proc/meminfo)"
-  glibc="$(ldd --version 2>&1 | head -n 1 | awk '{print $NF}')"
+  # 'ldd --version | head -n 1' 은 쓰지 않는다. ldd 는 여러 번 나눠 쓰는 셸 스크립트라, head 가 먼저 끝나면
+  # SIGPIPE(141)로 끊기고 pipefail 에서 실패가 된다(10/15 젯슨 실기에서 여기서 멈춤)
+  glibc="$(getconf GNU_LIBC_VERSION 2>/dev/null | awk '{print $NF}' || true)"
   info "메모리 ${mem_mb} MB, glibc ${glibc}"
   if [ "$UBU" = "18.04" ]; then
     warn "Claude Code 공식 지원은 Ubuntu 20.04 이상. 18.04(glibc 2.27)는 설치는 되어도 실행이 안 될 수 있음"
@@ -720,7 +724,7 @@ install_claude() {
     warn "메모리 ${mem_mb} MB: Claude Code 권장 4 GB 미만"
   fi
   if [ -x "$CLAUDE_BIN" ] && "$CLAUDE_BIN" --version >/dev/null 2>&1; then
-    CLAUDE_STATUS="$("$CLAUDE_BIN" --version 2>/dev/null | head -n 1) (이미 설치)"
+    CLAUDE_STATUS="$("$CLAUDE_BIN" --version 2>/dev/null | awk 'NR == 1' || true) (이미 설치)"
     ok "$CLAUDE_STATUS"
   elif [ "$DRY_RUN" -eq 1 ]; then
     info "(dry-run) curl -fsSL https://claude.ai/install.sh | bash"
@@ -734,7 +738,7 @@ install_claude() {
     fi
     rm -f "$tmp"
     if [ -x "$CLAUDE_BIN" ] && "$CLAUDE_BIN" --version >/dev/null 2>&1; then
-      CLAUDE_STATUS="$("$CLAUDE_BIN" --version 2>/dev/null | head -n 1)"
+      CLAUDE_STATUS="$("$CLAUDE_BIN" --version 2>/dev/null | awk 'NR == 1' || true)"
       ok "Claude Code $CLAUDE_STATUS. 재부팅 뒤 터미널에서 claude 를 실행해 로그인(점검: claude doctor)"
     else
       CLAUDE_STATUS="실행 안 됨 (Ubuntu 18.04 비지원 가능성. 노트북에서 SSH 로 젯슨 작업 권장)"
