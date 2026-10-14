@@ -1,5 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 600" width="1200" height="600">
-  <!-- 겉옷 제거됨 · 위에서 본 상체 -->
+  <!-- 외투만 벗김 · 위에서 본 상체. 안에 입은 얇은 옷은 그대로 둔다(10/14) -->
   <defs>
     <linearGradient id="c-bg" x1="0" y1="0" x2="0" y2="1">
       <stop offset="0" stop-color="#161b23"/><stop offset="1" stop-color="#0d1015"/>
@@ -21,14 +21,15 @@
     <ellipse cx="150" cy="300" rx="78" ry="66"/>
   </g>
 
-  <!-- 겉옷 제거 · 가슴 노출 (압박 가능 상태) -->
-  <ellipse cx="372" cy="300" rx="62" ry="86" fill="#cfd4db" opacity=".55"/>
-  <path d="M372 232 L372 368" stroke="#9aa3b0" stroke-width="3" opacity=".7"/>
-  <g stroke="#b6bcc6" stroke-width="3" fill="none" opacity=".45">
-    <path d="M330 250 Q372 240 414 250"/><path d="M330 282 Q372 272 414 282"/>
-    <path d="M330 318 Q372 328 414 318"/><path d="M330 350 Q372 360 414 350"/>
+  <!-- 얇은 상의(티셔츠): 소매, 몸판, 목둘레 -->
+  <g fill="#8fa3ba" stroke="#5f7189" stroke-width="4" stroke-linejoin="round">
+    <path d="M300 206 L432 194 L436 238 L304 252 Z"/>
+    <path d="M300 394 L432 406 L436 362 L304 348 Z"/>
+    <path d="M288 174 L640 196 Q700 206 700 244 L700 356 Q700 394 640 404 L288 426
+             Q266 426 266 404 L266 196 Q266 174 288 174 Z"/>
   </g>
-  <!-- 벗겨서 옆으로 치운 겉옷 -->
+  <path d="M267 266 Q314 300 267 334" fill="#e6e8ec" stroke="#5f7189" stroke-width="4"/>
+  <!-- 벗겨서 옆으로 치운 외투 -->
   <path d="M700 120 Q800 96 900 118 Q980 136 1010 176 Q960 196 880 186
            Q790 174 706 158 Z" fill="#39414f" stroke="#586274" stroke-width="4"/>
   <path d="M700 480 Q800 504 900 482 Q980 464 1010 424 Q960 404 880 414

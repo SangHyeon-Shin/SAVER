@@ -2,7 +2,7 @@
    화면을 띄울 수 없는 환경(원격 PC, CI 등)에서 코드 수정 후 검증용.
 
    사용:  npm run build:single && npm run smoke                            */
-const { readFileSync, existsSync } = require('fs')
+const { readFileSync, existsSync, readdirSync } = require('fs')
 const { JSDOM, VirtualConsole } = require('jsdom')
 
 const FILE = 'dist-single/SAVER_UI.html'
@@ -64,11 +64,11 @@ const check = (name, ok, detail = '') => {
     && !has('헤드셋')() && !has('단단한 바닥')() && !!BX('시작') && steps() === '2/2')
 
   tap(BX('시작'))
-  check('05 겉옷 제거 안내(인식 없음, D-38)', await until(has('겉옷을 벗겨 주세요'))
-    && !has('인식')() && !!B('겉옷을 벗겼습니다'))
+  check('05 외투만 벗기기 안내(인식 없음, D-38, 10/14 외투만)', await until(has('외투만 벗겨 주세요'))
+    && !has('인식')() && !has('겉옷')() && !has('맨살')() && !!B('외투를 벗겼습니다'))
 
-  tap(B('겉옷을 벗겼습니다'))
-  check('21 겉옷 뒤 AED 패드 부착 확인 (v2.2)', await until(has('지금 패드를 붙이세요')))
+  tap(B('외투를 벗겼습니다'))
+  check('21 외투 뒤 AED 패드 부착 확인 (v2.2)', await until(has('지금 패드를 붙이세요')))
   tap(B('패드를 붙였습니다'))
   check('06 몸 위치 맞추기 (흉곽 정렬) ① 팔과 다리 먼저, 지시 하나', await until(has('몸 위치 맞추기'))
     && has('팔과 다리를 몸에 붙여')() && !has('초록색 선에')())
@@ -100,7 +100,9 @@ const check = (name, ok, detail = '') => {
   check('10 압박 준비: 지시는 손 떼기 하나', await until(has('압박 준비')) && has('환자에게서 손을 떼세요')() && !has('시작하려면')())
   check('10 자동심장충격기 패드 상태 표시', has('자동심장충격기 패드: 붙임')())
 
-  tap(d.querySelector('#root [role="button"]'))
+  check('10 압박은 [압박 시작] 버튼으로만 시작 (10/14 결정 ①, 화면 전체 터치 없음)', !!BX('압박 시작')
+    && !has('화면을 누르면')() && !d.querySelector('#root [role="button"]'))
+  tap(BX('압박 시작'))
   check('11 압박 수행 진입', await until(has('압박 모니터링')))
 
   const v1 = () => T().match(/\d+:\d\d/)?.[0]
@@ -129,9 +131,9 @@ const check = (name, ok, detail = '') => {
   check('16 안전정지', await until(has('안전 정지')))
 
   tap(B('수동 해제'))
-  check('17 수동 해제 ① 바닥 고정 풀기, 지시 하나', await until(has('바닥 고정을 푸세요')) && !has('가슴에서 떼세요')())
+  check('17 수동 해제 ① 바닥 고정이 풀릴 때까지 기다리기(장치가 음압을 끔), 지시 하나', await until(has('바닥 고정이 풀릴 때까지 기다리세요')) && !has('환자에게서 치우세요')())
   tap(BX('다음'))
-  check('17 ② 장치를 가슴에서 떼기', await until(has('가슴에서 떼세요')) && !has('바닥 고정을 푸세요')())
+  check('17 ② 장치를 환자에게서 치우기', await until(has('환자에게서 치우세요')) && !has('풀릴 때까지 기다리세요')())
 
   tap(BX('완료'))
   check('18 종료·기록 저장', await until(has('작동을 마쳤습니다')))
@@ -227,9 +229,9 @@ const check = (name, ok, detail = '') => {
   const T4 = () => (d4.querySelector('#root')?.textContent || '')
   await until(() => T4().includes('대기로'), 3000)
   tap([...d4.querySelectorAll('#root button')].find((b) => b.textContent.includes('대기로')))
-  check('음압 잔존 시연: 종료 → 대기로 누르면 수동 해제(S12)', await until(() => T4().includes('바닥 고정을 푸세요'), 3000))
+  check('음압 잔존 시연: 종료 → 대기로 누르면 수동 해제(S12)', await until(() => T4().includes('바닥 고정이 풀릴 때까지 기다리세요'), 3000))
   tap([...d4.querySelectorAll('#root button')].find((b) => b.textContent.trim() === '다음'))
-  await until(() => T4().includes('가슴에서 떼세요'), 3000)
+  await until(() => T4().includes('환자에게서 치우세요'), 3000)
   tap([...d4.querySelectorAll('#root button')].find((b) => b.textContent.trim() === '완료'))
   await until(() => T4().includes('대기로'), 3000)
   tap([...d4.querySelectorAll('#root button')].find((b) => b.textContent.includes('대기로')))
@@ -362,6 +364,16 @@ const check = (name, ok, detail = '') => {
     dn.window.close()
   }
   check('화면 문구: 전문용어 없음(일반인 기준)', jhits.length === 0, jhits.join(' '))
+  check('음성 문구 v0.11: 마스크 단계와 V30 없음(인공호흡 계획에 마스크 없음, 10/14), V05 는 외투만',
+    !vids.includes('V30') && VP.prompts.every((p) => !p.say.includes('마스크') && !p.text.includes('마스크') && !p.say.includes('맨살'))
+    && VP.prompts.find((p) => p.id === 'V05').say.includes('외투만') && VP.version === '0.11')
+  {
+    const need = VP.prompts.filter((p) => !p.silent && !['V35', 'V39'].includes(p.id)).map((p) => p.id)
+    const miss = need.filter((i) => !existsSync('public/voice/' + i + '.mp3'))
+    const extra = readdirSync('public/voice').filter((f) => f.endsWith('.mp3') && !need.includes(f.slice(0, -4)))
+    check('음성 파일: 무음, 제외 문구 말고는 모두 있음(10/14 생성 33개), 목록에 없는 파일 없음', need.length === 33 && miss.length === 0 && extra.length === 0,
+      'miss ' + miss.join(',') + ' extra ' + extra.join(','))
+  }
   // 음성 재생 규칙과 재생기 (voice/plan.js, voice/player.js)
   const VPl = await import('../src/voice/plan.js')
   const VPP = VP.prompts
@@ -369,7 +381,9 @@ const check = (name, ok, detail = '') => {
     && VPl.planEvent(VPP, 'S2', 'step:2').join() === 'V36', VPl.planEnter(VPP, 'S2').join())
   check('재생 규칙: 단계 화면 (몸 위치, 안전핀, 수동 해제)', VPl.planEnter(VPP, 'S3S4').join() === 'V08' && VPl.planEvent(VPP, 'S3S4', 'step:2').join() === 'V07'
     && VPl.planEnter(VPP, 'X_PIN').join() === 'V14' && VPl.planEvent(VPP, 'X_PIN', 'step:2').join() === 'V41'
-    && VPl.planEnter(VPP, 'S12').join() === 'V27' && VPl.planEvent(VPP, 'S12', 'step:2').join() === 'V42')
+    && VPl.planEnter(VPP, 'S12').join() === 'V27' && VPl.planEvent(VPP, 'S12', 'step:2').join() === '')
+  check('재생 규칙: V42(바닥 고정이 풀렸습니다)는 해제 완료 판정 전까지 보류 (10/14 결정 ⑤)',
+    VP.prompts.find((p) => p.id === 'V42').hold === true && !VPl.planEvent(VPP, 'S12', 'step:2').includes('V42'))
   check('재생 규칙: 의학 검토 전 보류 문구(V19)는 재생 계획에 없음', VP.prompts.find((p) => p.id === 'V19').hold === true && !VPl.planEnter(VPP, 'S9').includes('V19'))
   check('재생 규칙: S10 은 진입 문구 뒤 원인 문구, 위치 오류는 V09',
     VPl.planEnter(VPP, 'S10', { cause: 'vacuum' }).join() === 'V20,V22' && VPl.planEnter(VPP, 'S3S4', { positionError: true }).join() === 'V09'
@@ -377,7 +391,10 @@ const check = (name, ok, detail = '') => {
   check('재생 규칙: 압박 중 사건 음성 없음, AED 화면은 경고(V39)만, 배터리는 어느 화면에서나',
     VPl.planEvent(VPP, 'S7', 'battery_low').length === 0 && VPl.planEvent(VPP, 'X_AED', 'battery_low').length === 0
     && VPl.planEvent(VPP, 'X_AED', 'aed_pause_warn').join() === 'V39' && VPl.planEvent(VPP, 'S3S4', 'battery_low').join() === 'V35'
-    && VPl.planEvent(VPP, 'X_VENT', 'step:3').join() === 'V31' && VPl.planEvent(VPP, 'X_SEARCH', 'search_fail:EAPD_MISSING').join() === 'V13')
+    && VPl.planEvent(VPP, 'X_SEARCH', 'search_fail:EAPD_MISSING').join() === 'V13')
+  check('재생 규칙: 인공호흡 단계 음성은 마지막 단계 V34만, V29와 V31~V33은 교육용 (10/14 결정 ③)',
+    [1, 2, 3, 4].every((k) => VPl.planEvent(VPP, 'X_VENT', 'step:' + k).length === 0) && VPl.planEvent(VPP, 'X_VENT', 'step:5').join() === 'V34'
+    && ['V29', 'V31', 'V32', 'V33'].every((i) => VP.prompts.find((p) => p.id === i).edu === true))
   const { createVoice } = await import('../src/voice/player.js')
   const fake = [], objs = []   // 가짜 Audio: play 하면 기록. V20 은 파일 없음(오류)
   const mk = (src) => { const a = { src, onended: null, onerror: null, paused: false,

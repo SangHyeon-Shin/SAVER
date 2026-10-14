@@ -1,7 +1,7 @@
 import React from 'react'
 import { C } from '../tokens'
 import { EV } from '../stateMachine'
-import { Light, Header, Btn, Dot, Progress, PressArea, StepDots, useSteps } from '../ui'
+import { Light, Header, Btn, Dot, Progress, StepDots, useSteps } from '../ui'
 import { AedMark } from './Aed'
 
 import { IMG } from '../images'
@@ -133,9 +133,10 @@ export function Screen04({ fire }) {
   )
 }
 
-/* ================= 05 · 겉옷 제거 =================
-   겉옷 제거는 인식하지 않는다(D-38). 제거하라고 안내만 하고,
-   구조자가 [겉옷을 벗겼습니다]를 누르면 다음 화면으로 간다.
+/* ================= 05 · 외투 벗기기 =================
+   외투 제거는 인식하지 않는다(D-38). 벗기라고 안내만 하고,
+   구조자가 [외투를 벗겼습니다]를 누르면 다음 화면으로 간다.
+   외투만 벗기고 안에 입은 옷은 그대로 둔다(10/14 팀장). 사전 뜻으로 외투는 겉옷 위에 덧입는 옷이다.
    그림은 벗기기 전과 뒤를 나란히 보여 주는 안내용이다. */
 export function Screen05({ fire }) {
   const pic = (src, alt, label) => (
@@ -148,20 +149,20 @@ export function Screen05({ fire }) {
   )
   return (
     <Light>
-      <Header title="겉옷 정리 단계" right="4 / 7" />
+      <Header title="외투 정리 단계" right="4 / 7" />
       <div style={{ flex: 1, padding: '16px 28px 18px', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
         <div style={{ fontSize: 26, fontWeight: 700, textAlign: 'center', marginBottom: 12, flexShrink: 0 }}>
-          가슴 압박을 할 수 있도록 겉옷을 벗겨 주세요
+          가슴 압박을 할 수 있도록 외투만 벗겨 주세요
         </div>
         <div style={{ flex: 1, minHeight: 0, display: 'flex', alignItems: 'stretch', gap: 18 }}>
-          {pic(IMG.clothes_on, '겉옷을 입은 환자 상체', '지금')}
+          {pic(IMG.clothes_on, '외투를 입은 환자 상체', '지금')}
           <div style={{ alignSelf: 'center', fontSize: 40, color: C.success, fontWeight: 800, flexShrink: 0 }}>→</div>
-          {pic(IMG.clothes_off, '겉옷을 벗긴 환자 상체', '벗긴 뒤')}
+          {pic(IMG.clothes_off, '외투를 벗기고 얇은 옷은 그대로 둔 환자 상체', '벗긴 뒤')}
         </div>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 14, flexShrink: 0 }}>
           <Btn variant="ghost" w={160} fs={23} onPress={() => fire(EV.CANCEL)}>취소</Btn>
           <Btn variant="success" w={300} h={70} fs={26} fw={700}
-            onPress={() => fire(EV.CLOTHES_OK)}>겉옷을 벗겼습니다</Btn>
+            onPress={() => fire(EV.CLOTHES_OK)}>외투를 벗겼습니다</Btn>
         </div>
       </div>
     </Light>
@@ -296,8 +297,7 @@ export function Screen10({ fire, ctx }) {
   return (
     <Light>
       <Header title="압박 준비" right="최종 안전 확인" />
-      <PressArea onPress={() => fire(EV.CPR_START)}
-        style={{ flex: 1, position: 'relative', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 18, animation: 'bluepulse 1.6s ease-in-out infinite' }}>
+      <div style={{ flex: 1, position: 'relative', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 18, animation: 'bluepulse 1.6s ease-in-out infinite' }}>
         <div style={{ position: 'absolute', inset: 14, border: `2px dashed ${C.primary}`, borderRadius: 12, opacity: .4, pointerEvents: 'none', animation: 'sblink 1.6s ease-in-out infinite' }} />
         {ctx && typeof ctx.aedPads === 'boolean' && (
           <div style={{ position: 'absolute', top: 28, right: 32, fontSize: 18, fontWeight: 700, pointerEvents: 'none',
@@ -308,12 +308,14 @@ export function Screen10({ fire, ctx }) {
         <div style={{ width: 84, height: 84, borderRadius: '50%', border: `6px solid ${C.danger}`, position: 'relative' }}>
           <div style={{ position: 'absolute', top: '50%', left: '8%', right: '8%', height: 6, background: C.danger, transform: 'translateY(-50%) rotate(45deg)' }} />
         </div>
-        {/* 지시는 손 떼기 하나. 화면 전체가 시작 버튼이다(10/5 한 화면에 지시 하나) */}
+        {/* 지시는 손 떼기 하나(10/5 한 화면에 지시 하나). 압박은 화면 전체 터치가 아니라 [압박 시작] 버튼으로만
+            시작한다(한성윤 검토 10/12, 10/14 결정 ①, 음성 V16). 시작 조건은 상태머신과 장치가 확인한다 */}
         <div style={{ fontSize: 48, fontWeight: 800 }}>환자에게서 손을 떼세요</div>
-        <div style={{ marginTop: 2 }}><Dot color={C.primary} label="화면을 누르면 압박이 시작됩니다" size={14} fontSize={24} /></div>
+        <div style={{ marginTop: 2 }}><Dot color={C.primary} label="모두 손을 뗀 뒤 [압박 시작]을 누르세요" size={14} fontSize={24} /></div>
+        <Btn variant="danger" w={300} h={76} fs={28} fw={800} onPress={() => fire(EV.CPR_START)}>압박 시작</Btn>
         <Btn variant="ghost" w={160} fs={23} onPress={() => fire(EV.CANCEL)}
           style={{ position: 'absolute', left: 28, bottom: 24 }}>취소</Btn>
-      </PressArea>
+      </div>
     </Light>
   )
 }

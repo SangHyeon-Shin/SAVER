@@ -7,8 +7,9 @@ import { IMG } from '../images'
 import { VoiceCtx } from '../voice/VoiceContext'
 
 /* ================= 17 · 수동 해제 · S12 · UI-12 · 주의 =================
-   한 화면에 지시 하나(10/5): ① 바닥 고정 풀기 → ② 장치를 가슴에서 떼기 → [완료].
-   음성 V27(진입) → V42(step:2) */
+   한 화면에 지시 하나(10/5): ① 바닥 고정이 풀릴 때까지 기다리기 → ② 장치를 환자에게서 치우기 → [완료].
+   진입 때 장치가 음압 해제 명령(VACUUM_OFF)을 보내므로 구조자는 기다린다(한성윤 검토 10/12).
+   음성 V27(진입). V42는 해제 완료 판정(한건민) 전까지 보류(10/14 결정 ⑤) */
 export function Screen17({ fire }) {
   const [i, go] = useSteps(2)
   const step = (n, imgAlt, extra) => (
@@ -24,12 +25,12 @@ export function Screen17({ fire }) {
       <Header title="수동 해제" right="주의" rightColor="#9a7000" h={72} />
       <div style={{ flex: 1, position: 'relative', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 22, paddingBottom: 80 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 18 }}>
-          {step(1, '바닥 고정 풀기')}
+          {step(1, '바닥 고정이 풀리기를 기다림')}
           <div style={{ fontSize: 30, color: '#8a929c' }}>→</div>
           {step(2, '장치 들어올리기',
             <span style={{ position: 'absolute', right: 10, bottom: 8, color: C.success, fontSize: 24, fontWeight: 800, animation: 'pulsedot 1.3s infinite' }}>↑</span>)}
         </div>
-        <div style={{ fontSize: 46, fontWeight: 800 }}>{i === 0 ? '바닥 고정을 푸세요' : '장치를 가슴에서 떼세요'}</div>
+        <div style={{ fontSize: 46, fontWeight: 800 }}>{i === 0 ? '바닥 고정이 풀릴 때까지 기다리세요' : '장치를 환자에게서 치우세요'}</div>
         {i > 0 && <Btn variant="ghost" w={160} fs={23} onPress={() => go(0)}
           style={{ position: 'absolute', left: 28, bottom: 24 }}>이전</Btn>}
         <div style={{ position: 'absolute', left: 0, right: 0, bottom: 44, display: 'flex', justifyContent: 'center', pointerEvents: 'none' }}>
@@ -64,16 +65,16 @@ export function Screen18({ fire, ctx }) {
 }
 
 /* ================= 19 · 인공호흡 가이드 · 주의 · 한/영 병기 =================
-   1~5단계는 시간에 따라 넘어가는 안내다. 6단계에서 멈추고, 구조자가 손을 뗀 뒤
+   1~4단계는 시간에 따라 넘어가는 안내다. 5단계에서 멈추고, 구조자가 손을 뗀 뒤
    [압박 재개]를 눌러야 압박으로 돌아간다(시간이 끝났다고 자동으로 재개하지 않는다).
-   단계 시간과 문구는 한성윤 검토 전이다. */
+   인공호흡 계획에 마스크가 없어 마스크 단계를 뺐다(10/14 팀장). 문구는 한성윤 검토(10/12)를 따랐고,
+   단계 시간은 검토 전이다. 단계 음성 V29, V31~V33은 교육용이라 재생하지 않고 마지막 단계 V34만 말한다(10/14 결정 ③). */
 const VENT_STEPS = [
-  { n: '①', k: '머리 젖히기', ko: '머리를 젖히고\n턱을 들어올리세요',   en: 'Tilt the head, lift the chin', sec: 3 },
-  { n: '②', k: '마스크 맞추기', ko: '마스크를 얼굴에\n꼭 맞게 대세요',     en: 'Seal the mask on the face',   sec: 3 },
-  { n: '③', k: '숨 불어넣기', ko: '천천히 숨을\n불어넣으세요 (1초)',   en: 'Give a slow breath over 1 second', sec: 1 },
-  { n: '④', k: '가슴 확인',    ko: '가슴이 올라오는지\n확인하세요',      en: 'Check for chest rise',        sec: 2 },
-  { n: '⑤', k: '한 번 더',    ko: '한 번 더 천천히\n불어넣으세요 (1초)', en: 'Give a second breath',       sec: 1 },
-  { n: '⑥', k: '압박 재개',   ko: '손을 떼고\n[압박 재개]를 누르세요', en: 'Hands off, then press Resume', sec: 0 },
+  { n: '①', k: '머리 젖히기', ko: '머리를 젖히고\n턱을 들어 올리세요',      en: 'Tilt the head, lift the chin', sec: 3 },
+  { n: '②', k: '숨 불어넣기', ko: '가슴이 올라올 만큼\n1초 동안 불어넣으세요', en: 'Breathe in for 1 second until the chest rises', sec: 1 },
+  { n: '③', k: '가슴 확인',    ko: '가슴이 내려오는지\n확인하세요',          en: 'Check that the chest falls',  sec: 2 },
+  { n: '④', k: '한 번 더',    ko: '같은 방법으로\n한 번 더 불어넣으세요',    en: 'Give a second breath the same way', sec: 1 },
+  { n: '⑤', k: '압박 재개',   ko: '손을 떼고\n[압박 재개]를 누르세요',      en: 'Hands off, then press Resume', sec: 0 },
 ]
 
 const LAST = VENT_STEPS.length - 1
@@ -104,7 +105,7 @@ function VentGuide({ fire }) {
   const vc = useContext(VoiceCtx)
 
   useEffect(() => {
-    if (vc) vc.voice.event('step:' + (i + 1))   // 단계 음성 V29~V34 (앞 문구를 끊지 않고 잇는다)
+    if (vc) vc.voice.event('step:' + (i + 1))   // 단계 음성은 마지막 단계 V34만(V29, V31~V33은 교육용, 10/14)
     setLeft(VENT_STEPS[i].sec)
     if (i === LAST) return undefined          // 마지막 단계는 구조자 버튼으로만 넘어간다
     const tick = setInterval(() => setLeft((v) => Math.max(0, v - 1)), 1000)
@@ -116,7 +117,7 @@ function VentGuide({ fire }) {
   return (
     <Dark band={C.caution} bandH={12}>
       <Header dark h={70} titleSize={25} title="인공호흡 안내" titleEn="Rescue Breathing"
-        right={`${i + 1} / 6`} rightColor={C.caution} />
+        right={`${i + 1} / ${VENT_STEPS.length}`} rightColor={C.caution} />
       <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 44, minHeight: 0 }}>
         <div style={{ position: 'relative', width: 170, height: 170, flexShrink: 0 }}>
           <svg width="170" height="170" viewBox="0 0 120 120">
