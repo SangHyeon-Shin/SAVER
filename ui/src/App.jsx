@@ -48,6 +48,8 @@ const DEMO_BUILD = import.meta.env.VITE_DEMO === '1'
 // 실기 키오스크 빌드(VITE_KIOSK=1, npm run build:kiosk): 브리지에 연결되기 전이나 연결이 끊긴 동안
 // 화면이 스스로 넘어가지 않고 연결 대기 화면을 보인다(D-44). 로컬 전이는 오프라인 시연 전용이다
 const KIOSK = import.meta.env.VITE_KIOSK === '1'
+// 오프라인 시연에서 장치 대신 바닥 고정 완료(VACUUM_OK)를 내기까지의 시간. 시연용 값이며 실기 값이 아니다
+const DEMO_VACUUM_MS = 3000
 const qEapd = () => {
   const e = QS.get('eapd')
   if (e === 'none') return null
@@ -196,6 +198,16 @@ export default function App() {
     const t = setTimeout(() => fire(node.auto.event), node.auto.ms)
     return () => clearTimeout(t)
   }, [node, fire, bridge.connected])
+
+  /* ---------- 오프라인 시연: 바닥 고정 완료를 장치 대신 알린다 (10/14) ----------
+     실기에서는 장치가 음압에 도달하면 VACUUM_OK 를 보내고 브리지가 S5 → S6 으로 넘긴다(jetson bridge.py _on_evt).
+     오프라인 시연에는 장치가 없어 [재확인]을 눌러야만 넘어갔으므로 같은 이벤트를 DEMO_VACUUM_MS 뒤에 낸다.
+     흡착 오류 시연(vac_err)은 주의 화면을 보여야 하므로 [재확인]으로 넘긴다. 실기 키오스크에서는 하지 않는다 */
+  useEffect(() => {
+    if (ctx.node !== 'S5' || bridge.connected || KIOSK || demo.vacuumError) return undefined
+    const t = setTimeout(() => fire(EV.VACUUM_OK), DEMO_VACUUM_MS)
+    return () => clearTimeout(t)
+  }, [ctx.node, bridge.connected, demo.vacuumError, fire])
 
   /* ---------- 압박 재시작 시 카운터 초기화 ---------- */
   useEffect(() => {

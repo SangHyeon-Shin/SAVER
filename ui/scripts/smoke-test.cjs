@@ -236,6 +236,17 @@ const check = (name, ok, detail = '') => {
   tap([...d4.querySelectorAll('#root button')].find((b) => b.textContent.includes('대기로')))
   check('해제 완료 뒤 대기로 → 시스템 점검(S1, v2.5)', await until(() => T4().includes('시스템 점검 중'), 3000))
   check('대기로 뒤 점검을 마치면 119 신고와 이동 화면(오프라인 시연 3 s)', await until(() => T4().includes('119에 신고하세요'), 6000))
+  // 오프라인 시연: 바닥 고정 확인(S5)은 장치의 고정 완료 신호를 흉내 내 3초 뒤 압박 준비로 (10/14)
+  const d5v = openDom('?start=S5').window.document
+  const T5v = () => (d5v.querySelector('#root')?.textContent || '')
+  await until(() => T5v().includes('바닥 고정 확인'), 3000)
+  check('08 오프라인 시연: 바닥 고정 확인은 3초 뒤 압박 준비로 자동 (장치 고정 완료 흉내, 10/14)', await until(() => T5v().includes('압박 준비'), 6000))
+  const d5e = openDom('?start=S5&vac_err=1').window.document
+  const T5e = () => (d5e.querySelector('#root')?.textContent || '')
+  await until(() => T5e().includes('바닥 고정 확인'), 3000)
+  await wait(4000)
+  check('08 흡착 오류 시연은 자동으로 넘어가지 않음 ([재확인]으로 오류 화면)', T5e().includes('고정 약함') && !T5e().includes('압박 준비'))
+
   // 인공호흡 안내: 시간이 끝나도 압박을 자동으로 다시 시작하지 않는다
   const d5 = openDom('?start=X_VENT').window.document
   const T5 = () => (d5.querySelector('#root')?.textContent || '')
