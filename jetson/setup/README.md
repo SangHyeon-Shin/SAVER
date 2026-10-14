@@ -142,4 +142,8 @@ git add ../jetson/ui_dist && git commit -m "[ui] 젯슨 UI 묶음 갱신"
   보조 명령, 글꼴과 시간대). 소리 기본 출력이 `alsa_output.platform-70030000.hda.hdmi-stereo` 로 자동 선택됨을 확인했다.
   10단계(Claude Code)에서 `ldd --version | head -n 1` 이 SIGPIPE(141)로 끊겨 pipefail 로 멈췄다. `getconf GNU_LIBC_VERSION`
   으로 바꾸고, 같은 꼴의 `| head` 3곳(nvpmodel, claude --version)을 끝까지 읽는 awk 로 바꿨다(가짜 ldd 로 재현과 수정 확인).
-  10단계 이후(Claude Code, 자동 시험, 요약)와 Chromium 키오스크 화면, gdm3 자동 로그인은 다시 실행해 확인한다.
+  고친 판으로 다시 실행해 10~12단계도 끝났다: Claude Code 2.1.299 설치와 `claude --version` 확인(18.04 에서도 실행됨,
+  로그인은 미확인), 자동 시험 252/252 통과(젯슨 Python 3.6). gdm3 자동 로그인(`--autostart`)은 아직 쓰지 않았다.
+- Teensy 를 연결하지 않으면 키오스크는 S1 "시스템 점검 중" 화면에 머문다. 브리지 초기화가 USB 링크를 기다리는
+  단계(wait_link)에서 시간 제한 없이 기다리기 때문이고, 연결 전에는 화면이 스스로 넘어가지 않는 설계(D-44)대로다.
+  브리지(WebSocket)가 끊겼을 때만 "장치와 연결하고 있습니다" 화면이 나온다.
