@@ -1051,6 +1051,137 @@ br.link.stop(); sim6.terminate(); sim6.wait()
 try: os.remove("/tmp/ttyFAKE_INIT")
 except OSError: pass
 
+print("\n== 11. 레이더 MR60BHA2 (radar.py) ==")
+import struct as _st
+import tempfile as _tf
+from saver import radar as R
+
+_fb = R.encode_frame(R.T_BREATH, _st.pack("<f", 14.5), fid=7)
+ck("프레임 머리: SOF, ID, LEN, TYPE (big-endian)", _fb[:7] == bytes([0x01, 0x00, 0x07, 0x00, 0x04, 0x0A, 0x14]))
+ck("체크섬: XOR 의 비트 반전", R.checksum(b"\x01\x02") == (~(0x01 ^ 0x02)) & 0xFF and R.checksum(b"") == 0xFF)
+_g = R.FrameParser().feed(_fb)
+ck("프레임 하나 해석, 호흡수 float32 little-endian", len(_g) == 1 and _g[0][0] == R.T_BREATH and _g[0][2] == 7
+   and abs(R.decode(_g[0][0], _g[0][1])["rr_bpm"] - 14.5) < 1e-6)
+_stream = (_fb + R.encode_frame(R.T_HEART, _st.pack("<f", 72.0))
+           + R.encode_frame(R.T_DISTANCE, _st.pack("<If", 1, 29.4)))
+_p, _acc = R.FrameParser(), []
+for _i in range(len(_stream)):
+    _acc += _p.feed(_stream[_i:_i + 1])
+ck("한 바이트씩 받아도 프레임 3개", [f[0] for f in _acc] == [R.T_BREATH, R.T_HEART, R.T_DISTANCE])
+_bh, _bd = bytearray(_fb), bytearray(_fb)
+_bh[7] ^= 0xFF
+_bd[-1] ^= 0xFF
+_p = R.FrameParser()
+_g = _p.feed(b"\x00\x13\x01\x02\xff" + bytes(_bh) + bytes(_bd) + b"\x01\x00" + _stream)
+ck("쓰레기, 머리·데이터 체크섬 오류를 건너뛰고 뒤 프레임 3개 복구",
+   [f[0] for f in _g] == [R.T_BREATH, R.T_HEART, R.T_DISTANCE] and _p.bad >= 2, "bad=%d" % _p.bad)
+_g = R.FrameParser().feed(R.encode_frame(0x0A99, b"\x00" * 600) + _fb)
+ck("LEN 상한(512)을 넘는 머리는 버리고 다음 프레임", [f[0] for f in _g] == [R.T_BREATH])
+ck("값 0 은 측정 못 함(None, 0 을 쓰지 않음)", R.decode(R.T_HEART, _st.pack("<f", 0.0)) == {"hr_bpm": None})
+ck("NaN, 음수도 측정 못 함", R.decode(R.T_BREATH, _st.pack("<f", float("nan")))["rr_bpm"] is None
+   and R.decode(R.T_BREATH, _st.pack("<f", -3.0))["rr_bpm"] is None)
+ck("거리 cm → mm, 유효 표시 0 이면 None",
+   abs(R.decode(R.T_DISTANCE, _st.pack("<If", 1, 29.4))["distance_mm"] - 294.0) < 1e-3
+   and R.decode(R.T_DISTANCE, _st.pack("<If", 0, 29.4))["distance_mm"] is None)
+ck("사람 감지, 짧은 데이터, 모르는 TYPE",
+   R.decode(R.T_PRESENCE, b"\x00\x00") == {"presence": False} and R.decode(R.T_PRESENCE, b"\x01\x00") == {"presence": True}
+   and R.decode(R.T_HEART, b"\x00") == {} and R.decode(R.T_PHASE, b"\x00" * 12) == {})
+
+_T = [100.0]
+_rs = R.RadarState(clock=lambda: _T[0])
+_rs.apply({"rr_bpm": 14.0, "hr_bpm": 72.0})
+for _d in (294.0, 296.0, 290.0):
+    _rs.apply({"distance_mm": _d})
+_s = _rs.snapshot(500)
+ck("값과 EAPD = 레이더 높이 - 거리 중앙값(500 - 294)", _s.get("rr_bpm") == 14.0 and _s.get("hr_bpm") == 72.0
+   and _s.get("eapd_mm") == 206.0 and _s["receiving"] and _s["floor_set"], str(_s))
+ck("radar_floor_mm 이 비면 EAPD 없음(대체 상수 없음)",
+   "eapd_mm" not in _rs.snapshot(None) and "eapd_mm" not in _rs.snapshot(0) and not _rs.snapshot(None)["floor_set"])
+ck("EAPD 0 이하(거리 >= 레이더 높이)면 없음", "eapd_mm" not in _rs.snapshot(250))
+_rs2 = R.RadarState(clock=lambda: _T[0])
+_rs2.apply({"distance_mm": 294.0})
+_rs2.apply({"distance_mm": 295.0})
+ck("거리 표본 3개 미만이면 EAPD 없음", "eapd_mm" not in _rs2.snapshot(500))
+_T[0] += R.FRESH_S + 0.5
+_s = _rs.snapshot(500)
+ck("오래된 값(5 s 넘음)은 보내지 않음", not any(k in _s for k in ("rr_bpm", "hr_bpm", "distance_mm", "eapd_mm"))
+   and not _s["receiving"], str(_s))
+_rs.apply({"rr_bpm": 14.0, "distance_mm": 294.0})
+_rs.apply({"presence": False})
+ck("사람 없음이면 이전 값을 지움", not any(k in _rs.snapshot(500) for k in ("rr_bpm", "distance_mm")))
+_rs.apply({"hr_bpm": 70.0})
+_rs.apply({"hr_bpm": None})
+ck("측정 못 함(0) 프레임은 이전 값을 지움", "hr_bpm" not in _rs.snapshot(500))
+
+# 가상 포트: 실제 RadarLink 와 가짜 레이더 프로세스(깨진 바이트 섞음)
+_rp = "/tmp/ttyRADAR_T"
+_fr = subprocess.Popen([sys.executable, "-u", os.path.join(SIMDIR, "fake_radar.py"), "--port", _rp, "--hz", "10",
+                        "--seed", "3", "--garbage", "--quiet", "--duration", "30"],
+                       stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+time.sleep(1.0)
+_links = []
+_rl = R.RadarLink(_rp, on_link=lambda c, p: _links.append(c)).start()
+_end, _s = time.monotonic() + 8.0, {}
+while time.monotonic() < _end:
+    _s = _rl.snapshot(500)
+    if all(k in _s for k in ("eapd_mm", "rr_bpm", "hr_bpm")):
+        break
+    time.sleep(0.1)
+ck("가상 포트: 가짜 레이더 값 수신(깨진 바이트 섞임)", _s.get("receiving") and abs(_s.get("rr_bpm", 0) - 14) <= 1
+   and abs(_s.get("hr_bpm", 0) - 72) <= 2 and abs(_s.get("distance_mm", 0) - 294) <= 4 and _links[:1] == [True], str(_s))
+ck("가상 포트: EAPD = 500 - 거리 ≈ 206", abs(_s.get("eapd_mm", 0) - 206) <= 4, str(_s.get("eapd_mm")))
+_rl.stop()                      # 한 포트를 둘이 읽으면 바이트를 나눠 가지므로 브리지 시험 전에 닫는다
+
+# 브리지: 레이더 EAPD 가 탐색에 쓰이고, 레이더가 없으면 시뮬레이션 값 또는 없음(대체 상수 없음)
+from saver import bridge as B
+_keep = dict((k, B.CONFIG.get(k)) for k in ("radar_floor_mm", "sim_eapd_mm"))
+_tmpr = _tf.mkdtemp(prefix="saver_radar_")
+class _A(object):
+    pass
+def _bargs(radar):
+    a_ = _A()
+    a_.logdir, a_.spec, a_.serial, a_.radar, a_.radar_baud = _tmpr, None, None, radar, 115200
+    return a_
+B.CONFIG.update({"radar_floor_mm": 500, "sim_eapd_mm": None})
+_b = B.Bridge(_bargs(_rp))
+_b.radar.start()
+_end = time.monotonic() + 8.0
+while time.monotonic() < _end and _b.current_eapd()[1] != "radar":
+    time.sleep(0.1)
+_e, _src = _b.current_eapd()
+ck("브리지: 탐색 EAPD 는 레이더 값", _src == "radar" and abs(_e - 206) <= 4, "%s %s" % (_e, _src))
+_b._radar_at = 0.0
+_b.tick_radar()
+_b.log.fp.flush()
+_rows = open(_b.log.path, encoding="utf-8").read()
+ck("브리지: 레이더 기록 줄(호흡, 심박 칸과 RADAR 거리, EAPD)", "radar" in _rows and "RADAR distance_mm=" in _rows
+   and "eapd_mm=" in _rows)
+_rsn = _b.radar_snapshot()
+ck("브리지: UI 로 보내는 레이더 상태", _rsn["type"] == "radar" and _rsn["enabled"] and _rsn["connected"]
+   and "rr_bpm" in _rsn, str(sorted(_rsn)))
+B.CONFIG["radar_floor_mm"] = None
+ck("브리지: radar_floor_mm 이 비면 레이더가 있어도 EAPD 없음", _b.current_eapd() == (None, None))
+_fr.terminate()
+_fr.wait()
+_end = time.monotonic() + R.RX_ALIVE_S + 2.0
+while time.monotonic() < _end and _b.radar.snapshot(500)["receiving"]:
+    time.sleep(0.1)
+ck("가상 포트: 레이더가 멈추면 '수신 중' 해제", not _b.radar.snapshot(500)["receiving"])
+_b.radar.stop()
+_b.log.close()
+B.CONFIG.update({"sim_eapd_mm": 205.8})
+_b2 = B.Bridge(_bargs(None))
+ck("브리지: 레이더 없음 → 시뮬레이션 설정 EAPD, 레이더 상태는 enabled false",
+   _b2.current_eapd() == (205.8, "sim") and _b2.radar_snapshot() == {"type": "radar", "enabled": False})
+B.CONFIG.update({"sim_eapd_mm": None})
+ck("브리지: 레이더도 시뮬레이션 값도 없으면 (None, None)", _b2.current_eapd() == (None, None))
+_b2.log.close()
+B.CONFIG.update(_keep)
+try:
+    os.remove(_rp)
+except OSError:
+    pass
+
 print("\n== 정적 UI 서빙 (--serve, 젯슨 Python 3.6 경로 포함) ==")
 import socket, tempfile, urllib.request, urllib.error
 from http.server import HTTPServer

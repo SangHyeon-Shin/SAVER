@@ -23,6 +23,9 @@
   "drv_avg_ms": 200,
   "head_timeout_ms": 10000,
 
-  "_sim_eapd_mm": "레이더 대신 쓰는 모의 EAPD(mm). 시뮬레이션 설정에서만 받아들인다.",
-  "sim_eapd_mm": 205.8
+  "_sim_eapd_mm": "레이더 대신 쓰는 모의 EAPD(mm). 시뮬레이션 설정에서만 받아들인다. 레이더 EAPD 가 있으면 레이더가 먼저다.",
+  "sim_eapd_mm": 205.8,
+
+  "_radar_floor_mm": "모의 레이더(simulators/fake_radar.py, 기본 거리 29.4 cm)와 쓸 레이더 면 높이(mm). 시뮬레이션 값이며 실물 높이가 아니다. EAPD = 500 - 294 = 206 mm",
+  "radar_floor_mm": 500
 }

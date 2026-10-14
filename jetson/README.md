@@ -18,6 +18,22 @@ React UI ──ws://:8765── bridge.py ──USB Serial── Teensy 4.1
 젯팩 4.6 을 새로 깐 젯슨에서는 `bash setup/setup_jetson.sh` 한 번으로 패키지, 권한(Teensy udev), 브리지 서비스,
 키오스크, Claude Code, 자동 시험을 설정합니다. 자세한 내용은 `setup/README.md`.
 
+## MR60BHA2 레이더 (D-50)
+
+`saver/radar.py` 가 레이더 UART 를 읽어 호흡수, 심박수, 거리를 받는다. 브리지에 `--radar /dev/ttyTHS1` 을 주면 켜지고
+(설치 스크립트 기본), 1초마다 UI 로 보내고 기록한다.
+
+| 값 | 쓰는 곳 |
+|---|---|
+| 호흡수, 심박수 | 일시정지(S8), 회복 신호 확인(S9) 화면. 장치가 멈춤을 보고한 뒤에만 수치. 개발 패널(D 키)은 언제나. 판단에는 쓰지 않음 |
+| 거리 → 가슴 두께(EAPD) | `EAPD = radar_floor_mm − 거리`. 압박점 탐색이 D 를 계산해 Teensy 에 주행 거리로 요청 |
+
+- `radar_floor_mm`(탐색 자세에서 레이더 면의 바닥 위 높이, mm)은 실측해 `jetson/config.json` 에 넣는다. 비어 있으면
+  EAPD 를 만들지 않아 탐색이 "가슴 두께를 재지 못했습니다"로 시작하지 않는다(대체 상수 없음).
+- 현장 확인: `saver-stop` 뒤 `saver-radar`(또는 `python3 -m saver.radar /dev/ttyTHS1 --floor 520`)로 1초마다 값을 본다.
+  거리 단위(cm → mm)는 자로 잰 값과 대조한다.
+- 하드웨어 없이: `python3 simulators/fake_radar.py --port /tmp/ttyRADAR` 뒤 `python3 -m saver.bridge --radar /tmp/ttyRADAR --config config.sim.json`.
+
 ## 노트북 대체 실행 (젯슨이 안 될 때)
 
 브리지와 UI 는 노트북에서도 돕니다. 레이더, 카메라, 키오스크, `saver-*` 명령은 젯슨 전용입니다.

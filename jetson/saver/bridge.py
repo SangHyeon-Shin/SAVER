@@ -11,11 +11,14 @@
   UI ← {"type":"error", ...}                     오류
   UI → {"type":"search","action":"start"|"stop"} 압박점 탐색 시작·중지 (X_SEARCH 에서만)
   UI ← {"type":"search", ...}                    탐색 진행 (반력 곡선, 판정, D, 압박점)
+  UI ← {"type":"radar", ...}                     MR60BHA2 레이더(1초마다): 호흡수, 심박수, 거리, EAPD.
+                                                 측정 못 했거나 오래된 값은 보내지 않는다(radar.py)
 
 실행
   python3 -m saver.bridge                                  # 시리얼 없이 (UI 시험)
   python3 -m saver.bridge --serial /tmp/ttyFAKE            # 가짜 Teensy 연결
   python3 -m saver.bridge --serial /dev/ttyACM0 --serve dist --http-port 8080
+  python3 -m saver.bridge --radar /dev/ttyTHS1             # MR60BHA2 레이더(40핀 UART)
 """
 import argparse
 import asyncio
@@ -40,6 +43,7 @@ if __package__ in (None, ""):                     # 직접 실행 대응
     from saver.logger import CsvLogger
     from saver.search import SearchRunner, PARAM_KEYS as SEARCH_KEYS
     from saver.init_seq import InitRunner
+    from saver.radar import RadarLink
 else:
     from . import protocol as P
     from .state_machine import StateMachine
@@ -47,6 +51,7 @@ else:
     from .logger import CsvLogger
     from .search import SearchRunner, PARAM_KEYS as SEARCH_KEYS
     from .init_seq import InitRunner
+    from .radar import RadarLink
 
 
 # ─────────────────────────────────────────────────────────────
@@ -63,6 +68,9 @@ CONFIG = {
                                   # (인터록 점검표 C11). false 면 장치 연결 중 인공호흡 안내(X_VENT)에 들어가지 않는다(D-45)
     "home_timeout_s": None,       # TODO 한건민. S1 초기화 뒤 원점 완료(HOMING_DONE)를 기다리는 시간 제한(초). 10/12 실측 뒤.
                                   # 비어 있으면 시간은 검사하지 않고, 탐색·흡착 진입은 requires_mcu(HOMED)가 막는다(D-46)
+    "radar_floor_mm": None,       # TODO 신상현(실측). 탐색 자세(바퀴 내림)에서 레이더 면의 바닥 위 높이(mm).
+                                  # EAPD = radar_floor_mm − 레이더 거리(radar.py, D-50). 비어 있으면 레이더로 EAPD 를
+                                  # 만들지 않아 탐색이 EAPD_MISSING 으로 시작하지 않는다(대체 상수 없음)
 }
 # 압박점 탐색(saver/search.py, 초안 §7.2). 전부 비어 있으면 탐색을 시작하지 않는다.
 CONFIG.update(dict((k, None) for k in SEARCH_KEYS))
@@ -124,6 +132,7 @@ def warn_unset():
 class Bridge(object):
 
     LINK_LOG_S = 10.0       # 링크 품질 누적 횟수를 세션 기록에 남기는 주기
+    RADAR_PUSH_S = 1.0      # 레이더 값을 UI 로 보내고 기록하는 주기
 
     def __init__(self, args):
         self.args = args
@@ -131,6 +140,11 @@ class Bridge(object):
         self.loop = None
         self.log = CsvLogger(args.logdir)
         self._link_logged_at = time.monotonic()
+        # MR60BHA2 레이더(--radar PORT). 없으면 None: 레이더 값과 레이더 EAPD 를 쓰지 않는다
+        port = getattr(args, "radar", None)
+        self.radar = RadarLink(port, getattr(args, "radar_baud", 115200),
+                               on_link=self._on_radar_link) if port else None
+        self._radar_at = time.monotonic()
 
         # 탐색으로 압박점 위로 이동을 마쳤는지. 3단계 탐색 모듈이 켠다.
         # 꺼져 있으면 SET_CP_POINT 를 보내지 않는다(압박점을 임의로 정하지 않는다).
@@ -285,6 +299,41 @@ class Bridge(object):
         elif sev == 2:                     # 경고 → 오류 화면
             self.fsm.fire("ERROR")
 
+    # ── 레이더 ──────────────────────────────────────────────
+    def radar_snapshot(self):
+        """UI 로 보내는 레이더 상태. 측정 못 했거나 오래된 값은 키를 빼고 보낸다."""
+        if self.radar is None:
+            return {"type": "radar", "enabled": False}
+        out = self.radar.snapshot(CONFIG.get("radar_floor_mm"))
+        out["type"] = "radar"
+        return out
+
+    def current_eapd(self):
+        """탐색에 쓸 EAPD(mm)와 출처. 레이더 값이 먼저이고, 없으면 시뮬레이션 설정의 sim_eapd_mm.
+        둘 다 없으면 (None, None) → 탐색은 EAPD_MISSING 으로 시작하지 않는다(대체 상수 없음)."""
+        if self.radar is not None:
+            e = self.radar.snapshot(CONFIG.get("radar_floor_mm")).get("eapd_mm")
+            if e is not None:
+                return e, "radar"
+        sim = CONFIG.get("sim_eapd_mm")
+        if sim is not None:
+            return sim, "sim"
+        return None, None
+
+    def _on_radar_link(self, connected, port):
+        self.log.event("sys", "RADAR_UP" if connected else "RADAR_DOWN")
+        self.push(self.radar_snapshot())
+
+    def tick_radar(self):
+        """RADAR_PUSH_S 마다 UI 로 보내고, 수신 중이면 기록한다."""
+        if self.radar is None or time.monotonic() - self._radar_at < self.RADAR_PUSH_S:
+            return
+        self._radar_at = time.monotonic()
+        snap = self.radar_snapshot()
+        self.push(snap)
+        if snap.get("receiving"):
+            self.log.radar(snap)
+
     def log_link(self):
         """링크 품질 누적 횟수를 세션 기록에 한 줄 남긴다(10/11 모터 없이, 10/12 모터 구동 비교용)."""
         self._link_logged_at = time.monotonic()
@@ -307,6 +356,7 @@ class Bridge(object):
         await ws.send(json.dumps(dict(self.fsm.snapshot(), type="state", event="SYNC")))
         await ws.send(json.dumps({"type": "link", "connected": self.link.connected}))
         await ws.send(json.dumps({"type": "config", "aed_pause_warn_s": CONFIG.get("aed_pause_warn_s")}))
+        await ws.send(json.dumps(self.radar_snapshot(), ensure_ascii=False))
         try:
             async for raw in ws:
                 try:
@@ -339,6 +389,10 @@ class Bridge(object):
                     act = msg.get("action")
                     self.log.event("ui", "SEARCH_" + str(act).upper())
                     if act == "start" and self.fsm.node == "X_SEARCH":
+                        # 시작하는 순간의 EAPD: 레이더(radar_floor_mm − 거리) → 없으면 시뮬레이션 설정값
+                        self.eapd_mm, src = self.current_eapd()
+                        self.eapd_sim = src == "sim"
+                        self.log.event("sys", "EAPD:%s:%s" % (src, self.eapd_mm))
                         self.search.start(self.eapd_mm)
                     elif act == "stop":
                         self.search.cancel("USER_STOP")
@@ -367,10 +421,14 @@ class Bridge(object):
                 self.push({"type": "telemetry", "stale": True})
             if time.monotonic() - self._link_logged_at >= self.LINK_LOG_S:
                 self.log_link()
+            self.tick_radar()
 
     async def main(self):
         self.loop = asyncio.get_event_loop()
         self.link.start()
+        if self.radar is not None:
+            self.radar.start()
+            print("[radar] %s" % self.radar.port)
         self.fsm.enter_initial()
         print("[ws]  ws://0.0.0.0:%d" % self.args.port)
         print("[fsm] %s · %s" % (self.fsm.node, self.fsm.cur.get("name")))
@@ -417,6 +475,9 @@ def main():
     ap.add_argument("--logdir", default="logs")
     ap.add_argument("--spec", default=None, help="state_machine_v2.json 경로")
     ap.add_argument("--config", default=None, help="설정 파일 (config.sim.json 등)")
+    ap.add_argument("--radar", default=None,
+                    help="MR60BHA2 레이더 포트(/dev/ttyTHS1 등). 없으면 레이더를 쓰지 않는다")
+    ap.add_argument("--radar-baud", type=int, default=115200)
     a = ap.parse_args()
 
     load_config(a.config)
@@ -440,6 +501,8 @@ def main():
         print("\n종료")
     finally:
         b.link.stop()
+        if b.radar is not None:
+            b.radar.stop()
         b.log_link()
         b.log.close()
 

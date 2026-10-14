@@ -12,11 +12,12 @@
 #    4. Python 패키지          websockets==9.1(3.6 고정), pyserial (사용자 영역 --user)
 #    5. 장치 권한              dialout 등 그룹, Teensy udev 규칙과 /dev/saver-teensy,
 #                              ModemManager 끔, nvgetty 끔(40핀 UART /dev/ttyTHS1 을 레이더용으로 비움)
-#    6. 브리지 서비스          saver-bridge.service (UI http://127.0.0.1:8080, WebSocket 8765, 로그 ~/saver_logs)
+#    6. 브리지 서비스          saver-bridge.service (UI http://127.0.0.1:8080, WebSocket 8765, 로그 ~/saver_logs),
+#                              MR60BHA2 레이더 기본 /dev/ttyTHS1 (--radar-port, --no-radar)
 #    7. 키오스크               Chromium 전체 화면, 화면 꺼짐 방지, 커서 숨김, 음성 자동 재생 허용,
 #                              시작할 때 소리 출력을 HDMI(모니터 3.5 mm 단자의 헤드셋)로
 #    8. 편의 명령              saver-start, saver-stop, saver-off, saver-status, saver-logs, saver-link,
-#                              saver-sound, saver-time, saver-kiosk, saver-test, saver-update, 바탕화면 아이콘
+#                              saver-sound, saver-time, saver-radar, saver-kiosk, saver-test, saver-update, 바탕화면 아이콘
 #    9. Claude Code
 #   10. 자동 시험              jetson/tests/test_all.py (하드웨어 없이)
 #
@@ -49,6 +50,8 @@ RUN_TEST=1
 SKIP_APT=0
 DRY_RUN=0
 MAXN=0
+RADAR=1
+RADAR_PORT="${SAVER_RADAR_PORT:-/dev/ttyTHS1}"   # MR60BHA2: 40핀 UART(8번 TX, 10번 RX)
 BRANCH="${SAVER_BRANCH:-$DEFAULT_BRANCH}"
 REPO_URL="${SAVER_REPO_URL:-$DEFAULT_REPO_URL}"
 REPO_DIR="${SAVER_REPO_DIR:-}"
@@ -65,12 +68,14 @@ SAVER 젯슨 나노 일괄 설정 ($SCRIPT_VERSION)
   --no-test          마지막 자동 시험(jetson/tests/test_all.py)을 건너뛴다
   --skip-apt         apt 패키지 설치를 건너뛴다(이미 설치했을 때)
   --maxn             전원 모드를 MAXN(10 W)으로. 5 V 4 A 배럴잭 전원(J48 점퍼)일 때만
+  --radar-port PATH  MR60BHA2 레이더 포트 (기본: /dev/ttyTHS1, USB 변환기면 /dev/ttyUSB0 등)
+  --no-radar         레이더를 쓰지 않는다
   --branch NAME      저장소를 새로 복제할 때 쓸 브랜치 (기본: $DEFAULT_BRANCH)
   --repo-dir DIR     저장소 위치를 직접 지정
   --dry-run          바꾸지 않고 할 일만 출력
   -h, --help         이 도움말
 
-  환경변수 SAVER_REPO_URL, SAVER_BRANCH, SAVER_REPO_DIR 로도 지정할 수 있다.
+  환경변수 SAVER_REPO_URL, SAVER_BRANCH, SAVER_REPO_DIR, SAVER_RADAR_PORT 로도 지정할 수 있다.
 EOF
 }
 
@@ -81,6 +86,8 @@ while [ $# -gt 0 ]; do
     --no-test) RUN_TEST=0 ;;
     --skip-apt) SKIP_APT=1 ;;
     --maxn) MAXN=1 ;;
+    --no-radar) RADAR=0 ;;
+    --radar-port) RADAR_PORT="${2:?--radar-port 뒤에 경로}"; shift ;;
     --dry-run) DRY_RUN=1 ;;
     --branch) BRANCH="${2:?--branch 뒤에 이름}"; shift ;;
     --repo-dir) REPO_DIR="${2:?--repo-dir 뒤에 경로}"; shift ;;
@@ -311,6 +318,12 @@ fi
 step "브리지 서비스 saver-bridge"
 LOG_DIR="$HOME/saver_logs"
 run mkdir -p "$LOG_DIR"
+RADAR_ARG=""
+if [ "$RADAR" -eq 1 ]; then
+  RADAR_ARG=" --radar $RADAR_PORT"
+  info "레이더 MR60BHA2: $RADAR_PORT (호흡, 심박 표시. 가슴 두께는 jetson/config.json 의 radar_floor_mm 실측값이 있어야 계산)"
+  [ -e "$RADAR_PORT" ] || [ "$DRY_RUN" -eq 1 ] || warn "$RADAR_PORT 가 지금은 없음. 연결하면 브리지가 스스로 연다"
+fi
 CONFIG_ARG=""
 if [ -f "$JETSON_DIR/config.json" ]; then
   CONFIG_ARG=" --config $JETSON_DIR/config.json"
@@ -352,7 +365,7 @@ Environment=LANG=C.UTF-8
 Environment=LC_ALL=C.UTF-8
 Environment=PYTHONIOENCODING=utf-8
 Environment=PYTHONUNBUFFERED=1
-ExecStart=$PY_BIN -m saver.bridge --serial /dev/saver-teensy --serve $UI_DIST --http-port $HTTP_PORT --port $WS_PORT --logdir $LOG_DIR$CONFIG_ARG
+ExecStart=$PY_BIN -m saver.bridge --serial /dev/saver-teensy --serve $UI_DIST --http-port $HTTP_PORT --port $WS_PORT --logdir $LOG_DIR$CONFIG_ARG$RADAR_ARG
 Restart=on-failure
 RestartSec=3
 
@@ -452,14 +465,16 @@ if [ -n "$f" ]; then
   # Python 3.6 은 로캘이 C 이면(LANG 없는 SSH 등) 한글 출력에서 멈춘다
   PYTHONIOENCODING=utf-8 python3 - "$f" <<'PY'
 import collections, csv, datetime, sys
-last, mcu, ev = None, "", collections.deque(maxlen=8)
+last, mcu, ev, rad = None, "", collections.deque(maxlen=8), None
 with open(sys.argv[1], encoding="utf-8") as fp:
     for r in csv.DictReader(fp):
         last = r
         if r.get("source") == "mcu" and r.get("substate"):
             mcu = r["substate"]
         d = r.get("decision") or ""
-        if d and not d.startswith("LINK "):
+        if r.get("source") == "radar":
+            rad = r                     # 1초마다 쌓이는 레이더 줄은 사건 목록에 넣지 않고 마지막 것만
+        elif d and not d.startswith("LINK "):
             ev.append(r)
 def hms(r):
     try:
@@ -472,6 +487,9 @@ else:
     print("  단계 %s, Teensy %s (마지막 기록 %s)" % (last.get("state") or "?", mcu or "?", hms(last)))
     for r in ev:
         print("  %s %-4s %s" % (hms(r), r.get("source", ""), r.get("decision", "")))
+if rad is not None:
+    print("  레이더 호흡 %s, 심박 %s, %s (%s)" % (rad.get("radar_rr_bpm") or "-", rad.get("radar_hr_bpm") or "-",
+                                         (rad.get("decision") or "")[6:] or "거리 없음", hms(rad)))
 PY
 else
   echo "  기록 없음 (브리지를 한 번도 시작하지 않음)"
@@ -533,6 +551,22 @@ if [ -n "$f" ] && command -v mpg123 >/dev/null 2>&1; then
 else
   paplay /usr/share/sounds/alsa/Front_Center.wav 2>/dev/null || echo "시험 재생 파일이나 재생기(mpg123)가 없습니다"
 fi
+EOF
+write_cmd "$BIN/saver-radar" "JETSON_DIR=\"$JETSON_DIR\"
+RADAR_PORT=\"$RADAR_PORT\"" <<'EOF'
+# MR60BHA2 레이더 값 보기(1초마다). 거리 단위와 레이더 높이(radar_floor_mm)를 자로 잰 값과 대조할 때 쓴다.
+#   saver-radar                  설치 때 정한 포트
+#   saver-radar /dev/ttyUSB0     다른 포트
+#   saver-radar --floor 520      레이더 높이(mm)를 주면 가슴 두께(EAPD)도 계산
+# 브리지가 같은 포트를 읽고 있으면 바이트를 나눠 가져 값이 깨지므로 먼저 saver-stop 한다.
+if systemctl is-active --quiet saver-bridge; then
+  echo "브리지가 돌고 있습니다. saver-stop 뒤에 다시 실행하세요(한 포트를 둘이 읽으면 값이 나뉩니다)."
+  exit 1
+fi
+port="$RADAR_PORT"
+case "${1:-}" in /dev/*|/tmp/*) port="$1"; shift ;; esac
+cd "$JETSON_DIR" || exit 1
+exec env LANG=C.UTF-8 LC_ALL=C.UTF-8 PYTHONIOENCODING=utf-8 python3 -m saver.radar "$port" "$@"
 EOF
 write_cmd "$BIN/saver-time" "" <<'EOF'
 # 젯슨 시각 맞추기. 젯슨에는 RTC 전지가 없어 인터넷 없이 켜면 시각이 틀리고, 기록 파일의 시각도 틀린다.
@@ -600,7 +634,7 @@ Terminal=false
 EOF
   if [ "$DRY_RUN" -eq 0 ]; then gio set "$DESK/saver-$name.desktop" metadata::trusted true 2>/dev/null || true; fi
 done
-ok "saver-start, saver-stop, saver-off, saver-status, saver-logs, saver-link, saver-sound, saver-time, saver-test, saver-update, 바탕화면 아이콘 3개"
+ok "saver-start, saver-stop, saver-off, saver-status, saver-logs, saver-link, saver-sound, saver-time, saver-radar, saver-test, saver-update, 바탕화면 아이콘 3개"
 # 화면 세션에서 실행 중이면 소리 기본 출력을 바로 HDMI 로(SSH 로 실행했거나 모니터가 꺼져 있으면 재부팅 뒤 saver-sound)
 if [ "$DRY_RUN" -eq 1 ]; then
   info "(dry-run) saver-sound --auto"

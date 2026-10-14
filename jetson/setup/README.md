@@ -30,7 +30,7 @@ git 이 없는 새 젯팩이면 `sudo apt-get install -y git` 을 먼저 하거�
 | 3 | 저장소: 스크립트가 들어 있는 저장소를 쓰고, 없으면 `~/SAVER` 로 복제. 비공개 저장소 토큰은 12시간 동안 메모리에만 기억(`git credential cache`, 디스크에 쓰지 않음, 재부팅하면 지워짐) |
 | 4 | Python: `websockets==9.1`(3.6 고정, AGENTS.md), `pyserial==3.5`, pip 21.3.1 (사용자 영역 `--user`) |
 | 5 | 장치 권한: dialout, video, audio, plugdev 그룹. Teensy udev 규칙(`/etc/udev/rules.d/49-saver-teensy.rules`, 고정 이름 `/dev/saver-teensy`). ModemManager 끔(ttyACM 에 AT 명령을 보내지 않게). nvgetty 끔(40핀 UART `/dev/ttyTHS1` 을 레이더용으로 비움) |
-| 6 | 브리지 서비스 `saver-bridge.service`: UI `http://127.0.0.1:8080`, WebSocket 8765, 기록 `~/saver_logs`, UTF-8 로캘 |
+| 6 | 브리지 서비스 `saver-bridge.service`: UI `http://127.0.0.1:8080`, WebSocket 8765, 기록 `~/saver_logs`, UTF-8 로캘, MR60BHA2 레이더 `--radar /dev/ttyTHS1`(포트가 없으면 연결될 때까지 기다림. 가슴 두께는 `jetson/config.json` 의 `radar_floor_mm` 실측값이 있어야 계산) |
 | 7 | 키오스크 `saver-kiosk`: Chromium 전체 화면, 화면 꺼짐과 잠금 끔, 커서 숨김, 1024x600, 음성 자동 재생 허용. 시작할 때 소리 기본 출력을 마지막으로 고른 종류(기본 HDMI)로 맞춤 |
 | 8 | 명령과 바탕화면 아이콘(아래 표) |
 | 9 | Claude Code (공식 설치기, `~/.local/bin/claude`) |
@@ -48,6 +48,7 @@ git 이 없는 새 젯팩이면 `sudo apt-get install -y git` 을 먼저 하거�
 | `saver-link` | 최근 세션 기록의 링크 품질(처음과 마지막). 모터 끔 30분과 모터 켬 30분 비교용(`docs/noise_emi.md` 6절) |
 | `saver-sound` | 소리 출력을 HDMI(모니터 3.5 mm 단자의 헤드셋)로 맞추고 음성 하나를 재생. `saver-sound usb`(USB 헤드셋), `saver-sound list` |
 | `saver-time` | 인터넷(HTTP Date)으로 시각 맞춤. 인터넷이 없으면 `saver-time "2026-10-24 09:30"`(한국 시각) |
+| `saver-radar` | MR60BHA2 레이더 값을 1초마다 보기(호흡, 심박, 거리, `--floor 높이` 를 주면 가슴 두께). 브리지와 같은 포트를 읽으므로 `saver-stop` 뒤에 쓴다 |
 | `saver-test` | 자동 시험 |
 | `saver-update` | `git pull --ff-only` 뒤 브리지 다시 시작 |
 | `saver-kiosk` | 키오스크만 다시 띄우기 |
@@ -61,6 +62,8 @@ git 이 없는 새 젯팩이면 `sudo apt-get install -y git` 을 먼저 하거�
 | `--no-test` | 마지막 자동 시험 건너뜀 |
 | `--skip-apt` | apt 설치 건너뜀 |
 | `--maxn` | 전원 모드 MAXN(10 W). 5 V 4 A 배럴잭 전원(J48 점퍼)일 때만 |
+| `--radar-port PATH` | MR60BHA2 레이더 포트(기본 `/dev/ttyTHS1`, 40핀 8번 TX, 10번 RX). USB 변환기면 `/dev/ttyUSB0` 등 |
+| `--no-radar` | 레이더를 쓰지 않는다(브리지에 `--radar` 를 주지 않음) |
 | `--branch`, `--repo-dir` | 복제 브랜치, 저장소 위치 |
 | `--dry-run` | 바꾸지 않고 할 일만 출력 |
 
