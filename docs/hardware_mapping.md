@@ -443,7 +443,7 @@ HIGH 전압부터 확인합니다. 고장 난 모터 1 엔코더는 관련 선 4
 | PPG (MAX30102) | I²C `18/19`, INT 미사용 | Teensy | 핀 반영, 실물값 미검증 |
 | 로드셀 (DYMH-103 + NAU7802) | 독립 Wire1 SDA`17` / SCL`16`, DRDY 미사용 | Teensy | 반력 기록 시험 버스 변경; 메인 취득 미구현 |
 | 자이로 (WT901C-TTL) | Serial8 RX`34` / TX`35` | Teensy | 핀 예약, 메인 드라이버 미구현 |
-| MR60BHA2 레이더 | UART → Jetson | Jetson | 연결 형태 미확정 |
+| MR60BHA2 레이더 | UART 115200 → Jetson 기본 `/dev/ttyTHS1`(40핀 8번 TX, 10번 RX, 3.3 V). USB 변환기면 `--radar-port` | Jetson | 판독 구현(`jetson/saver/radar.py`, D-50). 실물 배선과 설치 위치 미확정 |
 | Raspberry Pi Camera V2.1 | CSI → Jetson | Jetson | 미착수 |
 
 MAX30102 모듈의 버스 pull-up 선택 패드는 3.3 V로 설정합니다. 모듈 `VIN` 허용범위와
