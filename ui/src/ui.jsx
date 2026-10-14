@@ -206,10 +206,13 @@ export function Wave({ d, color, dur = '5s', double = true }) {
 }
 
 /** 다크 테마 그래프 패널 */
-export function WavePanel({ label, d, color, dur, pad = '9px 12px', labelSize = 15 }) {
+export function WavePanel({ label, d, color, dur, pad = '9px 12px', labelSize = 15, value = null }) {
   return (
     <div style={{ flex: 1, background: C.darkPane, border: `1px solid ${C.darkLine}`, borderRadius: 10, padding: pad, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
-      <div style={{ fontSize: labelSize, color: C.darkSub, marginBottom: 3 }}>{label}</div>
+      <div style={{ fontSize: labelSize, color: C.darkSub, marginBottom: 3, display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+        <span>{label}</span>
+        {value !== null && <span data-wave-value style={{ color: '#eef1f6', fontWeight: 700, fontSize: labelSize + 3 }}>{value}</span>}
+      </div>
       <Wave d={d} color={color} dur={dur} />
     </div>
   )

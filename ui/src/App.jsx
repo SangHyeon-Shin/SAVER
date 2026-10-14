@@ -3,6 +3,7 @@ import { C, SCREEN_W, SCREEN_H } from './tokens'
 import { EV, NODES, INITIAL, transition } from './stateMachine'
 import { useWaves, useVitals } from './vitals'
 import { useBridge } from './bridge'
+import { radarView } from './radarView'
 import { useSearchDemo, DEMO } from './searchDemo'
 import { Screen09 } from './screens/Search'
 import { Screen21, Screen22 } from './screens/Aed'
@@ -233,7 +234,9 @@ export default function App() {
   const paused = bridge.connected
     ? (!!bridge.telemetry && !bridge.stale && bridge.telemetry.state === 'CPR_PAUSED')
     : QS.get('paused') !== '0'
-  const props = { fire, ctx, demo, vitals, waves, search, searchCtl, setPatient, aedWarnS, paused }
+  // MR60BHA2 레이더: 브리지가 보낸 값만 쓴다. 오프라인 시연에는 없다(화면에 칸을 만들지 않는다)
+  const radar = bridge.connected ? bridge.radar : null
+  const props = { fire, ctx, demo, vitals, waves, search, searchCtl, setPatient, aedWarnS, paused, radar }
 
   return (
     <div style={{ position: 'fixed', inset: 0, background: '#0a0d12', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -307,6 +310,8 @@ function DevPanel({ ctx, node, demo, setDemo, setCtx, fire, bridge, scale, onClo
   const h = { fontSize: 11, color: '#7c8492', marginTop: 14, marginBottom: 6, letterSpacing: '.08em' }
   const btn = (on) => ({ padding: '7px 9px', borderRadius: 6, border: `1px solid ${on ? C.warning : '#39424f'}`, background: on ? 'rgba(242,96,0,.18)' : '#1b212b', color: on ? C.warning : '#c3cad4', fontSize: 12, fontFamily: 'inherit', textAlign: 'left' })
   const toggle = (k) => setDemo((d) => ({ ...d, [k]: !d[k] }))
+  const rv = radarView(bridge.connected ? bridge.radar : null)        // 개발 패널은 압박 중에도 값을 보인다
+  const rr = bridge.radar || {}
 
   const events = [
     ['AED 사용', EV.AED_PAUSE], ['ROSC 의심', EV.ROSC_SUSPECT], ['기기 오류', EV.ERROR], ['위치 이탈', EV.POSITION_DRIFT],
@@ -337,6 +342,14 @@ function DevPanel({ ctx, node, demo, setDemo, setCtx, fire, bridge, scale, onClo
           ● Teensy {bridge.linkUp ? '연결됨' : '미연결'}
           {bridge.stale && <span style={{ color: C.warning }}> · stale</span>}
         </div>
+        <div data-radar-status style={{ color: rv.live ? C.success : '#7c8492' }}>● {rv.status}</div>
+        {rv.enabled && (
+          <div data-radar-values style={{ color: '#c5ccd6', fontSize: 12, lineHeight: 1.6 }}>
+            호흡 {rv.rr} · 심박 {rv.hr}<br />
+            거리 {rv.distance !== null ? rv.distance.toFixed(0) + ' mm' : '—'} · 가슴 두께 {rv.eapd !== null ? rv.eapd.toFixed(0) + ' mm' : (rv.floorSet ? '—' : '레이더 높이 미설정')}<br />
+            <span style={{ color: '#7c8492' }}>{rr.port} · 프레임 {rr.frames ?? 0} · 버림 {rr.bad ?? 0}</span>
+          </div>
+        )}
         <div style={{ color: '#7c8492', fontSize: 11, wordBreak: 'break-all' }}>{bridge.url}</div>
         <div style={{ color: '#7c8492', fontSize: 11 }}>배율 {(scale * 100).toFixed(0)}%</div>
         {bridge.lastError && (

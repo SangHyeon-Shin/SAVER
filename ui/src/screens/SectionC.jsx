@@ -5,9 +5,12 @@ import { Dark, AlarmRed, Header, Btn, WavePanel } from '../ui'
 
 import { IMG } from '../images'
 import { reasonText } from '../search'
+import { radarView } from '../radarView'
 
 /* ================= 13 · ROSC 의심 · S9 · UI-09 · ★핵심·경고 ================= */
-export function Screen13({ fire, waves, paused = true }) {
+export function Screen13({ fire, waves, paused = true, radar = null }) {
+  // 레이더 호흡수, 심박수: 장치가 멈춤을 보고한 뒤에만 수치. 판정에 쓰지 않는다(표시만, D-50)
+  const rv = radarView(radar, { hold: paused })
   return (
     <Dark band={C.warning} bandH={14}>
       <Header dark h={72} titleSize={25} title="회복 신호 확인" titleEn="Recovery check"
@@ -37,7 +40,8 @@ export function Screen13({ fire, waves, paused = true }) {
           </div>
         </div>
         <div style={{ flex: 1, padding: 16, display: 'flex', flexDirection: 'column', gap: 10, minHeight: 0 }}>
-          <WavePanel label="숨쉬기 (레이더 추정) / Breathing" d={waves.breath} color={C.breath} dur="11s" pad="8px 12px" labelSize={14} />
+          <WavePanel label="숨쉬기 (레이더 추정) / Breathing" d={waves.breath} color={C.breath} dur="11s" pad="8px 12px" labelSize={14}
+            value={rv.enabled ? `호흡 ${rv.rr} · 심박 ${rv.hr}` : null} />
           <WavePanel label="손가락 센서 신호 / Finger sensor" d={waves.ppg2} color={C.ppg} dur="6s" pad="8px 12px" labelSize={14} />
         </div>
       </div>

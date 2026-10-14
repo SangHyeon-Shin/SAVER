@@ -3,6 +3,7 @@ import { C } from '../tokens'
 import { EV } from '../stateMachine'
 import { Light, Header, Btn } from '../ui'
 import { searchView, STEPS, mm } from '../search'
+import { radarView } from '../radarView'
 
 /* ================= 09 · 압박점 탐색 · X_SEARCH =================
    반력 곡선 F(x), 직전 N 점 평균(기준), 판정선(기준 × (1 − 감소율)), 말단, D, 압박점.
@@ -12,8 +13,9 @@ import { searchView, STEPS, mm } from '../search'
 
 const INK = '#111827', SUB = '#4b5563', MUTED = '#6b7280', GRID = '#e5e7eb'
 
-export function Screen09({ fire, ctx, search, searchCtl, setPatient }) {
+export function Screen09({ fire, ctx, search, searchCtl, setPatient, radar = null }) {
   const v = searchView(search)
+  const rv = radarView(radar)            // 탐색 시작 전 가슴 두께(EAPD)를 레이더 값으로 미리 보인다
   const live = !!(searchCtl && searchCtl.live)
   const lastIdx = useRef(-1)
   if (v.running && v.stepIdx >= 0) lastIdx.current = v.stepIdx
@@ -46,7 +48,7 @@ export function Screen09({ fire, ctx, search, searchCtl, setPatient }) {
           <ChartCard v={v} />
           <div style={{ width: 340, display: 'flex', flexDirection: 'column', gap: 8, minHeight: 0 }}>
             <StepsCard v={v} lastIdx={lastIdx.current} />
-            <ValuesCard v={v} />
+            <ValuesCard v={v} rv={rv} />
             <PatientCard patient={ctx.patient} setPatient={setPatient} />
           </div>
         </div>
@@ -255,7 +257,7 @@ function StepsCard({ v, lastIdx }) {
 }
 
 /* ---------- 판정 값 ---------- */
-function ValuesCard({ v }) {
+function ValuesCard({ v, rv }) {
   const row = (k, val, note, key) => (
     <div key={key} style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', height: 23 }}>
       <span style={{ fontSize: 15, color: SUB }}>{k}</span>
@@ -264,11 +266,15 @@ function ValuesCard({ v }) {
       </span>
     </div>
   )
-  const eapd = v.eapd !== null ? mm(v.eapd) : (v.reason && v.reason.code === 'EAPD_MISSING'
+  // 탐색에 쓴 값(브리지 search.eapd_mm)이 먼저. 아직 시작 전이면 레이더의 지금 값(시작하는 순간 다시 읽는다)
+  const pre = v.eapd === null && rv && rv.eapd !== null ? rv.eapd : null
+  const eapd = v.eapd !== null ? mm(v.eapd) : pre !== null ? mm(pre) : (v.reason && v.reason.code === 'EAPD_MISSING'
     ? <span style={{ color: C.warning }}>측정 안 됨</span> : '—')
+  const note = v.eapd !== null ? (v.eapdSim ? '모의' : '')
+    : pre !== null ? '레이더' : rv && rv.enabled && !rv.floorSet ? '레이더 높이 미설정' : ''
   return (
     <div style={{ border: `1px solid ${C.lightLine}`, borderRadius: 10, padding: '8px 14px' }}>
-      {row('가슴 두께', eapd, v.eapd !== null && v.eapdSim ? '모의' : '', 'e')}
+      {row('가슴 두께', eapd, note, 'e')}
       {row('끝에서 거리 D', mm(v.D), '', 'd')}
       {row(v.tipFinal ? '가슴뼈 끝 (추정)' : '끝 후보', mm(v.tipU), '', 't')}
       {row('압박 위치', mm(v.targetU), v.targetU !== null ? '머리 쪽 D' : '', 'c')}

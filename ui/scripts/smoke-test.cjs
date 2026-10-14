@@ -155,6 +155,24 @@ const check = (name, ok, detail = '') => {
   const bad = vitalsView(30, { cp_depth_mm: null, cp_force_N: 'x' }, false)
   check('수치: 숫자가 아니면 —', bad.depth === NA && bad.force === NA)
 
+  // 레이더(MR60BHA2) 표시 규칙 (radarView.js, D-50): 받은 값만, 압박이 멈춘 뒤에만 호흡·심박
+  const { radarView } = await import('../src/radarView.js')
+  const RV = { enabled: true, connected: true, receiving: true, rr_bpm: 14.2, hr_bpm: 71.6, distance_mm: 294, eapd_mm: 206.3, floor_set: true }
+  const rOn = radarView(RV, { hold: true })
+  check('레이더: 멈춘 뒤 호흡·심박 표시', rOn.live && rOn.rr === '14 회/분' && rOn.hr === '72 회/분' && rOn.eapd === 206.3,
+    [rOn.rr, rOn.hr, rOn.eapd].join(' '))
+  const rRun = radarView(RV, { hold: false })
+  check('레이더: 압박 중(멈춤 보고 전)에는 호흡·심박 —, 가슴 두께는 유지', rRun.rr === NA && rRun.hr === NA && rRun.eapd === 206.3
+    && rRun.status === '압박 중에는 표시하지 않음')
+  const rMiss = radarView({ enabled: true, connected: true, receiving: true, floor_set: false }, { hold: true })
+  check('레이더: 생략된 값은 —, 높이 미설정 표시', rMiss.rr === NA && rMiss.hr === NA && rMiss.eapd === null && !rMiss.floorSet)
+  const rQuiet = radarView({ ...RV, receiving: false }, { hold: true })
+  check('레이더: 수신이 끊기면 값을 쓰지 않음', !rQuiet.live && rQuiet.rr === NA && rQuiet.eapd === null && rQuiet.status === '레이더 수신 없음')
+  check('레이더: 0, 문자, 음수는 —', radarView({ ...RV, rr_bpm: 0, hr_bpm: 'x', eapd_mm: -5 }).rr === NA
+    && radarView({ ...RV, hr_bpm: 'x' }).hr === NA && radarView({ ...RV, eapd_mm: -5 }).eapd === null)
+  check('레이더: 브리지 미연결·레이더 없음은 칸을 만들지 않음', !radarView(null).enabled && !radarView({ enabled: false }).enabled
+    && radarView({ enabled: false }).status === '레이더 사용 안 함')
+
   // 상태머신 v2.1: S13 redirect 판정 (Jetson state_machine.py 와 같은 경우)
   const { redirectTarget } = await import('../src/redirect.js')
   const spec = JSON.parse(readFileSync('src/generated/state_machine_v2.json', 'utf8'))

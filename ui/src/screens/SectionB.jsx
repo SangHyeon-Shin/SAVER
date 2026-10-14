@@ -2,6 +2,7 @@ import React from 'react'
 import { C } from '../tokens'
 import { EV } from '../stateMachine'
 import { Dark, Header, Btn, Wave, WavePanel, Stat } from '../ui'
+import { radarView } from '../radarView'
 
 /* ================= 11 · CPR 수행 모니터링 · S7 · UI-07 · ★핵심 ================= */
 export function Screen11({ fire, vitals, waves }) {
@@ -47,7 +48,9 @@ export function Screen11({ fire, vitals, waves }) {
 }
 
 /* ================= 12 · 일시정지 · S8 · UI-08 · 주의 ================= */
-export function Screen12({ fire, waves, paused = true }) {
+export function Screen12({ fire, waves, paused = true, radar = null }) {
+  // 레이더 호흡수, 심박수: 장치가 멈춤을 보고한 뒤에만 수치(radarView). 레이더를 쓰지 않으면 칸을 만들지 않는다
+  const rv = radarView(radar, { hold: paused })
   return (
     <Dark band={C.caution} bandH={12}>
       <Header dark h={72} titleSize={26} title="일시정지" titleEn="Paused" right="주의" rightColor={C.caution} />
@@ -61,6 +64,12 @@ export function Screen12({ fire, waves, paused = true }) {
           {paused ? '압박을 멈췄습니다' : '압박을 멈추는 중입니다'}
         </div>
         <div style={{ position: 'relative', fontSize: 46, fontWeight: 800 }}>{paused ? '환자 상태를 확인하세요' : '잠시 기다리세요'}</div>
+        {rv.enabled && (
+          <div data-radar-line style={{ position: 'relative', fontSize: 22, color: '#c5ccd6', marginTop: 6 }}>
+            호흡 <b>{rv.rr}</b> · 심박 <b>{rv.hr}</b>
+            <span style={{ fontSize: 16, color: '#8a929c' }}> (레이더 추정, 참고용)</span>
+          </div>
+        )}
         <div style={{ position: 'absolute', bottom: 24, display: 'flex', gap: 14 }}>
           <Btn w={230} fs={24} fw={700} disabled={!paused} onPress={() => fire(EV.RESUME)}>재개</Btn>
           <Btn variant="success" w={250} fs={20} onPress={() => fire(EV.AED_PAUSE)}>자동심장충격기 사용</Btn>

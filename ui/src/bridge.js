@@ -18,6 +18,8 @@ import { useEffect, useRef, useState, useCallback } from 'react'
      {type:'rejected',     name, node, allowed, reason, mcu, need}
      {type:'search',       phase, reason, points[{x,F,ref,r}], tip_x, D_mm, target_x, pos_x, rule, ...}
      {type:'config',       aed_pause_warn_s}   (AED 압박 중단 경고 기준, 비어 있으면 경고 안 함)
+     {type:'radar',        enabled, connected, receiving, rr_bpm, hr_bpm, distance_mm, eapd_mm, floor_set}
+                           (MR60BHA2 레이더, 1초마다. 측정 못 했거나 오래된 값은 키가 없다. radarView.js)
 
    보내는 메시지 (intent, force 외)
      {type:'search', action:'start'|'stop'}   압박점 탐색 시작·중지 (X_SEARCH 에서만)
@@ -39,6 +41,7 @@ export function useBridge({ onState, onRejected } = {}) {
   const [rejected, setRejected] = useState(null)
   const [search, setSearch] = useState(null)       // 브리지가 보낸 마지막 탐색 진행
   const [config, setConfig] = useState(null)       // 브리지 설정(aed_pause_warn_s 등)
+  const [radar, setRadar] = useState(null)         // 레이더 최신 상태(브리지가 1초마다)
 
   const wsRef = useRef(null)
   const cbState = useRef(onState); cbState.current = onState
@@ -58,7 +61,7 @@ export function useBridge({ onState, onRejected } = {}) {
       ws.onopen = () => setConnected(true)
       ws.onclose = () => {
         // 끊기면 마지막 텔레메트리를 실측처럼 보이지 않게 stale 로 둔다(새 tel 이 오면 풀림)
-        setConnected(false); setLinkUp(false); setStale(true)
+        setConnected(false); setLinkUp(false); setStale(true); setRadar(null)
         if (!closed) retry = setTimeout(connect, 3000)      // 자동 재연결
       }
       ws.onerror = () => ws.close()
@@ -82,6 +85,8 @@ export function useBridge({ onState, onRejected } = {}) {
             setSearch(m); break
           case 'config':
             setConfig(m); break
+          case 'radar':
+            setRadar(m); break
           case 'rejected':
             setRejected(m)
             cbReject.current && cbReject.current(m)
@@ -122,6 +127,6 @@ export function useBridge({ onState, onRejected } = {}) {
 
   const clearSearch = useCallback(() => setSearch(null), [])
 
-  return { connected, linkUp, telemetry, stale, lastError, rejected, search, config,
+  return { connected, linkUp, telemetry, stale, lastError, rejected, search, config, radar,
            sendIntent, sendForce, sendSearch, clearSearch, url: DISABLED ? '(연결 안 함)' : WS_URL }
 }
