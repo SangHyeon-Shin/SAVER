@@ -18,17 +18,20 @@ sudo reboot
 git 이 없는 새 젯팩이면 `sudo apt-get install -y git` 을 먼저 하거나, 스크립트 파일만 옮겨 실행해도 된다
 (저장소가 없으면 스스로 `~/SAVER` 로 복제한다).
 
+재부팅 뒤 헤드셋을 모니터 3.5 mm 단자에 꽂고 `saver-sound` 로 소리를 확인한 다음,
+모터와 블로워 전원을 끈 채 Teensy 를 USB 로 연결하고 `saver-start` 한다(아래 "첫 연결 점검").
+
 ## 하는 일
 
 | 순서 | 내용 |
 |---|---|
-| 1 | 시스템 확인: aarch64, L4T, Ubuntu 18.04, Python 3.6, 인터넷, 저장 공간 |
-| 2 | apt: Chromium(mp3 코덱 포함), 한글 글꼴(Noto CJK, 나눔), 시리얼(picocom), 오디오, 카메라 점검(v4l-utils), 빌드 도구, SSH |
-| 3 | 저장소: 스크립트가 들어 있는 저장소를 쓰고, 없으면 `~/SAVER` 로 복제 |
+| 1 | 시스템 확인: aarch64, L4T, Ubuntu 18.04, Python 3.6, 시각, 인터넷, 저장 공간. 시각이 인터넷과 2분 넘게 다르면 HTTP 응답의 Date 로 맞춘다(젯슨은 RTC 전지가 없고, 시각이 틀리면 HTTPS 와 apt 가 실패한다). curl 이 없는 새 젯팩이면 wget 으로 확인 |
+| 2 | apt: Chromium(mp3 코덱 포함), 한글 글꼴(Noto CJK, 나눔), 시리얼(picocom), 오디오(mpg123 시험 재생 포함), 카메라 점검(v4l-utils), 빌드 도구, SSH |
+| 3 | 저장소: 스크립트가 들어 있는 저장소를 쓰고, 없으면 `~/SAVER` 로 복제. 비공개 저장소 토큰은 12시간 동안 메모리에만 기억(`git credential cache`, 디스크에 쓰지 않음, 재부팅하면 지워짐) |
 | 4 | Python: `websockets==9.1`(3.6 고정, AGENTS.md), `pyserial==3.5`, pip 21.3.1 (사용자 영역 `--user`) |
 | 5 | 장치 권한: dialout, video, audio, plugdev 그룹. Teensy udev 규칙(`/etc/udev/rules.d/49-saver-teensy.rules`, 고정 이름 `/dev/saver-teensy`). ModemManager 끔(ttyACM 에 AT 명령을 보내지 않게). nvgetty 끔(40핀 UART `/dev/ttyTHS1` 을 레이더용으로 비움) |
 | 6 | 브리지 서비스 `saver-bridge.service`: UI `http://127.0.0.1:8080`, WebSocket 8765, 기록 `~/saver_logs`, UTF-8 로캘 |
-| 7 | 키오스크 `saver-kiosk`: Chromium 전체 화면, 화면 꺼짐과 잠금 끔, 커서 숨김, 1024x600, 음성 자동 재생 허용 |
+| 7 | 키오스크 `saver-kiosk`: Chromium 전체 화면, 화면 꺼짐과 잠금 끔, 커서 숨김, 1024x600, 음성 자동 재생 허용. 시작할 때 소리 기본 출력을 마지막으로 고른 종류(기본 HDMI)로 맞춤 |
 | 8 | 명령과 바탕화면 아이콘(아래 표) |
 | 9 | Claude Code (공식 설치기, `~/.local/bin/claude`) |
 | 10 | 자동 시험 `jetson/tests/test_all.py` (하드웨어 없이) |
@@ -39,9 +42,12 @@ git 이 없는 새 젯팩이면 `sudo apt-get install -y git` 을 먼저 하거�
 |---|---|
 | `saver-start` | 브리지 서비스와 키오스크 시작 (바탕화면 "SAVER 시작") |
 | `saver-stop` | 키오스크와 브리지 정지 (바탕화면 "SAVER 정지") |
-| `saver-status` | 서비스, `/dev/saver-teensy`, 시리얼 포트, UI 응답, 최근 기록, 소리 출력 |
+| `saver-off` | 키오스크와 브리지를 멈추고 젯슨을 끈다 (바탕화면 "SAVER 끄기"). 모니터에 신호 없음이 뜨고 20초 뒤 배터리(XT90)를 뽑는다. 전원을 그냥 끊으면 SD 카드 파일 시스템이 손상될 수 있다 |
+| `saver-status` | 서비스, `/dev/saver-teensy`, 시리얼 포트, UI 응답, 최근 기록의 마지막 단계와 사건 8개(S1 점검 통과 여부), 시각과 동기화, IP 주소, 소리 출력 |
 | `saver-logs` | 브리지 실시간 기록 (`journalctl -u saver-bridge -f`) |
 | `saver-link` | 최근 세션 기록의 링크 품질(처음과 마지막). 모터 끔 30분과 모터 켬 30분 비교용(`docs/noise_emi.md` 6절) |
+| `saver-sound` | 소리 출력을 HDMI(모니터 3.5 mm 단자의 헤드셋)로 맞추고 음성 하나를 재생. `saver-sound usb`(USB 헤드셋), `saver-sound list` |
+| `saver-time` | 인터넷(HTTP Date)으로 시각 맞춤. 인터넷이 없으면 `saver-time "2026-10-24 09:30"`(한국 시각) |
 | `saver-test` | 자동 시험 |
 | `saver-update` | `git pull --ff-only` 뒤 브리지 다시 시작 |
 | `saver-kiosk` | 키오스크만 다시 띄우기 |
@@ -63,13 +69,28 @@ git 이 없는 새 젯팩이면 `sudo apt-get install -y git` 을 먼저 하거�
 
 ## 안전
 
-- 브리지는 장치에 연결되면 S1 초기화에서 `PING`, `GET_STATUS`, `ARM`, `HOME` 을 자동으로 보낸다(상태머신 v2.4).
+- 브리지는 장치에 연결되면 S1 초기화에서 `PING`, `GET_STATUS`, `ARM`, `HOME` 을 자동으로 보낸다.
+  종료 화면의 [대기로]도 S1 로 돌아가 같은 초기화를 다시 한다(상태머신 v2.5, D-47).
   실물 펌웨어의 `HOME` 동작과 상단 리미트를 확인하기 전에는 `--autostart` 를 쓰지 않고, 처음 연결은 모터와
   블로워 전원을 끈 상태에서 한다.
 - 이 스크립트와 서비스는 압박(CPR) 명령을 보내지 않는다. 압박은 화면에서 사람이 시작해야만 하고,
   목표 깊이가 정해지지 않으면 Teensy 가 `START_CPR` 을 거부한다(정상).
 - `config.sim.json` 은 쓰지 않는다. 확정값 `jetson/config.json` 이 있을 때만 `--config` 로 넘긴다.
 - 물리 비상정지는 소프트웨어와 무관하다. `saver-stop` 은 비상정지가 아니다.
+
+## 첫 연결 점검
+
+모터와 블로워 전원은 끈 상태에서 한다. 결과는 `saver-status` 의 "마지막 단계와 사건"으로 본다.
+
+| 순서 | 할 일 | 확인할 것 |
+|---|---|---|
+| 1 | 헤드셋을 모니터 3.5 mm 단자에 꽂고 `saver-sound` | 헤드셋에서 음성 하나가 들림 |
+| 2 | Teensy USB 연결 뒤 `saver-start` | `/dev/saver-teensy` 있음, 사건에 `LINK_UP` 과 `INIT_DONE:S1->X_MOVE` |
+| 3 | 켜는 순서를 바꿔 본다(젯슨 먼저, Teensy 먼저) | 두 경우의 S1 점검 결과(`INIT_DONE` 또는 `INIT_ERROR`) |
+| 4 | USB 를 3초 뽑았다가 다시 꽂는다 | `LINK_DOWN`, `LINK_UP` 뒤의 단계와 S1 점검 결과 |
+
+3, 4번은 실물에서 아직 확인하지 않았다. Teensy 를 먼저 켜면 S1 점검이 실패할 수 있다는 코드 대조 결과(10/11)가 있어
+나온 결과를 그대로 기록한다.
 
 ## UI 묶음 (`jetson/ui_dist`)
 
@@ -97,8 +118,10 @@ git add ../jetson/ui_dist && git commit -m "[ui] 젯슨 UI 묶음 갱신"
 |---|---|
 | `/dev/saver-teensy` 없음 | `lsusb` 에 `16c0:0483`. 다른 USB 케이블(데이터선) |
 | 터치 좌표가 어긋남 | `xinput list` 로 터치 장치 ID, `xinput map-to-output <ID> HDMI-0` |
-| 소리 안 남 | `pactl list short sinks`, `pactl set-default-sink <이름>` |
-| 기록 시각이 틀림 | 젯슨에 RTC 전지가 없어 인터넷 없이 켜면 시각이 어긋난다. 인터넷 연결 뒤 `timedatectl` |
+| 소리 안 남 | `saver-sound` (HDMI 출력 프로필이 꺼져 있으면 켠다), `saver-sound list`. 모니터 음량과 헤드셋 단자 확인 |
+| 기록 시각이 틀림 | 젯슨에 RTC 전지가 없어 인터넷 없이 켜면 시각이 어긋난다. `saver-time`(인터넷, 휴대폰 핫스팟이면 충분) 또는 `saver-time "YYYY-MM-DD HH:MM"` |
+| 설치 중 apt 가 "Release file ... is not valid yet" 으로 실패 | 시각이 틀림. `sudo date -s "YYYY-MM-DD HH:MM"` 으로 맞춘 뒤 다시 실행 |
+| `saver-update` 가 토큰을 다시 묻는다 | 재부팅으로 토큰 기억(12시간, 메모리)이 지워졌다. 사용자 이름과 토큰을 다시 넣는다 |
 | 한글이 네모로 보임 | `fc-list : family \| grep -i -e pretendard -e "noto sans cjk"` |
 | UI 가 옛 화면 | `saver-update`, 키오스크 다시 시작(`saver-stop` 뒤 `saver-start`) |
 | SSH 에서 `saver-start` 를 했는데 화면에 키오스크가 안 뜸 | SSH 세션에는 화면 권한이 없다. 젯슨 화면의 바탕화면 아이콘 "SAVER 시작"으로 띄운다 |
@@ -109,5 +132,9 @@ git add ../jetson/ui_dist && git commit -m "[ui] 젯슨 UI 묶음 갱신"
   띄워 UI(8080), 자산, 음성 파일 응답과 키오스크 화면의 브리지 연결(S1 → 환자에게 이동)을 확인했다(PC, 가짜 Teensy).
 - 스크립트는 `bash -n`, shellcheck, `--dry-run`(일반 사용자, `--autostart` 포함과 제외)으로 확인했다. 스크립트가 만드는
   보조 명령(`saver-*`)은 `bash -n` 과 shellcheck, sudoers 는 `visudo -cf`, 서비스 단위는 `systemd-analyze verify` 를 통과했다.
+- 10/15 판: `saver-status` 의 기록 요약을 Python 3.6.15(로캘 C 포함)에서 실제 `CsvLogger` 기록으로 확인했다.
+  `saver-sound` 는 모의 `pactl`(HDMI 있음, HDMI 프로필 꺼짐, USB, 장치 없음), `saver-time` 과 시각 맞춤 함수는
+  모의 HTTP 응답으로 확인했다. 실제 HTTP Date 응답은 작업 환경에서 80번 포트가 막혀 확인하지 못했다.
   **젯슨 실기에서는 아직 실행하지 않았다.**
-  apt 패키지 이름, Chromium 플래그, gdm3 자동 로그인, Claude Code 실행 여부는 실기에서 확인한다.
+  apt 패키지 이름, Chromium 플래그, gdm3 자동 로그인, HDMI 소리 장치 이름(`hdmi` 포함 여부), Claude Code 실행 여부는
+  실기에서 확인한다.

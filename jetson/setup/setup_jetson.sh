@@ -4,16 +4,19 @@
 #   대상: JetPack 4.6.x (L4T R32), Ubuntu 18.04, aarch64, Python 3.6
 #
 # 젯팩을 새로 깐 젯슨에서 터미널을 열고 한 번 실행하면 SAVER 실행에 필요한 설정을 끝낸다.
-#    1. 시스템 확인            aarch64, L4T, Ubuntu 18.04, Python 3.6, 인터넷, 저장 공간
-#    2. apt 패키지             Chromium(mp3 코덱), 한글 글꼴, 시리얼, 오디오, 카메라 점검, 빌드 도구
-#    3. 저장소                 이 스크립트가 저장소 안에 있으면 그대로, 아니면 ~/SAVER 로 복제
+#    1. 시스템 확인            aarch64, L4T, Ubuntu 18.04, Python 3.6, 시각(틀리면 인터넷 기준으로 맞춤),
+#                              인터넷, 저장 공간. curl 이 없는 새 젯팩이면 wget 으로 확인
+#    2. apt 패키지             Chromium(mp3 코덱), 한글 글꼴, 시리얼, 오디오(mpg123 시험 재생), 카메라 점검, 빌드 도구
+#    3. 저장소                 이 스크립트가 저장소 안에 있으면 그대로, 아니면 ~/SAVER 로 복제.
+#                              비공개 저장소 토큰은 12시간 동안 메모리에만 기억(git credential cache)
 #    4. Python 패키지          websockets==9.1(3.6 고정), pyserial (사용자 영역 --user)
 #    5. 장치 권한              dialout 등 그룹, Teensy udev 규칙과 /dev/saver-teensy,
 #                              ModemManager 끔, nvgetty 끔(40핀 UART /dev/ttyTHS1 을 레이더용으로 비움)
 #    6. 브리지 서비스          saver-bridge.service (UI http://127.0.0.1:8080, WebSocket 8765, 로그 ~/saver_logs)
-#    7. 키오스크               Chromium 전체 화면, 화면 꺼짐 방지, 커서 숨김, 음성 자동 재생 허용
-#    8. 편의 명령              saver-start, saver-stop, saver-status, saver-logs, saver-link, saver-kiosk,
-#                              saver-test, saver-update, 바탕화면 아이콘
+#    7. 키오스크               Chromium 전체 화면, 화면 꺼짐 방지, 커서 숨김, 음성 자동 재생 허용,
+#                              시작할 때 소리 출력을 HDMI(모니터 3.5 mm 단자의 헤드셋)로
+#    8. 편의 명령              saver-start, saver-stop, saver-off, saver-status, saver-logs, saver-link,
+#                              saver-sound, saver-time, saver-kiosk, saver-test, saver-update, 바탕화면 아이콘
 #    9. Claude Code
 #   10. 자동 시험              jetson/tests/test_all.py (하드웨어 없이)
 #
@@ -23,7 +26,8 @@
 #   bash jetson/setup/setup_jetson.sh --help         # 옵션
 #
 # 안전 (AGENTS.md)
-#   - 브리지는 장치에 연결되면 S1 초기화에서 PING, GET_STATUS, ARM, HOME 을 자동으로 보낸다(상태머신 v2.4).
+#   - 브리지는 장치에 연결되면 S1 초기화에서 PING, GET_STATUS, ARM, HOME 을 자동으로 보낸다.
+#     종료 화면의 [대기로]도 S1 로 돌아가 같은 초기화를 다시 한다(상태머신 v2.5).
 #     실물 펌웨어의 HOME 동작과 상단 리미트를 확인하기 전까지는 부팅 자동 시작을 기본으로 켜지 않는다.
 #     처음 연결은 모터와 블로워 전원을 끈 상태에서 한다.
 #   - 이 스크립트는 압박(CPR) 명령을 보내지 않는다. 압박은 화면에서 사람이 시작해야만 시작된다.
@@ -31,9 +35,9 @@
 # ============================================================================
 set -Eeuo pipefail
 
-SCRIPT_VERSION="2026-10-10"
+SCRIPT_VERSION="2026-10-15"
 DEFAULT_REPO_URL="https://github.com/SangHyeon-Shin/SAVER.git"
-# jetson/, ui/ 최신 작업 브랜치(10/10 기준 main 은 10/4 이후 변경이 반영되지 않았다)
+# jetson/, ui/ 최신 작업 브랜치(10/14 기준 main 은 10/4 이후 변경이 반영되지 않았다)
 DEFAULT_BRANCH="claude/saver-project-onboarding-xpmdhw"
 PRETENDARD_URL="https://github.com/orioncactus/pretendard/releases/download/v1.3.9/Pretendard-1.3.9.zip"
 HTTP_PORT=8080
@@ -124,8 +128,28 @@ write_user() {
   fi
   install -D -m "$mode" "$tmp" "$path"; rm -f "$tmp"
 }
+# 보조 명령 쓰기: write_cmd 경로 "설치 때 정한 값(변수 정의 줄)" < 본문(글자 그대로, 따옴표 heredoc)
+write_cmd() {
+  local path="$1" vars="$2"
+  { printf '#!/usr/bin/env bash\n%s\n' "$vars"; cat; } | write_user "$path" 0755
+}
 # pipefail 에서 'grep -q' 가 앞 명령을 SIGPIPE 로 끊으면 일치해도 거짓이 되므로 출력을 받아 비교한다
 have_unit() { [ -n "$(systemctl list-unit-files "$1" --no-legend 2>/dev/null)" ]; }
+# 새 젯팩에는 curl 이 없을 수 있다(2단계에서 설치). 그 전에는 wget 으로 확인한다
+url_ok() {
+  if command -v curl >/dev/null 2>&1; then curl -fsS --max-time 8 -o /dev/null "$1" 2>/dev/null
+  else wget -q -T 8 -O /dev/null "$1" 2>/dev/null; fi
+}
+# HTTP 응답 머리글의 Date 를 epoch 초로. 인증서 확인이 필요 없는 http 주소를 쓴다(시각이 틀리면 https 가 실패한다)
+url_epoch() {
+  local d
+  if command -v curl >/dev/null 2>&1; then
+    d="$(curl -sSI --max-time 8 "$1" 2>/dev/null | tr -d '\r' | awk -F': ' 'tolower($1) == "date" {print $2; exit}')" || true
+  else
+    d="$(wget -S -q -T 8 --spider "$1" 2>&1 | tr -d '\r' | awk -F': ' 'tolower($1) ~ /^ *date$/ {print $2; exit}')" || true
+  fi
+  [ -n "$d" ] && date -d "$d" +%s 2>/dev/null
+}
 
 printf '\033[1mSAVER 젯슨 나노 일괄 설정 %s\033[0m%s\n' "$SCRIPT_VERSION" "$([ "$DRY_RUN" -eq 1 ] && echo '  (dry-run: 아무것도 바꾸지 않음)')"
 [ "$DRY_RUN" -eq 0 ] && info "기록: $LOG_FILE"
@@ -153,16 +177,35 @@ info "Python $PY_VER"
 FREE_MB="$(df -Pm "$HOME" | awk 'NR==2 {print $4}')"
 info "남은 저장 공간 ${FREE_MB} MB"
 [ "${FREE_MB:-0}" -ge 2048 ] || warn "저장 공간 2 GB 미만. Chromium, 글꼴 설치가 실패할 수 있음"
-if curl -fsS --max-time 8 -o /dev/null https://pypi.org/simple/pip/ 2>/dev/null; then
-  ok "인터넷 연결"
-else
-  [ "$SKIP_APT" -eq 1 ] || [ "$DRY_RUN" -eq 1 ] || die "인터넷에 연결되지 않습니다(pypi.org). 와이파이나 유선을 연결한 뒤 다시 실행하세요"
-  warn "인터넷 확인 실패"
-fi
 if [ "$DRY_RUN" -eq 0 ]; then
   sudo -v || die "sudo 권한이 필요합니다"
   # 긴 설치 중 sudo 시간 만료 방지. 실패해도 본 스크립트를 중단시키지 않게 ERR 트랩을 끄고, 출력은 기록에 물리지 않는다
   ( trap - ERR; set +e; while kill -0 "$$" 2>/dev/null; do sudo -n true; sleep 50; done ) >/dev/null 2>&1 &
+fi
+# 시각: 젯슨에는 RTC 전지가 없어 인터넷 동기화 전에는 시각이 틀릴 수 있다(NTP 를 막은 학교망 포함).
+# 틀린 시각이면 HTTPS 인증서 확인, apt 의 Release 유효 기간 확인이 실패하고 기록 파일 시각도 틀린다
+WEB_TS=""
+for u in http://www.google.com http://www.naver.com; do
+  WEB_TS="$(url_epoch "$u" || true)"
+  [ -z "$WEB_TS" ] || break
+done
+if [ -z "$WEB_TS" ]; then
+  warn "인터넷 시각을 받지 못함. 지금 시각 $(date '+%Y-%m-%d %H:%M'). 틀리면 apt 와 HTTPS 가 실패하므로 sudo date -s \"YYYY-MM-DD HH:MM\" 으로 맞춘 뒤 다시 실행"
+else
+  NOW_TS="$(date +%s)"
+  DIFF=$(( WEB_TS > NOW_TS ? WEB_TS - NOW_TS : NOW_TS - WEB_TS ))
+  if [ "$DIFF" -gt 120 ]; then
+    run sudo date -s "@$WEB_TS" >/dev/null
+    ok "시각을 인터넷 기준으로 맞춤 (${DIFF}초 차이 → $(date '+%Y-%m-%d %H:%M %Z'))"
+  else
+    ok "시각 $(date '+%Y-%m-%d %H:%M %Z') (인터넷과 ${DIFF}초 차이)"
+  fi
+fi
+if url_ok https://pypi.org/simple/pip/; then
+  ok "인터넷 연결"
+else
+  [ "$SKIP_APT" -eq 1 ] || [ "$DRY_RUN" -eq 1 ] || die "인터넷에 연결되지 않습니다(pypi.org). 와이파이나 유선을 연결한 뒤 다시 실행하세요"
+  warn "인터넷 확인 실패"
 fi
 
 # ---------------------------------------------------------------- 2. apt 패키지
@@ -172,7 +215,7 @@ APT_PKGS=(
   python3-pip python3-dev python3-setuptools python3-wheel build-essential
   chromium-browser chromium-codecs-ffmpeg-extra unclutter xdotool x11-xserver-utils
   fonts-noto-cjk fonts-nanum fontconfig
-  alsa-utils pulseaudio-utils v4l-utils
+  alsa-utils pulseaudio-utils mpg123 v4l-utils
   openssh-server
 )
 if [ "$SKIP_APT" -eq 1 ]; then
@@ -193,10 +236,15 @@ fi
 
 # ---------------------------------------------------------------- 3. 저장소
 step "저장소"
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"   # 파이프로 받아 실행해도(bash -s) 멈추지 않게
 if [ -z "$REPO_DIR" ] && [ -f "$SCRIPT_DIR/../saver/bridge.py" ]; then
   REPO_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
   info "스크립트가 들어 있는 저장소를 씀"
+fi
+# 비공개 저장소: 복제 때 넣은 토큰을 12시간 동안 메모리에만 기억해 saver-update 가 다시 묻지 않게 한다(디스크에 쓰지 않음)
+if command -v git >/dev/null 2>&1 && [ -z "$(git config --global credential.helper 2>/dev/null || true)" ]; then
+  run git config --global credential.helper 'cache --timeout=43200'
+  info "GitHub 토큰은 12시간 동안 메모리에만 기억(git credential cache, 재부팅하면 지워짐)"
 fi
 if [ -z "$REPO_DIR" ]; then
   REPO_DIR="$HOME/SAVER"
@@ -286,7 +334,8 @@ fi
 PY_BIN="$(command -v python3)"
 write_root /etc/systemd/system/saver-bridge.service 0644 <<EOF
 # SAVER 젯슨 브리지. jetson/setup/setup_jetson.sh 가 만든다.
-# 장치에 연결되면 S1 초기화(PING, GET_STATUS, ARM, HOME)를 자동으로 보낸다. 압박은 화면에서 사람이 시작해야만 한다.
+# 장치에 연결되면 S1 초기화(PING, GET_STATUS, ARM, HOME)를 자동으로 보낸다. 종료 화면의 [대기로]도 S1 로 돌아가
+# 같은 초기화를 다시 한다(상태머신 v2.5). 압박은 화면에서 사람이 시작해야만 한다.
 [Unit]
 Description=SAVER Jetson bridge (state machine, Teensy USB, UI :$HTTP_PORT, WebSocket :$WS_PORT)
 After=network.target
@@ -350,6 +399,8 @@ fi
 # 커서 숨김
 pkill -x unclutter 2>/dev/null || true
 (unclutter -idle 0.5 -root >/dev/null 2>&1 &)
+# 소리 출력: saver-sound 로 마지막에 고른 종류(기본 HDMI, 모니터 3.5 mm 단자의 헤드셋)가 있으면 기본 출력으로
+"$BIN/saver-sound" --auto >/dev/null 2>&1 || true
 # 브리지 대기(최대 120초. 부팅 직후에는 브리지가 늦게 뜰 수 있다)
 for _ in \$(seq 1 120); do curl -fsS -o /dev/null --max-time 2 "\$URL" && break; sleep 1; done
 exec chromium-browser --kiosk "\$URL" \\
@@ -379,14 +430,129 @@ pkill -f 'saver-kiosk' 2>/dev/null || true
 sudo -n $SYSTEMCTL stop saver-bridge || sudo $SYSTEMCTL stop saver-bridge
 echo "정지"
 EOF
-write_user "$BIN/saver-status" 0755 <<EOF
+write_user "$BIN/saver-off" 0755 <<EOF
 #!/usr/bin/env bash
+# 안전하게 끄기: 키오스크와 브리지를 멈추고 젯슨을 끈다. 젯슨 전원을 그냥 끊으면 SD 카드 파일 시스템이 손상될 수 있다.
+# 모니터에 '신호 없음'이 뜨고 20초 뒤에 배터리(XT90)를 뽑는다. Teensy 는 브리지가 멈추면 스스로 안전 상태로 간다.
+"$BIN/saver-stop" || true
+sync
+systemctl poweroff 2>/dev/null || sudo $SYSTEMCTL poweroff
+EOF
+write_cmd "$BIN/saver-status" "HTTP_PORT=$HTTP_PORT
+LOG_DIR=\"$LOG_DIR\"" <<'EOF'
+# 한눈에 보기: 서비스, Teensy, UI, 마지막 단계와 사건(S1 점검 통과 여부), 시각, 주소, 소리 출력
 echo "== 브리지 서비스"; systemctl --no-pager --lines=5 status saver-bridge 2>/dev/null | sed -n '1,8p'
 echo "== Teensy";       ls -l /dev/saver-teensy 2>/dev/null || echo "  /dev/saver-teensy 없음 (USB 연결 확인)"
 echo "== 시리얼 포트";  ls /dev/ttyACM* /dev/ttyUSB* /dev/ttyTHS* 2>/dev/null | tr '\n' ' '; echo
-echo "== UI";           curl -fsS -o /dev/null --max-time 2 http://127.0.0.1:$HTTP_PORT/ && echo "  http://127.0.0.1:$HTTP_PORT 응답" || echo "  응답 없음"
-echo "== 최근 기록";    ls -t "$LOG_DIR" 2>/dev/null | head -3 | sed 's/^/  /'
-echo "== 소리 출력";    pactl list short sinks 2>/dev/null | sed 's/^/  /' || true
+echo "== UI"
+if curl -fsS -o /dev/null --max-time 2 "http://127.0.0.1:$HTTP_PORT/"; then echo "  http://127.0.0.1:$HTTP_PORT 응답"; else echo "  응답 없음"; fi
+f="$(ls -t "$LOG_DIR"/saver_*.csv 2>/dev/null | head -n 1)"
+echo "== 마지막 단계와 사건 ${f:+($(basename "$f"))}"
+if [ -n "$f" ]; then
+  # Python 3.6 은 로캘이 C 이면(LANG 없는 SSH 등) 한글 출력에서 멈춘다
+  PYTHONIOENCODING=utf-8 python3 - "$f" <<'PY'
+import collections, csv, datetime, sys
+last, mcu, ev = None, "", collections.deque(maxlen=8)
+with open(sys.argv[1], encoding="utf-8") as fp:
+    for r in csv.DictReader(fp):
+        last = r
+        if r.get("source") == "mcu" and r.get("substate"):
+            mcu = r["substate"]
+        d = r.get("decision") or ""
+        if d and not d.startswith("LINK "):
+            ev.append(r)
+def hms(r):
+    try:
+        return datetime.datetime.fromtimestamp(int(r["ts_ms"]) / 1000.0).strftime("%H:%M:%S")
+    except (KeyError, TypeError, ValueError):
+        return "?"
+if last is None:
+    print("  기록이 비어 있음")
+else:
+    print("  단계 %s, Teensy %s (마지막 기록 %s)" % (last.get("state") or "?", mcu or "?", hms(last)))
+    for r in ev:
+        print("  %s %-4s %s" % (hms(r), r.get("source", ""), r.get("decision", "")))
+PY
+else
+  echo "  기록 없음 (브리지를 한 번도 시작하지 않음)"
+fi
+echo "== 시각";          date '+  %Y-%m-%d %H:%M:%S %Z'; timedatectl status 2>/dev/null | grep -i 'synchronized' | sed 's/^ */  /'
+echo "== 주소 (SSH)";    echo "  $(hostname -I 2>/dev/null)"
+echo "== 소리 출력";     echo "  기본 $(pactl info 2>/dev/null | awk -F': ' '/^Default Sink/ {print $2}')"
+pactl list short sinks 2>/dev/null | awk '{print "  " $2}'
+EOF
+write_cmd "$BIN/saver-sound" "VOICE_DIR=\"$UI_DIST/voice\"" <<'EOF'
+# 음성 출력 장치 고르기와 시험 재생. 구조자는 헤드셋으로 듣는다(D-40).
+# 젯슨 나노에는 아날로그 소리 단자가 없어 HDMI 로 모니터에 보내고, 헤드셋은 모니터 3.5 mm 단자에 꽂는다(docs/noise_emi.md).
+#   saver-sound          HDMI 로 맞추고 음성 하나를 재생
+#   saver-sound usb      USB 헤드셋이나 USB 사운드카드로 맞추고 재생
+#   saver-sound list     출력 장치 목록
+#   saver-sound --auto   마지막으로 고른 종류(없으면 HDMI)를 기본 출력으로만 바꾼다(키오스크 시작 때, 소리 없음)
+CONF="$HOME/.config/saver/sound_out"
+mode="${1:-hdmi}"
+find_sink() { pactl list short sinks 2>/dev/null | awk -v k="$1" 'index(tolower($2), k) {print $2; exit}'; }
+hdmi_profile() {   # HDMI 출력이 꺼진 프로필이면 켠다
+  local card p
+  for card in $(pactl list short cards 2>/dev/null | awk '{print $2}' | grep -i -e hda -e hdmi); do
+    for p in output:hdmi-stereo output:hdmi-stereo-extra1; do
+      if pactl set-card-profile "$card" "$p" 2>/dev/null; then return 0; fi
+    done
+  done
+  return 1
+}
+case "$mode" in
+  list)
+    pactl list short sinks
+    echo "기본: $(pactl info 2>/dev/null | awk -F': ' '/^Default Sink/ {print $2}')"
+    exit 0 ;;
+  --auto)
+    kind=hdmi
+    if [ -f "$CONF" ]; then kind="$(cat "$CONF")"; fi ;;
+  hdmi|usb) kind="$mode" ;;
+  *) echo "사용: saver-sound [hdmi|usb|list]"; exit 2 ;;
+esac
+sink="$(find_sink "$kind")"
+if [ -z "$sink" ] && [ "$kind" = hdmi ] && hdmi_profile; then sink="$(find_sink hdmi)"; fi
+if [ -z "$sink" ]; then
+  echo "$kind 출력 장치가 없습니다. 모니터 전원과 HDMI 연결(USB 헤드셋이면 USB 연결)을 확인하세요. 목록: saver-sound list"
+  exit 1
+fi
+pactl set-default-sink "$sink"
+for i in $(pactl list short sink-inputs 2>/dev/null | awk '{print $1}'); do
+  pactl move-sink-input "$i" "$sink" 2>/dev/null || true      # 이미 소리를 내는 Chromium 도 옮긴다
+done
+pactl set-sink-mute "$sink" 0 2>/dev/null || true
+if [ "$mode" = --auto ]; then exit 0; fi
+mkdir -p "$(dirname "$CONF")" && echo "$kind" > "$CONF"
+pactl set-sink-volume "$sink" 100% 2>/dev/null || true
+echo "출력: $sink (음량 100 %. 크기는 모니터나 헤드셋에서 조절)"
+f="$(ls "$VOICE_DIR"/*.mp3 2>/dev/null | head -n 1)"
+if [ -n "$f" ] && command -v mpg123 >/dev/null 2>&1; then
+  echo "시험 재생: $(basename "$f")"
+  mpg123 -q "$f"
+else
+  paplay /usr/share/sounds/alsa/Front_Center.wav 2>/dev/null || echo "시험 재생 파일이나 재생기(mpg123)가 없습니다"
+fi
+EOF
+write_cmd "$BIN/saver-time" "" <<'EOF'
+# 젯슨 시각 맞추기. 젯슨에는 RTC 전지가 없어 인터넷 없이 켜면 시각이 틀리고, 기록 파일의 시각도 틀린다.
+#   saver-time                       인터넷(HTTP 응답의 Date)으로 맞춤. 휴대폰 핫스팟이면 충분
+#   saver-time "2026-10-24 09:30"    직접 입력(한국 시각)
+if [ $# -ge 1 ]; then
+  sudo date -s "$1" >/dev/null || exit 1
+else
+  d=""
+  for u in http://www.google.com http://www.naver.com; do
+    d="$(curl -sSI --max-time 8 "$u" 2>/dev/null | tr -d '\r' | awk -F': ' 'tolower($1) == "date" {print $2; exit}')"
+    if [ -n "$d" ]; then break; fi
+  done
+  if [ -z "$d" ]; then
+    echo "인터넷으로 시각을 받지 못했습니다. 직접 입력: saver-time \"YYYY-MM-DD HH:MM\""
+    exit 1
+  fi
+  sudo date -s "$d" >/dev/null || exit 1
+fi
+echo "현재 $(date '+%Y-%m-%d %H:%M:%S %Z') (UTC $(date -u '+%H:%M:%S'))"
 EOF
 write_user "$BIN/saver-logs" 0755 <<'EOF'
 #!/usr/bin/env bash
@@ -418,9 +584,12 @@ echo "갱신 완료: \$(git -C "$REPO_DIR" log -1 --format='%h %s')"
 EOF
 DESK="$(xdg-user-dir DESKTOP 2>/dev/null || true)"
 [ -n "$DESK" ] || DESK="$HOME/Desktop"
-for name in start stop; do
-  if [ "$name" = start ]; then label="SAVER 시작"; icon=media-playback-start
-  else label="SAVER 정지"; icon=media-playback-stop; fi
+for name in start stop off; do
+  case "$name" in
+    start) label="SAVER 시작"; icon=media-playback-start ;;
+    stop)  label="SAVER 정지"; icon=media-playback-stop ;;
+    off)   label="SAVER 끄기 (젯슨 전원)"; icon=system-shutdown ;;
+  esac
   write_user "$DESK/saver-$name.desktop" 0755 <<EOF
 [Desktop Entry]
 Type=Application
@@ -431,7 +600,15 @@ Terminal=false
 EOF
   if [ "$DRY_RUN" -eq 0 ]; then gio set "$DESK/saver-$name.desktop" metadata::trusted true 2>/dev/null || true; fi
 done
-ok "saver-start, saver-stop, saver-status, saver-logs, saver-link, saver-test, saver-update, 바탕화면 아이콘 2개"
+ok "saver-start, saver-stop, saver-off, saver-status, saver-logs, saver-link, saver-sound, saver-time, saver-test, saver-update, 바탕화면 아이콘 3개"
+# 화면 세션에서 실행 중이면 소리 기본 출력을 바로 HDMI 로(SSH 로 실행했거나 모니터가 꺼져 있으면 재부팅 뒤 saver-sound)
+if [ "$DRY_RUN" -eq 1 ]; then
+  info "(dry-run) saver-sound --auto"
+elif "$BIN/saver-sound" --auto >/dev/null 2>&1; then
+  ok "소리 기본 출력: $(pactl info 2>/dev/null | awk -F': ' '/^Default Sink/ {print $2}')"
+else
+  info "소리 출력은 재부팅 뒤 헤드셋을 꽂고 saver-sound 로 맞춘다"
+fi
 # ~/.local/bin(saver-* 명령, Claude Code)을 새 터미널의 PATH 에 넣는다. Claude 설치기는 PATH 를 바꾸지 않는다
 if ! grep -q 'SAVER: ~/.local/bin' "$HOME/.bashrc" 2>/dev/null; then
   if [ "$DRY_RUN" -eq 1 ]; then
@@ -592,6 +769,8 @@ cat <<EOF
     UI            $UI_DIST → http://127.0.0.1:$HTTP_PORT (WebSocket $WS_PORT)
     브리지        saver-bridge.service, Teensy /dev/saver-teensy, 기록 $LOG_DIR
     자동 시작     $([ "$AUTOSTART" -eq 1 ] && echo "켬 (자동 로그인, 브리지, 키오스크)" || echo "끔 (saver-start 또는 바탕화면 'SAVER 시작')")
+    주소 (SSH)    $(hostname -I 2>/dev/null | awk '{print $1}')  (노트북에서 ssh $USER_NAME@주소)
+    시각          $(date '+%Y-%m-%d %H:%M %Z')
     Claude Code   $CLAUDE_STATUS
     자동 시험     $TEST_STATUS
 EOF
@@ -603,8 +782,10 @@ cat <<'EOF'
 
     다음 순서
       1. 재부팅: sudo reboot   (그룹 권한, 자동 로그인, PATH 적용)
-      2. 모터와 블로워 전원을 끈 채 Teensy 를 USB 로 연결하고 saver-start
-      3. saver-status 로 /dev/saver-teensy, UI 응답 확인. 기록은 saver-logs
-      4. 소리가 안 나면 pactl list short sinks 로 출력 장치를 확인
-      5. Claude Code: 새 터미널에서 claude 를 실행해 로그인 (실행이 안 되면 노트북에서 SSH 로 작업)
+      2. 헤드셋을 모니터 3.5 mm 단자에 꽂고 saver-sound (HDMI 로 맞추고 음성 하나 재생. USB 헤드셋이면 saver-sound usb)
+      3. 모터와 블로워 전원을 끈 채 Teensy 를 USB 로 연결하고 saver-start
+      4. saver-status 로 /dev/saver-teensy, UI 응답, 마지막 단계(S1 점검 통과면 INIT_DONE:S1->X_MOVE) 확인. 기록은 saver-logs
+      5. 시각이 틀리면 saver-time (인터넷) 또는 saver-time "YYYY-MM-DD HH:MM"
+      6. 끌 때는 saver-off (바탕화면 'SAVER 끄기'). 모니터에 신호 없음이 뜨고 20초 뒤 배터리(XT90) 분리
+      7. Claude Code: 새 터미널에서 claude 를 실행해 로그인 (실행이 안 되면 노트북에서 SSH 로 작업)
 EOF
