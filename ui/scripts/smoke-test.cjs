@@ -51,19 +51,18 @@ const check = (name, ok, detail = '') => {
   check('01 부팅 화면 렌더링', await until(has('SAVER'), 3000), T().slice(0, 30))
 
   check('02 바퀴 내리기 단계 없음 (바퀴는 평소 내려가 있음, 10/5)', !has('바퀴를 내리')())
-  check('03 이동 화면 자동 전이', await until(has('환자에게 이동')))
+  // 한 화면에 지시 하나(D-42): 장치를 끌고 가기 전에 119 신고가 먼저(10/14 팀장) → 이동 → 헤드셋(D-43)
+  const steps = () => d.querySelector('[data-steps]')?.getAttribute('data-steps')
+  check('03 ① 이동 전에 119 신고, 자동심장충격기 요청은 주변에 사람이 있을 때 (10/14)', await until(has('119에 신고하세요'), 6000)
+    && has('주변에 사람이 있으면 자동심장충격기를')() && !has('헤드셋')() && !has('이동 완료')() && steps() === '1/2')
+  tap(BX('다음'))
+  check('03 ② 환자에게 이동', await until(has('환자 위치로 끌고 이동해 주세요')) && !has('119에 신고')() && steps() === '2/2')
 
   tap(B('이동 완료'))
   check('04 시작 대기', await until(has('시작 대기')))
-  // 한 화면에 지시 하나(D-42): 헤드셋이 먼저(D-43) → 119 [시작]. 단단한 바닥은 사용 조건 전제라 안내 없음
-  const steps = () => d.querySelector('[data-steps]')?.getAttribute('data-steps')
-  check('04 ① 헤드셋 착용이 가장 먼저, 다른 지시 없음 (D-43)', has('헤드셋을 착용해 주세요')() && !!d.querySelector('[data-headset]')
-    && !has('119에 신고')() && !has('단단한 바닥')() && steps() === '1/2')
+  check('04 지시는 헤드셋 착용 하나, 119 안내 없음 (D-43, 10/14)', has('헤드셋을 착용해 주세요')() && !!d.querySelector('[data-headset]')
+    && !has('119')() && !has('단단한 바닥')() && !BX('시작'))
   tap(BX('헤드셋을 썼습니다'))
-  check('04 ② 119 신고·자동심장충격기 요청, 시작 버튼', await until(has('119에 신고하고')) && has('자동심장충격기를 가져다')()
-    && !has('헤드셋')() && !has('단단한 바닥')() && !!BX('시작') && steps() === '2/2')
-
-  tap(BX('시작'))
   check('05 외투만 벗기기 안내(인식 없음, D-38, 10/14 외투만)', await until(has('외투만 벗겨 주세요'))
     && !has('인식')() && !has('겉옷')() && !has('맨살')() && !!B('외투를 벗겼습니다'))
 
@@ -236,7 +235,7 @@ const check = (name, ok, detail = '') => {
   await until(() => T4().includes('대기로'), 3000)
   tap([...d4.querySelectorAll('#root button')].find((b) => b.textContent.includes('대기로')))
   check('해제 완료 뒤 대기로 → 시스템 점검(S1, v2.5)', await until(() => T4().includes('시스템 점검 중'), 3000))
-  check('대기로 뒤 점검을 마치면 환자에게 이동(오프라인 시연 3 s)', await until(() => T4().includes('환자에게 이동'), 6000))
+  check('대기로 뒤 점검을 마치면 119 신고와 이동 화면(오프라인 시연 3 s)', await until(() => T4().includes('119에 신고하세요'), 6000))
   // 인공호흡 안내: 시간이 끝나도 압박을 자동으로 다시 시작하지 않는다
   const d5 = openDom('?start=X_VENT').window.document
   const T5 = () => (d5.querySelector('#root')?.textContent || '')
@@ -287,13 +286,13 @@ const check = (name, ok, detail = '') => {
   const vg = await pw('?start=X_VENT', ['인공호흡 안내', '건너뛰기'])
   check('v2.4 인공호흡: 안내 중에도 [정지] 있음',
     !![...vg.dd.querySelectorAll('#root button')].find((b) => b.textContent.trim() === '정지' && !b.disabled))
-  // v2.4: X_WHEELS 삭제. 오프라인 시연은 S1 → 환자에게 이동(offline_auto), 실기 브리지는 초기화 절차 결과로
+  // v2.4: X_WHEELS 삭제. 오프라인 시연은 S1 → 119 신고와 이동(offline_auto, 10/14부터 1단계가 119 신고), 실기 브리지는 초기화 절차 결과로
   const s1d = openDom('?start=S1').window.document
   const S1T = () => (s1d.querySelector('#root')?.textContent || '')
   const s1seen = []
-  await until(() => { s1seen.push(S1T().includes('점검을 마쳤습니다')); return S1T().includes('환자에게 이동') }, 6000, 100)
-  check('v2.4 부팅: 오프라인 시연은 점검 완료 화면 없이 바로 환자에게 이동(3 s, offline_auto)',
-    S1T().includes('환자에게 이동') && !s1seen.some(Boolean), S1T().slice(0, 40))
+  await until(() => { s1seen.push(S1T().includes('점검을 마쳤습니다')); return S1T().includes('119에 신고하세요') }, 6000, 100)
+  check('v2.4 부팅: 오프라인 시연은 점검 완료 화면 없이 바로 119 신고와 이동 화면(3 s, offline_auto)',
+    S1T().includes('119에 신고하세요') && !s1seen.some(Boolean), S1T().slice(0, 40))
   check('v2.4 상태머신: X_WHEELS 없음, S1 은 초기화 절차(procedure)와 오프라인 전용 자동 전이, 초기화 오류는 S1 로 복귀',
     !spec.nodes.X_WHEELS && !spec.events.WHEELS_DONE && spec.nodes.S1.procedure === 'init' && !spec.nodes.S1.auto
     && spec.nodes.S1.offline_auto && spec.nodes.S1.on.INIT_DONE === 'X_MOVE' && spec.error_return_by_event.INIT_ERROR === 'S1'
@@ -311,7 +310,7 @@ const check = (name, ok, detail = '') => {
     check('키오스크: 연결 전에는 연결 대기 화면', !!dk.querySelector('[data-linkwait]') && TK().includes('장치와 연결하고 있습니다'))
     await wait(4200)
     check('키오스크: 연결 없이 4초가 지나도 스스로 넘어가지 않음 (부팅 점검 3초 타이머 무시)',
-      !!dk.querySelector('[data-linkwait]') && !TK().includes('환자에게 이동') && !TK().includes('점검을 마쳤습니다'), TK().slice(0, 40))
+      !!dk.querySelector('[data-linkwait]') && !TK().includes('119에 신고하세요') && !TK().includes('점검을 마쳤습니다'), TK().slice(0, 40))
   }
   // 음성 안내 문구 (src/voice/prompts.json)
   const VP = JSON.parse(readFileSync('src/voice/prompts.json', 'utf8'))
@@ -325,10 +324,10 @@ const check = (name, ok, detail = '') => {
   check('음성 문구: TTS 입력에 어려운 말 없음(일반인 기준, direction.plain)', VB.length >= 10
     && VP.prompts.every((p) => !VB.some((w) => p.say.includes(w))),
     VP.prompts.filter((p) => VB.some((w) => p.say.includes(w))).map((p) => p.id).join(','))
-  check('음성 문구: 헤드셋 착용 전 화면은 무음, 첫 음성은 착용 뒤 119 안내 (D-43)',
-    ['S1', 'X_MOVE'].every((n) => VP.prompts.filter((p) => p.node === n).every((p) => p.silent))
-    && VP.prompts.filter((p) => p.node === 'S2' && p.when === 'enter').every((p) => p.silent)
-    && VP.prompts.some((p) => p.node === 'S2' && p.when === 'step:2' && p.say.includes('일일구') && !p.silent)
+  check('음성 문구: 헤드셋 착용 전 화면(119 신고와 이동 포함)은 무음, 첫 음성은 착용 뒤 외투 안내 (D-43, 10/14)',
+    ['S1', 'X_MOVE', 'S2'].every((n) => VP.prompts.filter((p) => p.node === n).every((p) => p.silent))
+    && VP.prompts.some((p) => p.node === 'X_MOVE' && p.when === 'step:1' && p.say.includes('일일구') && p.say.includes('주변에 사람이 있으면'))
+    && VP.prompts.some((p) => p.node === 'X_CLOTHES' && p.when === 'enter' && !p.silent)
     && !VP.prompts.some((p) => p.say.includes('단단한 바닥')))
   check('음성 문구: 바퀴를 내리거나 올리라는 문구 없음 (바퀴는 안전핀으로 저절로, 10/5)',
     VP.prompts.every((p) => !/바퀴를 (내리|올려)/.test(p.say)) && !VP.prompts.some((p) => p.id === 'V02' || p.node === 'X_WHEELS'))
@@ -371,14 +370,14 @@ const check = (name, ok, detail = '') => {
     const need = VP.prompts.filter((p) => !p.silent && !['V35', 'V39'].includes(p.id)).map((p) => p.id)
     const miss = need.filter((i) => !existsSync('public/voice/' + i + '.mp3'))
     const extra = readdirSync('public/voice').filter((f) => f.endsWith('.mp3') && !need.includes(f.slice(0, -4)))
-    check('음성 파일: 무음, 제외 문구 말고는 모두 있음(10/14 생성 33개), 목록에 없는 파일 없음', need.length === 33 && miss.length === 0 && extra.length === 0,
+    check('음성 파일: 무음, 제외 문구 말고는 모두 있음(10/14 생성 33개 중 무음이 된 V36 제외 32개), 목록에 없는 파일 없음', need.length === 32 && miss.length === 0 && extra.length === 0,
       'miss ' + miss.join(',') + ' extra ' + extra.join(','))
   }
   // 음성 재생 규칙과 재생기 (voice/plan.js, voice/player.js)
   const VPl = await import('../src/voice/plan.js')
   const VPP = VP.prompts
-  check('재생 규칙: 헤드셋 착용 전(부팅, 이동, 시작 대기 진입)은 무음, 착용 뒤 2단계에서 119 안내', ['S1', 'X_MOVE', 'S2'].every((n) => VPl.planEnter(VPP, n).length === 0)
-    && VPl.planEvent(VPP, 'S2', 'step:2').join() === 'V36', VPl.planEnter(VPP, 'S2').join())
+  check('재생 규칙: 헤드셋 착용 전(부팅, 119 신고와 이동, 시작 대기)은 무음, 첫 음성은 외투 안내(V05)', ['S1', 'X_MOVE', 'S2'].every((n) => VPl.planEnter(VPP, n).length === 0)
+    && ['step:1', 'step:2'].every((w) => VPl.planEvent(VPP, 'X_MOVE', w).length === 0) && VPl.planEnter(VPP, 'X_CLOTHES').join() === 'V05', VPl.planEnter(VPP, 'X_CLOTHES').join())
   check('재생 규칙: 단계 화면 (몸 위치, 안전핀, 수동 해제)', VPl.planEnter(VPP, 'S3S4').join() === 'V08' && VPl.planEvent(VPP, 'S3S4', 'step:2').join() === 'V07'
     && VPl.planEnter(VPP, 'X_PIN').join() === 'V14' && VPl.planEvent(VPP, 'X_PIN', 'step:2').join() === 'V41'
     && VPl.planEnter(VPP, 'S12').join() === 'V27' && VPl.planEvent(VPP, 'S12', 'step:2').join() === '')
@@ -406,10 +405,10 @@ const check = (name, ok, detail = '') => {
   await wait(10)
   check('재생기: 없는 파일은 건너뛰고 다음', fake.join() === 'voice/V20.mp3,voice/V22.mp3', fake.join())
   fake.length = 0
-  pv.enter('S2')
-  check('재생기: 시작 대기 진입(헤드셋 착용 전)은 무음', fake.length === 0, fake.join())
-  pv.cue('step:2')
-  check('재생기: [헤드셋을 썼습니다] 뒤 119 안내가 첫 음성', fake.join() === 'voice/V36.mp3', fake.join())
+  pv.enter('X_MOVE'); pv.cue('step:1'); pv.cue('step:2'); pv.enter('S2')
+  check('재생기: 119 신고와 이동, 시작 대기(헤드셋 착용 전)는 무음', fake.length === 0, fake.join())
+  pv.enter('X_CLOTHES')
+  check('재생기: [헤드셋을 썼습니다] 뒤 첫 음성은 외투 안내', fake.join() === 'voice/V05.mp3', fake.join())
   pv.enter('S3S4'); const o08 = objs[objs.length - 1]
   o08.onended(); await wait(10)
   check('재생기: 단계 문구는 구조자가 다음을 누르기 전에는 재생 안 함', fake.slice(-1).join() === 'voice/V08.mp3', fake.join())

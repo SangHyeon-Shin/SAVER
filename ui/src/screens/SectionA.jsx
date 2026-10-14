@@ -39,29 +39,47 @@ export function ScreenLink({ lost }) {
   )
 }
 
-/* ================= 03 · 환자에게 이동 =================
+/* ================= 03 · 119 신고와 환자에게 이동 =================
+   한 화면에 지시 하나: ① 119 신고와 자동심장충격기 요청 → ② 환자 위치로 끌고 이동.
+   장치를 끌고 가기 전에 신고가 먼저다(10/14 팀장). 자동심장충격기 요청은 주변에 사람이 있을 때만이다.
+   헤드셋을 쓰기 전이라 음성 없이 화면으로만 안내한다(D-43, V36과 V03은 무음).
    사이렌은 이 화면에서 울리지 않는다(구조자가 장치 옆에서 119와 통화 중이다). 사이렌은 KSME 결선에 달지 않는다 */
 export function Screen03({ fire }) {
+  const [i, go] = useSteps(2)
   return (
     <Light>
-      <Header title="환자에게 이동" right="2 / 7" />
-      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 26 }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 18, width: '100%' }}>
-          <div style={{ width: 420, height: 300, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-            <img src={IMG.device} alt="SAVER 장치" style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain', display: 'block' }} />
+      <Header title={i === 0 ? '119 신고' : '환자에게 이동'} right="2 / 7" />
+      <div style={{ flex: 1, position: 'relative' }}>
+        {i === 0 ? (
+          <StepBody pic={<><PhoneIcon /><AedMark size={130} /></>}
+            title={<>먼저 <span style={{ color: C.danger }}>119</span>에 신고하세요</>}
+            sub="주변에 사람이 있으면 자동심장충격기를 가져다 달라고 하세요" />
+        ) : (
+          <div style={{ position: 'absolute', inset: '0 0 96px', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 26 }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 18, width: '100%' }}>
+              <div style={{ width: 420, height: 300, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                <img src={IMG.device} alt="SAVER 장치" style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain', display: 'block' }} />
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 9, flexShrink: 0, animation: 'arrowmove 1.3s ease-in-out infinite' }}>
+                <div style={{ width: 16, height: 16, borderRadius: '50%', background: C.success, opacity: .3 }} />
+                <div style={{ width: 16, height: 16, borderRadius: '50%', background: C.success, opacity: .55 }} />
+                <div style={{ width: 16, height: 16, borderRadius: '50%', background: C.success, opacity: .8 }} />
+                <div style={{ width: 0, height: 0, borderTop: '15px solid transparent', borderBottom: '15px solid transparent', borderLeft: `26px solid ${C.success}` }} />
+              </div>
+              <div style={{ width: 330, height: 240, border: `1px solid ${C.lightLine}`, borderRadius: 10, overflow: 'hidden', background: '#0e1116', flexShrink: 0 }}>
+                <img src={IMG.patient_angled} alt="환자" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+              </div>
+            </div>
+            <div style={{ fontSize: 26, fontWeight: 600 }}>환자 위치로 끌고 이동해 주세요</div>
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 9, flexShrink: 0, animation: 'arrowmove 1.3s ease-in-out infinite' }}>
-            <div style={{ width: 16, height: 16, borderRadius: '50%', background: C.success, opacity: .3 }} />
-            <div style={{ width: 16, height: 16, borderRadius: '50%', background: C.success, opacity: .55 }} />
-            <div style={{ width: 16, height: 16, borderRadius: '50%', background: C.success, opacity: .8 }} />
-            <div style={{ width: 0, height: 0, borderTop: '15px solid transparent', borderBottom: '15px solid transparent', borderLeft: `26px solid ${C.success}` }} />
-          </div>
-          <div style={{ width: 330, height: 240, border: `1px solid ${C.lightLine}`, borderRadius: 10, overflow: 'hidden', background: '#0e1116', flexShrink: 0 }}>
-            <img src={IMG.patient_angled} alt="환자" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
-          </div>
+        )}
+        {i > 0 && <Btn variant="ghost" w={160} fs={23} onPress={() => go(0)}
+          style={{ position: 'absolute', left: 28, bottom: 24 }}>이전</Btn>}
+        <div style={{ position: 'absolute', left: 0, right: 0, bottom: 44, display: 'flex', justifyContent: 'center', pointerEvents: 'none' }}>
+          <StepDots n={2} i={i} />
         </div>
-        <div style={{ fontSize: 26, fontWeight: 600 }}>환자 위치로 끌고 이동해 주세요</div>
-        <Btn variant="success" w={340} h={74} fs={26} onPress={() => fire(EV.MOVE_DONE)}>이동 완료</Btn>
+        <Btn variant={i === 0 ? 'primary' : 'success'} w={i === 0 ? 240 : 300} fs={24} onPress={() => (i === 0 ? go(1) : fire(EV.MOVE_DONE))}
+          style={{ position: 'absolute', right: 28, bottom: 24 }}>{i === 0 ? '다음' : '이동 완료'}</Btn>
       </div>
     </Light>
   )
@@ -102,32 +120,20 @@ function StepBody({ pic, title, sub, titleColor = '#1a1f29' }) {
 }
 
 /* ================= 04 · 시작 대기 · S2 · UI-02 =================
-   한 화면에 지시 하나(D-42): ① 헤드셋 착용 → ② 119 신고와 자동심장충격기 요청 [시작].
-   헤드셋이 가장 먼저다. 음성 안내(TTS)는 헤드셋으로만 내고, 구조자가 [헤드셋을 썼습니다]를
-   누른 뒤부터 쓴다(D-43). 그래서 이 화면 진입 음성(V40)과 그 앞 화면 음성(V01~V03)은 무음이고,
-   ②의 119 안내(V36)가 첫 음성이다. 단단한 바닥은 사용 조건으로 전제하므로 안내하지 않는다(D-43).
-   119 신고와 자동심장충격기 요청이 장치 사용보다 먼저다(119 현장경험자 인터뷰 권고, v2.2) */
+   지시는 헤드셋 착용 하나다. 119 신고와 자동심장충격기 요청은 이동 전에 이미 안내했다(화면 03 ①, 10/14 팀장).
+   음성 안내(TTS)는 헤드셋으로만 내고, 구조자가 [헤드셋을 썼습니다]를 누른 뒤부터 쓴다(D-43).
+   그래서 이 화면 진입 음성(V40)과 그 앞 화면 음성(V01, V36, V03)은 무음이고, 첫 음성은 외투 벗기기(V05)다.
+   단단한 바닥은 사용 조건으로 전제하므로 안내하지 않는다(D-43) */
 export function Screen04({ fire }) {
-  const [i, go] = useSteps(2)
-  const body = [
-    <div key="headset" data-headset style={{ position: 'absolute', inset: 0 }}>
-      <StepBody pic={<HeadsetIcon size={170} />} title="헤드셋을 착용해 주세요" sub="장치 소리가 커서, 음성 안내는 헤드셋으로만 나옵니다" />
-    </div>,
-    <StepBody key="call" pic={<><PhoneIcon /><AedMark size={130} /></>}
-      title={<>먼저 <span style={{ color: C.danger }}>119</span>에 신고하고<br />자동심장충격기를 가져다 달라고 하세요</>} />,
-  ][i]
   return (
     <Light band={C.success}>
       <Header title="시작 대기" right="3 / 7" />
       <div style={{ flex: 1, position: 'relative' }}>
-        {body}
-        {i > 0 && <Btn variant="ghost" w={160} fs={23} onPress={() => go(i - 1)}
-          style={{ position: 'absolute', left: 28, bottom: 24 }}>이전</Btn>}
-        <div style={{ position: 'absolute', left: 0, right: 0, bottom: 44, display: 'flex', justifyContent: 'center', pointerEvents: 'none' }}>
-          <StepDots n={2} i={i} />
+        <div data-headset style={{ position: 'absolute', inset: 0 }}>
+          <StepBody pic={<HeadsetIcon size={170} />} title="헤드셋을 착용해 주세요" sub="장치 소리가 커서, 음성 안내는 헤드셋으로만 나옵니다" />
         </div>
-        <Btn w={i === 0 ? 300 : 240} fs={24} onPress={() => (i === 0 ? go(1) : fire(EV.START_PRESSED))}
-          style={{ position: 'absolute', right: 28, bottom: 24 }}>{i === 0 ? '헤드셋을 썼습니다' : '시작'}</Btn>
+        <Btn w={300} fs={24} onPress={() => fire(EV.START_PRESSED)}
+          style={{ position: 'absolute', right: 28, bottom: 24 }}>헤드셋을 썼습니다</Btn>
       </div>
     </Light>
   )
