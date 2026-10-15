@@ -1131,6 +1131,16 @@ ck("가상 포트: 가짜 레이더 값 수신(깨진 바이트 섞임)", _s.get
    and abs(_s.get("hr_bpm", 0) - 72) <= 2 and abs(_s.get("distance_mm", 0) - 294) <= 4 and _links[:1] == [True], str(_s))
 ck("가상 포트: EAPD = 500 - 거리 ≈ 206", abs(_s.get("eapd_mm", 0) - 206) <= 4, str(_s.get("eapd_mm")))
 _rl.stop()                      # 한 포트를 둘이 읽으면 바이트를 나눠 가지므로 브리지 시험 전에 닫는다
+# 열린 직후 SETTLE_S 는 해석하지 않는다(10/15 실기: 키트에 쌓였던 묵은 자료가 와서 첫 1초에 빠짐 2356)
+_rl2 = R.RadarLink(_rp).start()
+time.sleep(0.6)
+_s0 = _rl2.snapshot()
+time.sleep(1.2)
+_s1 = _rl2.snapshot()
+_rl2.stop()
+ck("열린 직후 1초는 받기만 하고 해석하지 않음(묵은 자료), 그 뒤 프레임 해석",
+   R.SETTLE_S == 1.0 and _s0["rx_bytes"] > 0 and _s0["frames"] == 0 and _s1["frames"] > 0,
+   "0.6초 받음 %s 프레임 %s / 1.8초 프레임 %s" % (_s0["rx_bytes"], _s0["frames"], _s1["frames"]))
 
 # 브리지: 레이더 EAPD 가 탐색에 쓰이고, 레이더가 없으면 시뮬레이션 값 또는 없음(대체 상수 없음)
 from saver import bridge as B
@@ -1280,8 +1290,8 @@ ck("saver-radar --dump: 16진수 줄과 합계(레이더 프레임 수, 종류 r
    _pd.returncode == 0 and _re.search(r"^000000  01 ", _od, _re.M) is not None and "종류: radar" in _od,
    _od.strip().splitlines()[-1][:120] if _od.strip() else "출력 없음")
 ck("saver-radar --dump: 다 받은 뒤 출력, 프레임 종류별 개수와 번호 빠짐 0(가짜 레이더는 ID 를 1씩 올림)",
-   "받는 중" in _od and "프레임 종류: " in _od and "0A14 " in _od and "번호 빠짐 0개" in _od,
-   " / ".join(l for l in _od.splitlines() if l.startswith(("프레임 종류", "번호 빠짐")))[:160])
+   "받는 중" in _od and "프레임 종류: " in _od and "0A14 " in _od and _re.search(r"처음 1초 뒤: 레이더 프레임 [1-9]\d*개, 번호 빠짐 0개", _od),
+   " / ".join(l for l in _od.splitlines() if l.startswith(("프레임 종류", "처음")))[:160])
 # 10/15 실기 덤프 앞부분(레이더 부팅 글자와 프레임 50개. 호흡, 심박, 거리 값은 모두 0 인 구간만 담았다)
 _real = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "mr60bha2_boot_1015.bin"), "rb").read()
 _rp2 = R.FrameParser()

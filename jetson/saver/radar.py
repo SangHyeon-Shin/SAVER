@@ -62,6 +62,8 @@ RX_ALIVE_S = 3.0        # 이 시간 안에 프레임을 받았으면 '수신 �
 EAPD_WINDOW_S = 5.0     # EAPD 에 쓰는 거리 표본 구간
 EAPD_MIN_N = 3          # EAPD 에 필요한 최소 표본 수(잡음 완화, 의학 기준 아님)
 SAMPLE_MAX = 256        # 진단 표시용으로 남기는 연결 직후 바이트 수
+SETTLE_S = 1.0          # 포트를 연 직후 이 시간에 받은 바이트는 해석하지 않는다. 키트(XIAO)가 앞 연결이 끝난 뒤 쌓아 둔
+                        # 묵은 자료(최대 수 KB)가 한꺼번에 와서 지난 값과 번호 빠짐으로 보이기 때문이다(10/15 실기)
 
 VALUE_KEYS = ("rr_bpm", "hr_bpm", "distance_mm")
 
@@ -253,6 +255,8 @@ class RadarLink(object):
         self.error = None               # 마지막 열기 실패 이유("없음", "권한 없음" 등). 열리면 None
         self.rx_bytes = 0               # 이번 연결에서 받은 바이트
         self.sample = bytearray()       # 이번 연결에서 처음 받은 바이트(SAMPLE_MAX, 진단 표시용)
+        self.settle_s = SETTLE_S
+        self._t_open = 0.0
         self._ser = None
         self._stop = threading.Event()
         self._thread = None
@@ -271,6 +275,7 @@ class RadarLink(object):
         self.error = None
         self.rx_bytes = 0
         self.sample = bytearray()
+        self._t_open = time.monotonic()
         self.connected = True
         self.on_link(True, self.port)
         return True
@@ -297,6 +302,8 @@ class RadarLink(object):
         self.rx_bytes += len(data)
         if len(self.sample) < SAMPLE_MAX:
             self.sample.extend(data[:SAMPLE_MAX - len(self.sample)])
+        if time.monotonic() - self._t_open < self.settle_s:
+            return                          # 묵은 자료는 해석하지 않는다(SETTLE_S)
         for ftype, payload, _fid in self.parser.feed(data):
             vals = decode(ftype, payload)
             if vals:
@@ -507,10 +514,13 @@ def dump(port, baud=BAUD, seconds=5.0):
     # (10/15 실기: 받으며 출력한 10초 덤프에서 프레임 번호 775개가 빠짐)
     print("받는 중(출력은 끝난 뒤)...")
     sys.stdout.flush()
-    got, end = bytearray(), time.monotonic() + seconds
+    t0 = time.monotonic()
+    got, end, settle_off = bytearray(), t0 + seconds, None
     try:
         while time.monotonic() < end:
             data = ser.read(4096)
+            if settle_off is None and time.monotonic() - t0 >= SETTLE_S:
+                settle_off = len(got)
             if data:
                 got.extend(data)
             else:
@@ -531,7 +541,10 @@ def dump(port, baud=BAUD, seconds=5.0):
     if frames:
         cnt = collections.Counter(t for t, _d, _i in frames)
         print("프레임 종류: %s" % ", ".join("%04X %d" % (t, n) for t, n in sorted(cnt.items())))
-        print("번호 빠짐 %d개, 깨짐 %d개(빠짐은 전송 중 잃은 프레임 추정)" % (parser.lost, parser.bad))
+        live = FrameParser()
+        live.feed(bytes(got[settle_off:]) if settle_off is not None else b"")
+        print("처음 %.0f초 뒤: 레이더 프레임 %d개, 번호 빠짐 %d개, 깨짐 %d개(빠짐은 전송 중 잃은 프레임 추정. 처음 %.0f초에는"
+              " 키트에 쌓였던 묵은 자료가 온다)" % (SETTLE_S, live.frames, live.lost, live.bad, SETTLE_S))
     return 0
 
 
