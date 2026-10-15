@@ -647,6 +647,15 @@ Teensy 쪽 미구현(HOME 실제 복귀, ARM 인터록, PAUSE·STOP 압박 정�
 **수준**: 젯슨, UI `implemented`(jetson 278/278 Python 3.6, ui smoke 130/130, 가짜 레이더 pty 와 브리지, 키오스크 화면 확인).
 실물 레이더 `planned`.
 
+**보완 (10/15, 레이더 키트 USB 연결)**: 실물은 MR60BHA2 와 XIAO ESP32C6 를 묶은 Seeed 키트다. 팀장이 키트를 USB 로 꽂고
+`saver-radar`(`/dev/ttyTHS1`)와 `saver-radar /dev/ttyUSB0` 을 돌렸을 때 둘 다 프레임 0 이었다. XIAO ESP32C6 의 USB 는
+`/dev/ttyACM*` 로 잡히고, 키트 기본 펌웨어는 ESPHome(Seeed 안내)이라 레이더 원시 프레임을 USB 로 보내지 않는다고 판단했다
+(추론, 실기 확인 전). 그래서 XIAO 에 전달 펌웨어(`jetson/radar_fw/mr60bha2_passthrough`, Seeed `passthrough_mode` 와 같은
+동작)를 올려 레이더 UART 를 USB 로 그대로 넘기고, 기본 포트를 udev 고정 이름 `/dev/saver-radar`(Espressif 303a:1001)로
+바꿨다. 레이더 UART 를 40핀에 직접 이으면 `--radar-port /dev/ttyTHS1`. 젯슨 판독 해석과 `protocol/` 은 그대로다.
+`saver-radar` 는 포트 상태, 받은 바이트, 레이더 프레임이 아닌 자료의 앞부분을 보여 원인을 가린다.
+수준: 전달 펌웨어 `implemented`(arduino-cli, esp32 3.3.12 빌드), 키트에 올린 실기 확인 전.
+
 ## 보고서·논문
 
 ### D-30 · ILCOR 인용은 이렇게 구분한다
