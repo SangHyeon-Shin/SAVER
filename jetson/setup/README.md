@@ -166,6 +166,7 @@ git add ../jetson/ui_dist && git commit -m "[ui] 젯슨 UI 묶음 갱신"
 | UI 가 옛 화면 | `saver-update`, 키오스크 다시 시작(`saver-stop` 뒤 `saver-start`) |
 | SSH 에서 `saver-start` 를 했는데 화면에 키오스크가 안 뜸 | SSH 세션에는 화면 권한이 없다. 젯슨 화면의 바탕화면 아이콘 "SAVER 시작"으로 띄운다 |
 | `saver-radar` 가 프레임 0 | `saver-update` 뒤 다시 실행하고 `!` 안내를 따른다. `포트 없음`이면 함께 나오는 직렬 포트 목록에서 키트(이름에 Espressif)를 찾는다. `받음 N B 프레임 0 깨짐 0` 이면 레이더 프레임이 아닌 자료다. 안내의 `종류`가 `esphome` 이면 전달 펌웨어를 올리고(`jetson/README.md` "전달 펌웨어 올리기"), `teensy` 면 `/dev/saver-radar` 를 연다. 원본은 `saver-radar --dump` |
+| 레이더 키트 LED 가 처음엔 밝다가 희미해짐 | 빨간 LED 는 XIAO 충전 표시등이다. 배터리 없이 USB-C 를 꽂으면 켜졌다가 30초 뒤 꺼진다(Seeed 안내). 노란 LED(GPIO15, LOW 에서 켜짐)는 기본 펌웨어와 전달 펌웨어 모두 쓰지 않아 희미하게 보일 수 있다. 둘 다 레이더 자료와 무관하다. 자료는 `saver-radar` 로 확인 |
 | 냉각 팬이 돌지 않음 | `saver-fan test`. 5초 최대에서도 돌지 않으면 팬 단자 연결(4핀, 방향)이나 팬 문제. 서비스가 멈춰 있으면 `saver-fan log` |
 
 ## 검증 범위
