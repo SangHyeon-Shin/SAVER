@@ -34,6 +34,7 @@ import errno
 import glob
 import math
 import os
+import re
 import struct
 import sys
 import threading
@@ -60,7 +61,7 @@ FRESH_S = 5.0           # 값의 표시 유효 시간. 넘으면 비운다(자�
 RX_ALIVE_S = 3.0        # 이 시간 안에 프레임을 받았으면 '수신 중'
 EAPD_WINDOW_S = 5.0     # EAPD 에 쓰는 거리 표본 구간
 EAPD_MIN_N = 3          # EAPD 에 필요한 최소 표본 수(잡음 완화, 의학 기준 아님)
-SAMPLE_MAX = 64         # 진단 표시용으로 남기는 연결 직후 바이트 수
+SAMPLE_MAX = 256        # 진단 표시용으로 남기는 연결 직후 바이트 수
 
 VALUE_KEYS = ("rr_bpm", "hr_bpm", "distance_mm")
 
@@ -214,6 +215,14 @@ class RadarState(object):
             return out
 
 
+def open_port(port, baud=BAUD):
+    """직렬 포트를 비차단으로 연다(pyserial, 없으면 raw 파일 IO)."""
+    if HAVE_PYSERIAL:
+        return serial.Serial(port, baud, timeout=0)
+    from .teensy_serial import _RawPort
+    return _RawPort(port)
+
+
 def _open_error(e):
     """포트 열기 실패를 짧은 글로(진단 표시용)."""
     no = getattr(e, "errno", None)
@@ -246,11 +255,7 @@ class RadarLink(object):
             self.error = "없음"
             return False
         try:
-            if HAVE_PYSERIAL:
-                self._ser = serial.Serial(self.port, self.baud, timeout=0)
-            else:
-                from .teensy_serial import _RawPort
-                self._ser = _RawPort(self.port)
+            self._ser = open_port(self.port, self.baud)
         except Exception as e:
             self._ser = None
             self.error = _open_error(e)
@@ -343,6 +348,38 @@ def list_ports(root="/"):
     return out
 
 
+def port_identity(port, root="/"):
+    """(실제 장치 경로, [by-id 이름]). by-id 이름에 USB 제조사가 들어 있어 Teensy 와 XIAO 를 가린다."""
+    real = os.path.realpath(port)
+    names = [os.path.basename(p) for p in sorted(glob.glob(os.path.join(root, "dev", "serial", "by-id", "*")))
+             if os.path.realpath(p) == real]
+    return real, names
+
+
+def classify(b):
+    """레이더 프레임이 아닌 자료의 종류 (종류, 안내 한 줄). 앞부분 몇백 바이트로 판단한다."""
+    b = bytes(bytearray(b))
+    t = b.decode("latin-1")
+    if re.search(r"\[[DIWECV]\]\[[\w.]+(:\d+)?\]", t):
+        return "esphome", ("ESPHome 기록 글자입니다. XIAO 에 키트 기본 펌웨어(ESPHome)가 그대로 있다. 전달 펌웨어"
+                           "(jetson/radar_fw/mr60bha2_passthrough)를 올려야 레이더 프레임이 나온다")
+    if '"v":1' in t and '"t":"' in t:
+        return "teensy", ("SAVER Teensy 의 JSON 줄입니다. 레이더가 아니라 Teensy 포트를 열었다. 레이더 키트는 "
+                          "/dev/saver-radar(by-id 이름에 Espressif), Teensy 는 /dev/saver-teensy")
+    if re.search(r"(breath_rate|heart_rate|total_phase|distance)\s*:", t):
+        return "seeed_example", ("Seeed 예제 펌웨어가 값을 글자로 내보내고 있다. 전달 펌웨어"
+                                 "(jetson/radar_fw/mr60bha2_passthrough)로 바꿔야 한다")
+    if "ESP-ROM" in t or re.search(r"rst:0x[0-9a-f]+", t) or "boot:" in t:
+        return "boot", "XIAO(ESP32) 부팅 기록입니다. 몇 초 기다려도 같으면 펌웨어가 다시 켜지기를 되풀이하는지 확인"
+    if looks_text(b):
+        return "text", ("글자 자료입니다. 레이더 프레임이 아니다. XIAO 펌웨어(기본 ESPHome 등)나 다른 장치의 출력으로 "
+                        "보인다. 전달 펌웨어를 올렸는지, 레이더 포트가 맞는지 확인")
+    if b and b"\x01" not in b:
+        return "binary_nosof", ("이진 자료지만 레이더 프레임 시작 바이트(0x01)가 없다. 통신 속도(--baud, 기본 115200)나 "
+                                "다른 장치인지 확인")
+    return "binary", "통신 속도(--baud, 기본 115200)나 다른 장치인지 확인"
+
+
 def looks_text(b):
     """글자(ASCII, 줄바꿈, 색 코드)가 85 % 이상이면 참. 레이더 프레임은 이진 자료다."""
     b = bytearray(b)
@@ -383,14 +420,10 @@ def diagnose(s, sample, elapsed, port, since_open=None):
                                "    레이더 전원, 배선(TX↔RX 교차, GND 공통), 포트가 맞는지 확인. XIAO 키트는 전달 펌웨어가"
                                " 아니면 레이더 자료를 USB 로 보내지 않을 수 있다(jetson/README.md)"]))
     if s.get("connected") and s.get("rx_bytes", 0) >= 64 and s.get("frames", 0) == 0 and opened >= 3:
-        txt, hx = preview(sample)
-        lines = ["  ! %d 바이트를 받았지만 레이더 프레임이 없습니다. 앞부분: '%s'" % (s["rx_bytes"], txt),
-                 "    16진수: %s" % hx]
-        if looks_text(sample):
-            lines.append("    글자 자료입니다. XIAO 키트 기본 펌웨어(ESPHome) 같은 다른 펌웨어의 출력으로 보입니다. 레이더 원시"
-                         " 프레임을 USB 로 받으려면 jetson/radar_fw/mr60bha2_passthrough 를 XIAO 에 올린다(jetson/README.md)")
-        else:
-            lines.append("    통신 속도(--baud, 기본 115200)나 다른 장치인지 확인")
+        txt, hx = preview(sample, 72)
+        kind, msg = classify(sample)
+        lines = ["  ! %d 바이트를 받았지만 레이더 프레임이 없습니다(종류: %s). 앞부분: '%s'" % (s["rx_bytes"], kind, txt),
+                 "    16진수: %s" % hx, "    " + msg]
         out.append(("noframe", lines))
     return out
 
@@ -404,7 +437,10 @@ def main(argv=None):
     ap.add_argument("--baud", type=int, default=BAUD)
     ap.add_argument("--floor", type=float, default=None, help="radar_floor_mm. 주면 EAPD 도 보인다")
     ap.add_argument("--seconds", type=float, default=0, help="이 시간 뒤 끝냄(0 이면 Ctrl+C 까지)")
+    ap.add_argument("--dump", action="store_true", help="받은 바이트를 16진수와 글자로 그대로 보이기(기본 5초)")
     a = ap.parse_args(argv)
+    if a.dump:
+        return dump(a.port, a.baud, a.seconds or 5.0)
     link = RadarLink(a.port, a.baud).start()
     print("레이더 %s %d bps. Ctrl+C 로 끝" % (a.port, a.baud))
     t0, shown, t_open = time.monotonic(), set(), None
@@ -421,7 +457,13 @@ def main(argv=None):
             now = time.monotonic()
             if s["connected"] and t_open is None:
                 t_open = now
+                shown.difference_update(("silent", "noframe"))      # 다시 연결되면 안내를 다시 보인다
+                real, names = port_identity(a.port)
+                print("  포트 정보: %s%s%s" % (a.port, (" → " + real) if real != a.port else "",
+                                              ("  (" + ", ".join(names) + ")") if names else ""))
             elif not s["connected"]:
+                if t_open is not None:
+                    shown.difference_update(("missing", "open"))    # 끊기면 지금 있는 포트 목록을 다시 보인다
                 t_open = None
             for key, lines in diagnose(s, bytes(link.sample), now - t0, a.port,
                                        now - t_open if t_open is not None else 0.0):
@@ -435,5 +477,53 @@ def main(argv=None):
         link.stop()
 
 
+def dump(port, baud=BAUD, seconds=5.0):
+    """받은 바이트를 16진수와 글자로 보인다(진단용). 끝에 0x01 개수와 종류 판별."""
+    if not os.path.exists(port):
+        print("포트가 없습니다: %s" % port)
+        for p, d in list_ports():
+            print("  %s%s" % (p, ("  (%s)" % d) if d else ""))
+        return 1
+    real, names = port_identity(port)
+    print("포트 %s%s%s, %d bps, %.0f초" % (port, (" → " + real) if real != port else "",
+                                       ("  (" + ", ".join(names) + ")") if names else "", baud, seconds))
+    try:
+        ser = open_port(port, baud)
+    except Exception as e:
+        print("포트를 열지 못했습니다: %s" % _open_error(e))
+        return 1
+    got, off, end = bytearray(), 0, time.monotonic() + seconds
+    try:
+        while time.monotonic() < end:
+            data = ser.read(256)
+            if data:
+                got.extend(data)
+                while len(got) - off >= 16:
+                    _dump_line(off, got[off:off + 16])
+                    off += 16
+            else:
+                time.sleep(0.02)
+    except KeyboardInterrupt:
+        pass
+    finally:
+        try:
+            ser.close()
+        except Exception:
+            pass
+    if len(got) > off:
+        _dump_line(off, got[off:])
+    frames = FrameParser().feed(bytes(got))
+    kind, msg = classify(got[:SAMPLE_MAX]) if not frames else ("radar", "레이더 프레임이 있다")
+    print("합계 %d 바이트, 0x01 %d개, 레이더 프레임 %d개. 종류: %s. %s" % (len(got), got.count(1), len(frames), kind, msg))
+    return 0
+
+
+def _dump_line(off, chunk):
+    chunk = bytearray(chunk)
+    print("%06x  %-48s %s" % (off, " ".join("%02x" % c for c in chunk),
+                              "".join(chr(c) if 32 <= c < 127 else "." for c in chunk)))
+    sys.stdout.flush()
+
+
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

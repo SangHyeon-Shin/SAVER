@@ -49,7 +49,7 @@ git 이 없는 새 젯팩이면 `sudo apt-get install -y git` 을 먼저 하거�
 | `saver-link` | 최근 세션 기록의 링크 품질(처음과 마지막). 모터 끔 30분과 모터 켬 30분 비교용(`docs/noise_emi.md` 6절) |
 | `saver-sound` | 소리 출력을 HDMI(모니터 3.5 mm 단자의 헤드셋)로 맞추고 음성 하나를 재생. `saver-sound usb`(USB 헤드셋), `saver-sound list` |
 | `saver-time` | 인터넷(HTTP Date)으로 시각 맞춤. 인터넷이 없으면 `saver-time "2026-10-24 09:30"`(한국 시각) |
-| `saver-radar` | MR60BHA2 레이더를 1초마다 보기: 포트 상태, 받은 바이트, 프레임 수, 호흡, 심박, 거리(`--floor 높이` 를 주면 가슴 두께). 포트가 없거나 레이더 프레임이 아닌 자료가 오면 원인과 지금 있는 직렬 포트를 안내한다. 브리지와 같은 포트를 읽으므로 `saver-stop` 뒤에 쓴다 |
+| `saver-radar` | MR60BHA2 레이더를 1초마다 보기: 포트 상태, 받은 바이트, 프레임 수, 호흡, 심박, 거리(`--floor 높이` 를 주면 가슴 두께). 연결되면 실제 장치와 by-id 이름(`포트 정보:`)을 보이고, 포트가 없거나 레이더 프레임이 아닌 자료가 오면 자료 종류(ESPHome 기록, Teensy JSON 등)와 할 일을 안내한다. `saver-radar --dump` 는 받은 바이트를 16진수로 5초 보인다. 브리지와 같은 포트를 읽으므로 `saver-stop` 뒤에 쓴다 |
 | `saver-fan` | 냉각 팬 상태(서비스, CPU, GPU 온도, PWM, 설정). `saver-fan test` 는 5초 동안 최대로 돌려 팬과 배선 확인(비밀번호), `saver-fan log` 는 서비스 기록 |
 | `saver-test` | 자동 시험 |
 | `saver-update` | `git pull --ff-only` 뒤 브리지 다시 시작 |
@@ -165,7 +165,7 @@ git add ../jetson/ui_dist && git commit -m "[ui] 젯슨 UI 묶음 갱신"
 | 한글이 네모로 보임 | `fc-list : family \| grep -i -e pretendard -e "noto sans cjk"` |
 | UI 가 옛 화면 | `saver-update`, 키오스크 다시 시작(`saver-stop` 뒤 `saver-start`) |
 | SSH 에서 `saver-start` 를 했는데 화면에 키오스크가 안 뜸 | SSH 세션에는 화면 권한이 없다. 젯슨 화면의 바탕화면 아이콘 "SAVER 시작"으로 띄운다 |
-| `saver-radar` 가 프레임 0 | 화면 안내를 따른다. `포트 없음`이면 함께 나오는 직렬 포트 목록에서 키트(이름에 Espressif)를 찾는다. `받음 N B 프레임 0` 에 글자가 보이면 키트 기본 펌웨어(ESPHome)라 전달 펌웨어를 올린다(`jetson/README.md` "전달 펌웨어 올리기") |
+| `saver-radar` 가 프레임 0 | `saver-update` 뒤 다시 실행하고 `!` 안내를 따른다. `포트 없음`이면 함께 나오는 직렬 포트 목록에서 키트(이름에 Espressif)를 찾는다. `받음 N B 프레임 0 깨짐 0` 이면 레이더 프레임이 아닌 자료다. 안내의 `종류`가 `esphome` 이면 전달 펌웨어를 올리고(`jetson/README.md` "전달 펌웨어 올리기"), `teensy` 면 `/dev/saver-radar` 를 연다. 원본은 `saver-radar --dump` |
 | 냉각 팬이 돌지 않음 | `saver-fan test`. 5초 최대에서도 돌지 않으면 팬 단자 연결(4핀, 방향)이나 팬 문제. 서비스가 멈춰 있으면 `saver-fan log` |
 
 ## 검증 범위

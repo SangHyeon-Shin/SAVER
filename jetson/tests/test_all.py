@@ -1235,8 +1235,9 @@ def _cli(port, secs="4"):
 _ot, _rct = _cli(_rt)
 _ft.terminate()
 _ft.wait()
-ck("saver-radar: 글자 자료면 '포트 열림', 받은 바이트, 프레임 0, 글자 안내", _rct == 0 and "포트 열림" in _ot
-   and "프레임 0" in _ot and "글자 자료" in _ot, _ot.strip().splitlines()[-1][:120] if _ot.strip() else "출력 없음")
+ck("saver-radar: 글자 자료면 '포트 열림', 받은 바이트, 프레임 0, 종류(esphome)와 전달 펌웨어 안내", _rct == 0
+   and "포트 열림" in _ot and "프레임 0" in _ot and "종류: esphome" in _ot and "mr60bha2_passthrough" in _ot,
+   _ot.strip().splitlines()[-1][:120] if _ot.strip() else "출력 없음")
 _ff = subprocess.Popen([sys.executable, "-u", os.path.join(SIMDIR, "fake_radar.py"), "--port", _rt, "--hz", "10",
                         "--quiet", "--duration", "20"], stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
 time.sleep(1.0)
@@ -1248,6 +1249,50 @@ ck("saver-radar: 레이더 프레임이면 값이 보이고 안내 없음", _rcf
 _on, _rcn = _cli("/tmp/no_such_radar_port", "3")
 ck("saver-radar: 없는 포트면 '포트 없음'과 지금 있는 직렬 포트 목록", _rcn == 0 and "포트 없음" in _on
    and "지금 있는 직렬 포트" in _on, _on.strip().splitlines()[-1][:120] if _on.strip() else "출력 없음")
+import re as _re
+_tj = b'{"t":"tel","ms":1503,"state":"IDLE","vac_kPa":-0.31,"v":1}\n' * 3
+_kinds = [R.classify(x)[0] for x in (_txt, _tj, b"breath_rate: 14.00\nheart_rate: 72.00\n",
+                                     b"ESP-ROM:esp32c6-20220919\r\nrst:0x15 (USB_UART_HPSYS)", b"hello world " * 8,
+                                     b"\x55\xaa\x00\x10" * 20, b"\x01\x02\x03\xff" * 20)]
+ck("진단: 자료 종류 판별(ESPHome 기록, Teensy JSON, Seeed 예제 글자, ESP32 부팅, 그 밖의 글자, 0x01 없는 이진, 이진)",
+   _kinds == ["esphome", "teensy", "seeed_example", "boot", "text", "binary_nosof", "binary"], str(_kinds))
+os.symlink("../../ttyACM1", os.path.join(_droot, "dev", "serial", "by-id", "usb-Teensyduino_USB_Serial_123-if00"))
+_pi = R.port_identity(os.path.join(_droot, "dev", "saver-teensy"), _droot)
+ck("진단: 포트 정체(별칭 → 실제 장치, by-id 이름으로 Teensy 확인)",
+   _pi[0].endswith("/dev/ttyACM1") and _pi[1] == ["usb-Teensyduino_USB_Serial_123-if00"], str(_pi))
+_ff2 = subprocess.Popen([sys.executable, "-u", os.path.join(SIMDIR, "fake_radar.py"), "--port", _rt, "--hz", "10",
+                         "--quiet", "--duration", "20"], stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+time.sleep(1.0)
+_pd = subprocess.Popen([sys.executable, "-m", "saver.radar", _rt, "--dump", "--seconds", "1.5"],
+                       cwd=os.path.dirname(SIMDIR), env=dict(os.environ, PYTHONIOENCODING="utf-8"),
+                       stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+_od = _pd.communicate(timeout=30)[0].decode("utf-8", "replace")
+_ff2.terminate()
+_ff2.wait()
+ck("saver-radar --dump: 16진수 줄과 합계(레이더 프레임 수, 종류 radar)",
+   _pd.returncode == 0 and _re.search(r"^000000  01 ", _od, _re.M) is not None and "종류: radar" in _od,
+   _od.strip().splitlines()[-1][:120] if _od.strip() else "출력 없음")
+ck("saver-radar: 연결되면 포트 정보 줄", "포트 정보: " + _rt in _ot, "")
+# 끊김과 다시 연결: 끊기면 포트 목록을 다시, 다시 연결되면 포트 정보와 종류 안내를 다시 보인다
+def _fake_txt(dur):
+    return subprocess.Popen([sys.executable, "-u", os.path.join(SIMDIR, "fake_radar.py"), "--port", _rt, "--text",
+                             "--hz", "10", "--quiet", "--duration", dur], stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+_f1 = _fake_txt("6")
+time.sleep(1.0)
+_pc = subprocess.Popen([sys.executable, "-m", "saver.radar", _rt, "--seconds", "16"], cwd=os.path.dirname(SIMDIR),
+                       env=dict(os.environ, PYTHONIOENCODING="utf-8"), stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+_f1.wait()
+time.sleep(2.0)
+_f2 = _fake_txt("12")
+_oc = _pc.communicate(timeout=40)[0].decode("utf-8", "replace")
+_f2.terminate()
+_f2.wait()
+_i1 = _oc.find("포트 정보: ")
+ck("saver-radar: 끊기면 포트 목록을 다시, 다시 연결되면 포트 정보와 종류 안내를 다시",
+   _oc.count("포트 정보: ") == 2 and _oc.count("레이더 프레임이 없습니다(종류: esphome)") == 2
+   and _i1 >= 0 and _oc.find("가 없습니다", _i1) > _i1,
+   "포트 정보 %d, 종류 안내 %d, 끊긴 뒤 목록 %s" % (_oc.count("포트 정보: "), _oc.count("종류: esphome"),
+                                           _oc.find("가 없습니다", max(_i1, 0)) > _i1))
 import shutil as _shr
 _shr.rmtree(_droot, ignore_errors=True)
 for _p in (_rt,):
