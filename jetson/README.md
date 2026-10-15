@@ -20,8 +20,8 @@ React UI ──ws://:8765── bridge.py ──USB Serial── Teensy 4.1
 
 ## MR60BHA2 레이더 (D-50)
 
-`saver/radar.py` 가 레이더 UART 를 읽어 호흡수, 심박수, 거리를 받는다. 브리지에 `--radar /dev/ttyTHS1` 을 주면 켜지고
-(설치 스크립트 기본), 1초마다 UI 로 보내고 기록한다.
+`saver/radar.py` 가 레이더 원시 프레임을 읽어 호흡수, 심박수, 거리를 받는다. 브리지에 `--radar PORT` 를 주면 켜지고
+(설치 스크립트 기본 `/dev/saver-radar`), 1초마다 UI 로 보내고 기록한다.
 
 | 값 | 쓰는 곳 |
 |---|---|
@@ -30,9 +30,42 @@ React UI ──ws://:8765── bridge.py ──USB Serial── Teensy 4.1
 
 - `radar_floor_mm`(탐색 자세에서 레이더 면의 바닥 위 높이, mm)은 실측해 `jetson/config.json` 에 넣는다. 비어 있으면
   EAPD 를 만들지 않아 탐색이 "가슴 두께를 재지 못했습니다"로 시작하지 않는다(대체 상수 없음).
-- 현장 확인: `saver-stop` 뒤 `saver-radar`(또는 `python3 -m saver.radar /dev/ttyTHS1 --floor 520`)로 1초마다 값을 본다.
-  거리 단위(cm → mm)는 자로 잰 값과 대조한다.
 - 하드웨어 없이: `python3 simulators/fake_radar.py --port /tmp/ttyRADAR` 뒤 `python3 -m saver.bridge --radar /tmp/ttyRADAR --config config.sim.json`.
+  `--text` 를 주면 프레임 대신 글자를 보내 키트 기본 펌웨어 상황을 흉내 낸다.
+
+### 연결
+
+| 연결 | 포트 | 준비 |
+|---|---|---|
+| XIAO ESP32C6 키트를 USB 로 | `/dev/saver-radar`(udev 고정 이름, 실제 `/dev/ttyACM*`) | 키트 기본 펌웨어(ESPHome)는 원시 프레임을 USB 로 보내지 않는다. 전달 펌웨어를 한 번 올린다(아래) |
+| 레이더 UART 를 40핀에 직접 | `/dev/ttyTHS1`(8번 TX, 10번 RX, 3.3 V) | 설치 때 `--radar-port /dev/ttyTHS1` |
+
+### 전달 펌웨어 올리기 (XIAO ESP32C6, 한 번)
+
+`radar_fw/mr60bha2_passthrough/` 는 레이더 UART(115200)를 USB 로 그대로 넘긴다. 값을 해석하거나 바꾸지 않는다
+(Seeed-mmWave-library `passthrough_mode` 와 같은 동작).
+
+1. 설치 없이: Chrome 또는 Edge 에서 `https://espressif.github.io/esptool-js/` → Connect(키트 포트) → Flash Address `0x0` 에
+   `radar_fw/mr60bha2_passthrough/bin/mr60bha2_passthrough_xiao_esp32c6.bin` → Program → USB 를 다시 꽂는다.
+   연결이 안 되면 XIAO 의 BOOT 버튼을 누른 채 USB 를 꽂고 다시 Connect.
+2. 또는 Arduino IDE: 스케치 머리말 순서(보드 XIAO_ESP32C6, USB CDC On Boot Enabled).
+3. 확인: `saver-stop` 뒤 `saver-radar` 에서 "포트 열림", 프레임 수 증가, 호흡, 심박, 거리.
+4. 되돌리기: Seeed 위키의 MR60BHA2 키트 안내대로 기본(ESPHome) 펌웨어를 다시 올린다.
+
+빌드는 확인했고(`bin/BUILD_INFO.txt`), 키트에 올려 보지는 않았다.
+
+### 현장 확인 (`saver-radar`)
+
+`saver-stop` 뒤 `saver-radar`(또는 `python3 -m saver.radar /dev/saver-radar --floor 520`). 1초마다 포트 상태, 받은 바이트,
+프레임 수와 값을 보이고, 원인을 한 번씩 안내한다.
+
+| 보이는 것 | 뜻 |
+|---|---|
+| `포트 없음` | 그 경로에 장치가 없다. 지금 있는 직렬 포트 목록(by-id 이름 포함)을 함께 보인다 |
+| `열기 실패` | 권한(dialout 그룹)이 없거나 다른 프로그램(브리지 등)이 쓰는 중 |
+| `포트 열림 받음 0 B` | 장치는 있으나 자료가 없다. 레이더 전원, 배선, 펌웨어 확인 |
+| `받음 N B 프레임 0` 과 앞부분 | 레이더 원시 프레임이 아니다. 글자면 키트 기본 펌웨어(ESPHome) 출력으로 보고 전달 펌웨어를 올린다 |
+| 프레임이 늘고 값이 보임 | 정상. 거리 단위(cm → mm)는 자로 잰 값과 대조한다 |
 
 ## 노트북 대체 실행 (젯슨이 안 될 때)
 

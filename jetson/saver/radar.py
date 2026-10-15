@@ -2,9 +2,12 @@
 """radar.py — MR60BHA2(Seeed 60 GHz 레이더) 판독: 호흡수, 심박수, 거리, 가슴 두께(EAPD)
 
 연결
-  레이더 UART(115200 8N1, 3.3 V) → 젯슨 40핀 UART /dev/ttyTHS1(8번 TX, 10번 RX) 또는 USB 직렬 변환기.
+  XIAO ESP32C6 키트(USB): 키트 기본 펌웨어(ESPHome)는 레이더 원시 프레임을 USB 로 보내지 않는다.
+    jetson/radar_fw/mr60bha2_passthrough 를 올리면 레이더 UART 를 USB 로 그대로 전달한다 → /dev/saver-radar(/dev/ttyACM*)
+  레이더 모듈 단독: 레이더 UART(115200 8N1, 3.3 V) → 젯슨 40핀 UART /dev/ttyTHS1(8번 TX, 10번 RX)
   브리지 --radar PORT 로 켠다. 주지 않으면 레이더 기능을 쓰지 않는다.
   레이더는 켜지면 스스로 프레임을 보낸다. 젯슨은 읽기만 하고 명령을 보내지 않는다.
+  현장 확인: python3 -m saver.radar PORT (포트 상태, 받은 바이트, 프레임 수와 값을 1초마다. 원인 안내 포함)
 
 프레임 (Seeed TinyFrame 형식. ESPHome seeed_mr60bha2 구성 요소와 같은 해석)
   SOF 0x01 | ID 2 | LEN 2 | TYPE 2 | 머리 체크섬 | DATA(LEN) | 데이터 체크섬     (ID, LEN, TYPE 은 big-endian)
@@ -27,9 +30,12 @@
 이 모듈의 값은 표시와 기록용이다. 호흡수, 심박수로 판단(회복 판정 등)을 하지 않는다.
 """
 import collections
+import errno
+import glob
 import math
 import os
 import struct
+import sys
 import threading
 import time
 
@@ -54,6 +60,7 @@ FRESH_S = 5.0           # 값의 표시 유효 시간. 넘으면 비운다(자�
 RX_ALIVE_S = 3.0        # 이 시간 안에 프레임을 받았으면 '수신 중'
 EAPD_WINDOW_S = 5.0     # EAPD 에 쓰는 거리 표본 구간
 EAPD_MIN_N = 3          # EAPD 에 필요한 최소 표본 수(잡음 완화, 의학 기준 아님)
+SAMPLE_MAX = 64         # 진단 표시용으로 남기는 연결 직후 바이트 수
 
 VALUE_KEYS = ("rr_bpm", "hr_bpm", "distance_mm")
 
@@ -207,6 +214,16 @@ class RadarState(object):
             return out
 
 
+def _open_error(e):
+    """포트 열기 실패를 짧은 글로(진단 표시용)."""
+    no = getattr(e, "errno", None)
+    if no == errno.EACCES:
+        return "권한 없음"
+    if no == errno.EBUSY:
+        return "다른 프로그램이 사용 중"
+    return (str(e) or e.__class__.__name__)[:80]
+
+
 class RadarLink(object):
     """레이더 직렬 포트 판독 스레드. 포트가 없거나 끊기면 다시 연다."""
 
@@ -217,12 +234,16 @@ class RadarLink(object):
         self.state = RadarState(clock=clock)
         self.parser = FrameParser()
         self.connected = False
+        self.error = None               # 마지막 열기 실패 이유("없음", "권한 없음" 등). 열리면 None
+        self.rx_bytes = 0               # 이번 연결에서 받은 바이트
+        self.sample = bytearray()       # 이번 연결에서 처음 받은 바이트(SAMPLE_MAX, 진단 표시용)
         self._ser = None
         self._stop = threading.Event()
         self._thread = None
 
     def _open(self):
         if not self.port or not os.path.exists(self.port):
+            self.error = "없음"
             return False
         try:
             if HAVE_PYSERIAL:
@@ -230,10 +251,14 @@ class RadarLink(object):
             else:
                 from .teensy_serial import _RawPort
                 self._ser = _RawPort(self.port)
-        except Exception:
+        except Exception as e:
             self._ser = None
+            self.error = _open_error(e)
             return False
         self.parser = FrameParser()
+        self.error = None
+        self.rx_bytes = 0
+        self.sample = bytearray()
         self.connected = True
         self.on_link(True, self.port)
         return True
@@ -257,6 +282,9 @@ class RadarLink(object):
             return
         if not data:
             return
+        self.rx_bytes += len(data)
+        if len(self.sample) < SAMPLE_MAX:
+            self.sample.extend(data[:SAMPLE_MAX - len(self.sample)])
         for ftype, payload, _fid in self.parser.feed(data):
             vals = decode(ftype, payload)
             if vals:
@@ -292,29 +320,115 @@ class RadarLink(object):
     def snapshot(self, floor_mm=None):
         out = self.state.snapshot(floor_mm)
         out.update({"enabled": True, "port": self.port, "connected": self.connected,
-                    "frames": self.parser.frames, "bad": self.parser.bad})
+                    "frames": self.parser.frames, "bad": self.parser.bad,
+                    "rx_bytes": self.rx_bytes, "skipped": self.parser.skipped})
+        if self.error:
+            out["error"] = self.error
         return out
 
 
-def main():
-    """현장 확인용: python3 -m saver.radar /dev/ttyTHS1 [--floor 500]
+def list_ports(root="/"):
+    """[(경로, 설명)] 지금 있는 직렬 포트. by-id 이름과 /dev/saver-* 별칭을 설명으로 붙인다."""
+    dev = os.path.join(root, "dev")
+    alias = {}
+    for p in sorted(glob.glob(os.path.join(dev, "serial", "by-id", "*"))) + sorted(glob.glob(os.path.join(dev, "saver-*"))):
+        alias.setdefault(os.path.realpath(p), []).append(os.path.basename(p))
+    out = []
+    for pat in ("ttyACM*", "ttyUSB*", "ttyTHS*"):
+        for p in sorted(glob.glob(os.path.join(dev, pat))):
+            names = alias.get(os.path.realpath(p), [])
+            if os.path.basename(p) == "ttyTHS1":
+                names = names + ["젯슨 40핀 UART 8, 10번"]
+            out.append(("/dev/" + os.path.basename(p), ", ".join(names)))
+    return out
+
+
+def looks_text(b):
+    """글자(ASCII, 줄바꿈, 색 코드)가 85 % 이상이면 참. 레이더 프레임은 이진 자료다."""
+    b = bytearray(b)
+    if not b:
+        return False
+    ok = sum(1 for c in b if 32 <= c < 127 or c in (9, 10, 13, 27))
+    return ok >= 0.85 * len(b)
+
+
+def preview(b, n=48):
+    """(글자로 보기, 앞 16 바이트 16진수)."""
+    b = bytearray(b)
+    txt = "".join(chr(c) if 32 <= c < 127 else "." for c in b[:n])
+    return txt, " ".join("%02x" % c for c in b[:16])
+
+
+def diagnose(s, sample, elapsed, port, since_open=None):
+    """CLI 안내: [(키, 줄 목록)]. 같은 키는 한 번만 보인다. s 는 RadarLink.snapshot().
+    elapsed 는 시작부터, since_open 은 포트가 열린 뒤부터 지난 초(없으면 elapsed)."""
+    out = []
+    opened = elapsed if since_open is None else since_open
+    err = s.get("error")
+    if not s.get("connected") and err == "없음" and elapsed >= 2:
+        lines = ["  ! 포트 %s 가 없습니다. 지금 있는 직렬 포트:" % port]
+        lines += ["      %s%s" % (p, ("  (%s)" % d) if d else "") for p, d in list_ports()] or ["      (없음)"]
+        lines.append("    XIAO ESP32C6 레이더 키트를 USB 로 꽂으면 /dev/ttyACM* 이고 이름에 Espressif 가 들어간다"
+                     "(설치 스크립트의 udev 규칙이 /dev/saver-radar 를 붙인다)")
+        out.append(("missing", lines))
+    elif not s.get("connected") and err and err != "없음":
+        lines = ["  ! 포트를 열지 못했습니다: %s" % err]
+        if err == "권한 없음":
+            lines.append("    dialout 그룹인지 groups 로 확인. 없으면 sudo usermod -aG dialout $USER 뒤 다시 로그인")
+        elif err == "다른 프로그램이 사용 중":
+            lines.append("    브리지(saver-stop)나 picocom 같은 다른 프로그램을 끈다")
+        out.append(("open", lines))
+    if s.get("connected") and s.get("rx_bytes", 0) == 0 and opened >= 5:
+        out.append(("silent", ["  ! 포트는 열렸지만 5초 동안 아무것도 들어오지 않습니다.",
+                               "    레이더 전원, 배선(TX↔RX 교차, GND 공통), 포트가 맞는지 확인. XIAO 키트는 전달 펌웨어가"
+                               " 아니면 레이더 자료를 USB 로 보내지 않을 수 있다(jetson/README.md)"]))
+    if s.get("connected") and s.get("rx_bytes", 0) >= 64 and s.get("frames", 0) == 0 and opened >= 3:
+        txt, hx = preview(sample)
+        lines = ["  ! %d 바이트를 받았지만 레이더 프레임이 없습니다. 앞부분: '%s'" % (s["rx_bytes"], txt),
+                 "    16진수: %s" % hx]
+        if looks_text(sample):
+            lines.append("    글자 자료입니다. XIAO 키트 기본 펌웨어(ESPHome) 같은 다른 펌웨어의 출력으로 보입니다. 레이더 원시"
+                         " 프레임을 USB 로 받으려면 jetson/radar_fw/mr60bha2_passthrough 를 XIAO 에 올린다(jetson/README.md)")
+        else:
+            lines.append("    통신 속도(--baud, 기본 115200)나 다른 장치인지 확인")
+        out.append(("noframe", lines))
+    return out
+
+
+def main(argv=None):
+    """현장 확인용: python3 -m saver.radar /dev/saver-radar [--floor 500]
     브리지가 같은 포트를 읽고 있으면 먼저 saver-stop 한다(한 포트를 둘이 읽으면 바이트를 나눠 가진다)."""
     import argparse
     ap = argparse.ArgumentParser(description="MR60BHA2 레이더 값 보기 (1초마다)")
     ap.add_argument("port")
     ap.add_argument("--baud", type=int, default=BAUD)
     ap.add_argument("--floor", type=float, default=None, help="radar_floor_mm. 주면 EAPD 도 보인다")
-    a = ap.parse_args()
+    ap.add_argument("--seconds", type=float, default=0, help="이 시간 뒤 끝냄(0 이면 Ctrl+C 까지)")
+    a = ap.parse_args(argv)
     link = RadarLink(a.port, a.baud).start()
     print("레이더 %s %d bps. Ctrl+C 로 끝" % (a.port, a.baud))
+    t0, shown, t_open = time.monotonic(), set(), None
     try:
-        while True:
+        while not a.seconds or time.monotonic() - t0 < a.seconds:
             time.sleep(1.0)
             s = link.snapshot(a.floor)
-            print("%s 수신 %-3s 프레임 %d 버림 %d | 호흡 %s 심박 %s 거리 %s mm EAPD %s mm 사람 %s" % (
-                time.strftime("%H:%M:%S"), "예" if s["receiving"] else "아니오", s["frames"], s["bad"],
+            err = s.get("error")
+            state = "열림" if s["connected"] else ("없음" if err == "없음" else ("열기 실패" if err else "여는 중"))
+            print("%s 포트 %s 받음 %d B 프레임 %d 깨짐 %d | 호흡 %s 심박 %s 거리 %s mm EAPD %s mm 사람 %s" % (
+                time.strftime("%H:%M:%S"), state, s.get("rx_bytes", 0), s["frames"], s["bad"],
                 s.get("rr_bpm", "—"), s.get("hr_bpm", "—"), s.get("distance_mm", "—"),
                 s.get("eapd_mm", "—"), {True: "있음", False: "없음"}.get(s.get("presence"), "—")))
+            now = time.monotonic()
+            if s["connected"] and t_open is None:
+                t_open = now
+            elif not s["connected"]:
+                t_open = None
+            for key, lines in diagnose(s, bytes(link.sample), now - t0, a.port,
+                                       now - t_open if t_open is not None else 0.0):
+                if key not in shown:
+                    shown.add(key)
+                    print("\n".join(lines))
+            sys.stdout.flush()
     except KeyboardInterrupt:
         pass
     finally:

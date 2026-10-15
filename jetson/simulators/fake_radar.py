@@ -14,6 +14,7 @@
   --hz 1                  초당 보내는 묶음 수
   --garbage               프레임 사이에 깨진 바이트를 섞는다(다시 맞추기 시험)
   --no-person             사람 감지 0 을 보낸다
+  --text                  프레임 대신 ESPHome 기록과 비슷한 글자를 보낸다(XIAO 키트 기본 펌웨어 흉내, 진단 시험용)
 """
 import argparse
 import os
@@ -33,7 +34,7 @@ from saver.radar import (encode_frame, T_BREATH, T_HEART, T_DISTANCE,   # noqa: 
 
 class FakeRadar(object):
 
-    def __init__(self, rr=14.0, hr=72.0, distance_cm=29.4, person=True, garbage=False, seed=None):
+    def __init__(self, rr=14.0, hr=72.0, distance_cm=29.4, person=True, garbage=False, seed=None, text=False):
         self.master, self.slave = pty.openpty()
         tty.setraw(self.master)
         tty.setraw(self.slave)
@@ -43,7 +44,7 @@ class FakeRadar(object):
         self.port = os.ttyname(self.slave)
         self.rng = random.Random(seed)
         self.rr, self.hr, self.distance_cm = rr, hr, distance_cm
-        self.person, self.garbage = person, garbage
+        self.person, self.garbage, self.text = person, garbage, text
         self.fid = 0
 
     def _frame(self, ftype, data):
@@ -52,6 +53,10 @@ class FakeRadar(object):
 
     def burst(self):
         j = self.rng.uniform
+        if self.text:                   # 레이더 프레임이 아닌 글자 기록(색 코드 포함)
+            return ("\x1b[0;36m[D][sensor:094]: 'Real-time respiratory rate': Sending state %.5f bpm with 2 decimals"
+                    " of accuracy\x1b[0m\r\n\x1b[0;36m[D][sensor:094]: 'Real-time heart rate': Sending state %.5f bpm"
+                    " with 0 decimals of accuracy\x1b[0m\r\n" % (self.rr, self.hr)).encode("ascii")
         out = [self._frame(T_PRESENCE, struct.pack("<H", 1 if self.person else 0))]
         if self.person:
             rr = self.rr + j(-0.5, 0.5) if self.rr else 0.0
@@ -83,11 +88,12 @@ def main():
     ap.add_argument("--seed", type=int, default=None)
     ap.add_argument("--garbage", action="store_true")
     ap.add_argument("--no-person", action="store_true")
+    ap.add_argument("--text", action="store_true", help="프레임 대신 글자 기록을 보낸다(진단 시험)")
     ap.add_argument("--duration", type=float, default=None, help="초. 없으면 Ctrl+C 까지")
     ap.add_argument("--quiet", action="store_true")
     a = ap.parse_args()
 
-    fake = FakeRadar(a.rr, a.hr, a.distance_cm, not a.no_person, a.garbage, a.seed)
+    fake = FakeRadar(a.rr, a.hr, a.distance_cm, not a.no_person, a.garbage, a.seed, a.text)
     signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))      # 종료 신호에도 심볼릭 링크를 지운다
     try:
         if os.path.islink(a.port) or os.path.exists(a.port):

@@ -29,8 +29,8 @@ git 이 없는 새 젯팩이면 `sudo apt-get install -y git` 을 먼저 하거�
 | 2 | apt: Chromium(mp3 코덱 포함), 한글 글꼴(Noto CJK, 나눔), 시리얼(picocom), 오디오(mpg123 시험 재생 포함), 카메라 점검(v4l-utils), 빌드 도구, SSH |
 | 3 | 저장소: 스크립트가 들어 있는 저장소를 쓰고, 없으면 `~/SAVER` 로 복제. 비공개 저장소 토큰은 12시간 동안 메모리에만 기억(`git credential cache`, 디스크에 쓰지 않음, 재부팅하면 지워짐) |
 | 4 | Python: `websockets==9.1`(3.6 고정, AGENTS.md), `pyserial==3.5`, pip 21.3.1 (사용자 영역 `--user`) |
-| 5 | 장치 권한: dialout, video, audio, plugdev 그룹. Teensy udev 규칙(`/etc/udev/rules.d/49-saver-teensy.rules`, 고정 이름 `/dev/saver-teensy`). ModemManager 끔(ttyACM 에 AT 명령을 보내지 않게). nvgetty 끔(40핀 UART `/dev/ttyTHS1` 을 레이더용으로 비움) |
-| 6 | 브리지 서비스 `saver-bridge.service`: UI `http://127.0.0.1:8080`, WebSocket 8765, 기록 `~/saver_logs`, UTF-8 로캘, MR60BHA2 레이더 `--radar /dev/ttyTHS1`(포트가 없으면 연결될 때까지 기다림. 가슴 두께는 `jetson/config.json` 의 `radar_floor_mm` 실측값이 있어야 계산) |
+| 5 | 장치 권한: dialout, video, audio, plugdev 그룹. udev 규칙과 고정 이름: Teensy `/dev/saver-teensy`(`49-saver-teensy.rules`), 레이더 키트 XIAO ESP32C6 `/dev/saver-radar`(`49-saver-radar.rules`, Espressif 303a:1001). ModemManager 끔(ttyACM 에 AT 명령을 보내지 않게). nvgetty 끔(40핀 UART `/dev/ttyTHS1` 을 레이더 직결용으로 비움) |
+| 6 | 브리지 서비스 `saver-bridge.service`: UI `http://127.0.0.1:8080`, WebSocket 8765, 기록 `~/saver_logs`, UTF-8 로캘, MR60BHA2 레이더 `--radar /dev/saver-radar`(포트가 없으면 연결될 때까지 기다림. 키트는 XIAO 에 전달 펌웨어가 있어야 자료가 온다, `jetson/README.md`. 가슴 두께는 `jetson/config.json` 의 `radar_floor_mm` 실측값이 있어야 계산) |
 | 7 | 냉각 팬 `saver-fan.service`: 젯슨 방열판 팬을 CPU, GPU 온도에 비례해 2초마다 조절(아래 "냉각 팬") |
 | 8 | 키오스크 `saver-kiosk`: Chromium 전체 화면, 화면 꺼짐과 잠금 끔, 커서 숨김, 1024x600, 음성 자동 재생 허용. 시작할 때 소리 기본 출력을 마지막으로 고른 종류(기본 HDMI)로 맞춤 |
 | 9 | 명령과 바탕화면 아이콘(아래 표) |
@@ -49,7 +49,7 @@ git 이 없는 새 젯팩이면 `sudo apt-get install -y git` 을 먼저 하거�
 | `saver-link` | 최근 세션 기록의 링크 품질(처음과 마지막). 모터 끔 30분과 모터 켬 30분 비교용(`docs/noise_emi.md` 6절) |
 | `saver-sound` | 소리 출력을 HDMI(모니터 3.5 mm 단자의 헤드셋)로 맞추고 음성 하나를 재생. `saver-sound usb`(USB 헤드셋), `saver-sound list` |
 | `saver-time` | 인터넷(HTTP Date)으로 시각 맞춤. 인터넷이 없으면 `saver-time "2026-10-24 09:30"`(한국 시각) |
-| `saver-radar` | MR60BHA2 레이더 값을 1초마다 보기(호흡, 심박, 거리, `--floor 높이` 를 주면 가슴 두께). 브리지와 같은 포트를 읽으므로 `saver-stop` 뒤에 쓴다 |
+| `saver-radar` | MR60BHA2 레이더를 1초마다 보기: 포트 상태, 받은 바이트, 프레임 수, 호흡, 심박, 거리(`--floor 높이` 를 주면 가슴 두께). 포트가 없거나 레이더 프레임이 아닌 자료가 오면 원인과 지금 있는 직렬 포트를 안내한다. 브리지와 같은 포트를 읽으므로 `saver-stop` 뒤에 쓴다 |
 | `saver-fan` | 냉각 팬 상태(서비스, CPU, GPU 온도, PWM, 설정). `saver-fan test` 는 5초 동안 최대로 돌려 팬과 배선 확인(비밀번호), `saver-fan log` 는 서비스 기록 |
 | `saver-test` | 자동 시험 |
 | `saver-update` | `git pull --ff-only` 뒤 브리지 다시 시작 |
@@ -64,7 +64,7 @@ git 이 없는 새 젯팩이면 `sudo apt-get install -y git` 을 먼저 하거�
 | `--no-test` | 마지막 자동 시험 건너뜀 |
 | `--skip-apt` | apt 설치 건너뜀 |
 | `--maxn` | 전원 모드 MAXN(10 W). 5 V 4 A 배럴잭 전원(J48 점퍼)일 때만 |
-| `--radar-port PATH` | MR60BHA2 레이더 포트(기본 `/dev/ttyTHS1`, 40핀 8번 TX, 10번 RX). USB 변환기면 `/dev/ttyUSB0` 등 |
+| `--radar-port PATH` | MR60BHA2 레이더 포트(기본 `/dev/saver-radar` = USB 로 꽂은 XIAO 키트). 레이더 UART 를 40핀에 직접 이으면 `/dev/ttyTHS1`(8번 TX, 10번 RX) |
 | `--no-radar` | 레이더를 쓰지 않는다(브리지에 `--radar` 를 주지 않음) |
 | `--no-fan` | 냉각 팬 자동 제어를 설치하지 않는다. 이미 있으면 끄고 커널 자동 제어로 돌린다 |
 | `--branch`, `--repo-dir` | 복제 브랜치, 저장소 위치 |
@@ -165,6 +165,7 @@ git add ../jetson/ui_dist && git commit -m "[ui] 젯슨 UI 묶음 갱신"
 | 한글이 네모로 보임 | `fc-list : family \| grep -i -e pretendard -e "noto sans cjk"` |
 | UI 가 옛 화면 | `saver-update`, 키오스크 다시 시작(`saver-stop` 뒤 `saver-start`) |
 | SSH 에서 `saver-start` 를 했는데 화면에 키오스크가 안 뜸 | SSH 세션에는 화면 권한이 없다. 젯슨 화면의 바탕화면 아이콘 "SAVER 시작"으로 띄운다 |
+| `saver-radar` 가 프레임 0 | 화면 안내를 따른다. `포트 없음`이면 함께 나오는 직렬 포트 목록에서 키트(이름에 Espressif)를 찾는다. `받음 N B 프레임 0` 에 글자가 보이면 키트 기본 펌웨어(ESPHome)라 전달 펌웨어를 올린다(`jetson/README.md` "전달 펌웨어 올리기") |
 | 냉각 팬이 돌지 않음 | `saver-fan test`. 5초 최대에서도 돌지 않으면 팬 단자 연결(4핀, 방향)이나 팬 문제. 서비스가 멈춰 있으면 `saver-fan log` |
 
 ## 검증 범위

@@ -10,10 +10,10 @@
 #    3. 저장소                 이 스크립트가 저장소 안에 있으면 그대로, 아니면 ~/SAVER 로 복제.
 #                              비공개 저장소 토큰은 12시간 동안 메모리에만 기억(git credential cache)
 #    4. Python 패키지          websockets==9.1(3.6 고정), pyserial (사용자 영역 --user)
-#    5. 장치 권한              dialout 등 그룹, Teensy udev 규칙과 /dev/saver-teensy,
-#                              ModemManager 끔, nvgetty 끔(40핀 UART /dev/ttyTHS1 을 레이더용으로 비움)
+#    5. 장치 권한              dialout 등 그룹, udev 규칙과 고정 이름 /dev/saver-teensy, /dev/saver-radar(레이더 키트 XIAO),
+#                              ModemManager 끔, nvgetty 끔(40핀 UART /dev/ttyTHS1 을 레이더 직결용으로 비움)
 #    6. 브리지 서비스          saver-bridge.service (UI http://127.0.0.1:8080, WebSocket 8765, 로그 ~/saver_logs),
-#                              MR60BHA2 레이더 기본 /dev/ttyTHS1 (--radar-port, --no-radar)
+#                              MR60BHA2 레이더 기본 /dev/saver-radar (--radar-port, --no-radar)
 #    7. 냉각 팬                saver-fan.service: 젯슨 방열판 팬을 CPU, GPU 온도에 따라 2초마다 조절
 #                              (jugfk/jetson-fan-ctl 방식, 20 °C 정지 ~ 50 °C 최대, /etc/saver/fan.json, --no-fan)
 #    8. 키오스크               Chromium 전체 화면, 화면 꺼짐 방지, 커서 숨김, 음성 자동 재생 허용,
@@ -39,7 +39,7 @@
 # ============================================================================
 set -Eeuo pipefail
 
-SCRIPT_VERSION="2026-10-15.2"
+SCRIPT_VERSION="2026-10-15.3"
 DEFAULT_REPO_URL="https://github.com/SangHyeon-Shin/SAVER.git"
 # jetson/, ui/ 최신 작업 브랜치(10/14 기준 main 은 10/4 이후 변경이 반영되지 않았다)
 DEFAULT_BRANCH="claude/saver-project-onboarding-xpmdhw"
@@ -54,7 +54,7 @@ SKIP_APT=0
 DRY_RUN=0
 MAXN=0
 RADAR=1
-RADAR_PORT="${SAVER_RADAR_PORT:-/dev/ttyTHS1}"   # MR60BHA2: 40핀 UART(8번 TX, 10번 RX)
+RADAR_PORT="${SAVER_RADAR_PORT:-/dev/saver-radar}"   # MR60BHA2 키트(XIAO ESP32C6 USB, 전달 펌웨어). 직결이면 /dev/ttyTHS1
 FAN=1
 BRANCH="${SAVER_BRANCH:-$DEFAULT_BRANCH}"
 REPO_URL="${SAVER_REPO_URL:-$DEFAULT_REPO_URL}"
@@ -72,7 +72,8 @@ SAVER 젯슨 나노 일괄 설정 ($SCRIPT_VERSION)
   --no-test          마지막 자동 시험(jetson/tests/test_all.py)을 건너뛴다
   --skip-apt         apt 패키지 설치를 건너뛴다(이미 설치했을 때)
   --maxn             전원 모드를 MAXN(10 W)으로. 5 V 4 A 배럴잭 전원(J48 점퍼)일 때만
-  --radar-port PATH  MR60BHA2 레이더 포트 (기본: /dev/ttyTHS1, USB 변환기면 /dev/ttyUSB0 등)
+  --radar-port PATH  MR60BHA2 레이더 포트 (기본: /dev/saver-radar = USB 로 꽂은 XIAO 키트, 전달 펌웨어 필요.
+                     레이더 UART 를 40핀에 직접 이으면 /dev/ttyTHS1)
   --no-radar         레이더를 쓰지 않는다
   --no-fan           냉각 팬 자동 제어(saver-fan)를 설치하지 않는다(이미 있으면 끈다)
   --branch NAME      저장소를 새로 복제할 때 쓸 브랜치 (기본: $DEFAULT_BRANCH)
@@ -308,16 +309,23 @@ KERNEL=="ttyACM*", SUBSYSTEMS=="usb", ATTRS{idVendor}=="16c0", ATTRS{idProduct}=
 # Teensy Loader(펌웨어 올리기)용 HID
 KERNEL=="hidraw*", ATTRS{idVendor}=="16c0", ATTRS{idProduct}=="04[789ABCD]?", MODE="0666"
 EOF
+write_root /etc/udev/rules.d/49-saver-radar.rules 0644 <<'EOF'
+# SAVER: MR60BHA2 레이더 키트의 XIAO ESP32C6 내장 USB 직렬(Espressif 303a:1001). jetson/setup/setup_jetson.sh 가 만든다.
+# 고정 이름 /dev/saver-radar 를 붙이고 ModemManager 가 건드리지 않게 한다. 같은 USB ID 를 쓰는 다른 ESP32-C3, C6, S3 보드에도
+# 이 이름이 붙는다(SAVER 젯슨에는 레이더 키트 하나만 꽂는다). 레이더 자료가 나오려면 XIAO 에 전달 펌웨어가 있어야 한다(jetson/README.md)
+ATTRS{idVendor}=="303a", ATTRS{idProduct}=="1001", ENV{ID_MM_DEVICE_IGNORE}="1", ENV{ID_MM_PORT_IGNORE}="1"
+KERNEL=="ttyACM*", SUBSYSTEMS=="usb", ATTRS{idVendor}=="303a", ATTRS{idProduct}=="1001", GROUP="dialout", MODE="0660", SYMLINK+="saver-radar"
+EOF
 run sudo udevadm control --reload-rules
 run sudo udevadm trigger --subsystem-match=tty || true
-ok "udev 규칙 49-saver-teensy.rules (/dev/saver-teensy)"
+ok "udev 규칙 49-saver-teensy.rules (/dev/saver-teensy), 49-saver-radar.rules (/dev/saver-radar)"
 if have_unit ModemManager.service; then
   run sudo systemctl disable --now ModemManager.service || true
   ok "ModemManager 끔 (/dev/ttyACM* 를 건드리지 않게)"
 fi
 if have_unit nvgetty.service; then
   run sudo systemctl disable --now nvgetty.service || true
-  ok "nvgetty 끔 (40핀 UART /dev/ttyTHS1 의 직렬 콘솔을 끄고 레이더용으로 비움)"
+  ok "nvgetty 끔 (40핀 UART /dev/ttyTHS1 의 직렬 콘솔을 끄고 레이더 직결용으로 비움)"
 fi
 
 # ---------------------------------------------------------------- 6. 브리지 서비스
@@ -639,9 +647,10 @@ EOF
 write_cmd "$BIN/saver-radar" "JETSON_DIR=\"$JETSON_DIR\"
 RADAR_PORT=\"$RADAR_PORT\"" <<'EOF'
 # MR60BHA2 레이더 값 보기(1초마다). 거리 단위와 레이더 높이(radar_floor_mm)를 자로 잰 값과 대조할 때 쓴다.
-#   saver-radar                  설치 때 정한 포트
-#   saver-radar /dev/ttyUSB0     다른 포트
+#   saver-radar                  설치 때 정한 포트(기본 /dev/saver-radar = USB 로 꽂은 XIAO 키트)
+#   saver-radar /dev/ttyTHS1     다른 포트(40핀 UART 직결 등)
 #   saver-radar --floor 520      레이더 높이(mm)를 주면 가슴 두께(EAPD)도 계산
+# 포트 상태, 받은 바이트, 프레임 수를 함께 보이고, 포트가 없거나 레이더 프레임이 아닌 자료가 오면 원인을 안내한다.
 # 브리지가 같은 포트를 읽고 있으면 바이트를 나눠 가져 값이 깨지므로 먼저 saver-stop 한다.
 if systemctl is-active --quiet saver-bridge; then
   echo "브리지가 돌고 있습니다. saver-stop 뒤에 다시 실행하세요(한 포트를 둘이 읽으면 값이 나뉩니다)."

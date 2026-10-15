@@ -1182,6 +1182,80 @@ try:
 except OSError:
     pass
 
+# 현장 진단: 포트 없음, 열기 실패, 무수신, 프레임이 아닌 자료(키트 기본 펌웨어의 글자 출력)를 가린다
+class _E(Exception):
+    pass
+_ea = _E("denied")
+_ea.errno = 13
+ck("진단: 열기 실패 이유(권한 없음, 사용 중)", R._open_error(_ea) == "권한 없음" and R._open_error(OSError(16, "busy")) == "다른 프로그램이 사용 중")
+_rl0 = R.RadarLink("/tmp/no_such_radar_port").start()
+_end = time.monotonic() + 3.0
+while time.monotonic() < _end and _rl0.snapshot().get("error") != "없음":
+    time.sleep(0.05)
+_s0 = _rl0.snapshot()
+_rl0.stop()
+ck("진단: 없는 포트는 error '없음', 연결 아님, 받은 바이트 0", _s0.get("error") == "없음" and not _s0["connected"]
+   and _s0["rx_bytes"] == 0, str(_s0))
+_droot = _tf.mkdtemp(prefix="saver_dev_")
+os.makedirs(os.path.join(_droot, "dev", "serial", "by-id"))
+for _n in ("ttyACM0", "ttyACM1", "ttyTHS1"):
+    open(os.path.join(_droot, "dev", _n), "w").close()
+os.symlink("../../ttyACM0", os.path.join(_droot, "dev", "serial", "by-id", "usb-Espressif_USB_JTAG_serial_debug_unit_AA-if00"))
+os.symlink("ttyACM1", os.path.join(_droot, "dev", "saver-teensy"))
+_lp = dict(R.list_ports(_droot))
+ck("진단: 직렬 포트 목록에 by-id 이름과 /dev/saver-* 별칭, 40핀 UART 표시",
+   "Espressif" in _lp.get("/dev/ttyACM0", "") and "saver-teensy" in _lp.get("/dev/ttyACM1", "")
+   and "40핀" in _lp.get("/dev/ttyTHS1", ""), str(_lp))
+_txt = b"\x1b[0;36m[D][sensor:094]: 'Real-time heart rate': Sending state 72.00000 bpm\x1b[0m\r\n"
+ck("진단: 글자 판별(색 코드 포함 글자는 참, 레이더 프레임은 거짓), 앞부분 보기",
+   R.looks_text(_txt) and not R.looks_text(_fb * 4) and not R.looks_text(b"")
+   and R.preview(b"AB\x01")[0] == "AB." and R.preview(b"\x01\xff")[1] == "01 ff")
+_base = {"connected": True, "rx_bytes": 0, "frames": 0}
+_keys = lambda s_, sample=b"", t=10.0: [k for k, _ in R.diagnose(s_, sample, t, "/dev/ttyUSB0")]
+ck("진단: 안내 종류(포트 없음, 열기 실패, 무수신 5초, 글자 자료, 정상은 안내 없음)",
+   _keys({"connected": False, "error": "없음"}) == ["missing"]
+   and _keys({"connected": False, "error": "권한 없음"}) == ["open"]
+   and _keys(dict(_base)) == ["silent"] and _keys(dict(_base), t=3.0) == []
+   and [k for k, _ in R.diagnose(dict(_base), b"", 30.0, "/dev/x", since_open=1.0)] == []
+   and _keys(dict(_base, rx_bytes=500), _txt) == ["noframe"]
+   and _keys(dict(_base, rx_bytes=500, frames=20), _txt) == [])
+_dn = R.diagnose(dict(_base, rx_bytes=500), _txt, 10.0, "/dev/saver-radar")[0][1]
+_db = R.diagnose(dict(_base, rx_bytes=500), b"\x55\xaa\x00\x10" * 20, 10.0, "/dev/saver-radar")[0][1]
+ck("진단: 글자면 전달 펌웨어 안내, 이진 자료면 속도 확인 안내", "passthrough" in " ".join(_dn) and "--baud" in " ".join(_db))
+# 명령 줄 도구 전체 흐름(가짜 레이더 글자 모드와 프레임 모드, 없는 포트)
+_rt = "/tmp/ttyRADAR_TXT_T"
+_ft = subprocess.Popen([sys.executable, "-u", os.path.join(SIMDIR, "fake_radar.py"), "--port", _rt, "--text", "--hz", "10",
+                        "--quiet", "--duration", "20"], stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+time.sleep(1.0)
+def _cli(port, secs="4"):
+    p_ = subprocess.Popen([sys.executable, "-m", "saver.radar", port, "--seconds", secs],
+                          cwd=os.path.dirname(SIMDIR), env=dict(os.environ, PYTHONIOENCODING="utf-8"),
+                          stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+    return p_.communicate(timeout=30)[0].decode("utf-8", "replace"), p_.returncode
+_ot, _rct = _cli(_rt)
+_ft.terminate()
+_ft.wait()
+ck("saver-radar: 글자 자료면 '포트 열림', 받은 바이트, 프레임 0, 글자 안내", _rct == 0 and "포트 열림" in _ot
+   and "프레임 0" in _ot and "글자 자료" in _ot, _ot.strip().splitlines()[-1][:120] if _ot.strip() else "출력 없음")
+_ff = subprocess.Popen([sys.executable, "-u", os.path.join(SIMDIR, "fake_radar.py"), "--port", _rt, "--hz", "10",
+                        "--quiet", "--duration", "20"], stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+time.sleep(1.0)
+_of, _rcf = _cli(_rt, "3")
+_ff.terminate()
+_ff.wait()
+ck("saver-radar: 레이더 프레임이면 값이 보이고 안내 없음", _rcf == 0 and "호흡 1" in _of and "  !" not in _of,
+   _of.strip().splitlines()[-1][:120] if _of.strip() else "출력 없음")
+_on, _rcn = _cli("/tmp/no_such_radar_port", "3")
+ck("saver-radar: 없는 포트면 '포트 없음'과 지금 있는 직렬 포트 목록", _rcn == 0 and "포트 없음" in _on
+   and "지금 있는 직렬 포트" in _on, _on.strip().splitlines()[-1][:120] if _on.strip() else "출력 없음")
+import shutil as _shr
+_shr.rmtree(_droot, ignore_errors=True)
+for _p in (_rt,):
+    try:
+        os.remove(_p)
+    except OSError:
+        pass
+
 print("\n== 12. 젯슨 냉각 팬 (setup/saver_fan.py, 가짜 sysfs) ==")
 import importlib.util as _ilu
 import shutil as _sh
