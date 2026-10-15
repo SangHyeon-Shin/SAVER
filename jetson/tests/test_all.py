@@ -1256,6 +1256,13 @@ _kinds = [R.classify(x)[0] for x in (_txt, _tj, b"breath_rate: 14.00\nheart_rate
                                      b"\x55\xaa\x00\x10" * 20, b"\x01\x02\x03\xff" * 20)]
 ck("진단: 자료 종류 판별(ESPHome 기록, Teensy JSON, Seeed 예제 글자, ESP32 부팅, 그 밖의 글자, 0x01 없는 이진, 이진)",
    _kinds == ["esphome", "teensy", "seeed_example", "boot", "text", "binary_nosof", "binary"], str(_kinds))
+# 10/15 실기 --dump: XIAO 의 다른 펌웨어가 값을 쉼표로 나눈 줄로 1초에 한 줄(앞부분은 줄 중간부터 잘릴 수 있다)
+_csv = b"74.00, 6.00, 10.00, NORMAL, LOW, 45.92\r\n70.00, 4.00, 15.00, NORMAL, LOW, 45.92\r\n"
+ck("진단: 쉼표로 나눈 값 줄은 csv(줄 중간부터 받아도), 쉼표 없는 글자와 Teensy JSON 은 csv 아님",
+   R.classify(_csv)[0] == "csv" and R.classify(b".00, NORMAL, LOW, 45.92\r\n" + _csv)[0] == "csv"
+   and R.classify(b"hello world " * 8)[0] == "text" and R.classify(_tj)[0] == "teensy"
+   and "passthrough" in R.classify(_csv)[1],
+   str([R.classify(x)[0] for x in (_csv, b"hello world " * 8, _tj)]))
 os.symlink("../../ttyACM1", os.path.join(_droot, "dev", "serial", "by-id", "usb-Teensyduino_USB_Serial_123-if00"))
 _pi = R.port_identity(os.path.join(_droot, "dev", "saver-teensy"), _droot)
 ck("진단: 포트 정체(별칭 → 실제 장치, by-id 이름으로 Teensy 확인)",

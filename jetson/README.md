@@ -46,6 +46,9 @@ React UI ──ws://:8765── bridge.py ──USB Serial── Teensy 4.1
 `radar_fw/mr60bha2_passthrough/` 는 레이더 UART(115200)를 USB 로 그대로 넘긴다. 값을 해석하거나 바꾸지 않는다
 (Seeed-mmWave-library `passthrough_mode` 와 같은 동작).
 
+0. (지금 펌웨어가 필요할 수 있으면) 백업: PC 에서 `python -m pip install esptool` 뒤
+   `python -m esptool --chip esp32c6 --port <포트> read_flash 0 0x400000 xiao_backup.bin`(XIAO ESP32C6 플래시 4 MB 전체).
+   되돌릴 때는 이 파일을 아래와 같은 방법으로 `0x0` 에 올린다.
 1. 설치 없이: Chrome 또는 Edge 에서 `https://espressif.github.io/esptool-js/` → Connect(키트 포트) → Flash Address `0x0` 에
    `radar_fw/mr60bha2_passthrough/bin/mr60bha2_passthrough_xiao_esp32c6.bin` → Program → USB 를 다시 꽂는다.
    연결이 안 되면 XIAO 의 BOOT 버튼을 누른 채 USB 를 꽂고 다시 Connect.
@@ -75,6 +78,7 @@ React UI ──ws://:8765── bridge.py ──USB Serial── Teensy 4.1
 |---|---|---|
 | `esphome` | 키트 기본 펌웨어(ESPHome)의 기록 글자 | 전달 펌웨어를 올린다(위) |
 | `seeed_example` | Seeed 예제 펌웨어가 값을 글자로 내보냄 | 전달 펌웨어로 바꾼다 |
+| `csv` | 값을 쉼표로 나눈 글자 줄(예: `74.00, 6.00, 10.00, NORMAL, LOW, 45.92`). XIAO 에 다른 펌웨어(아두이노 스케치 등)가 있다 | 전달 펌웨어로 바꾼다. 지금 펌웨어가 필요하면 먼저 백업 |
 | `teensy` | SAVER Teensy 의 JSON 줄. 레이더가 아닌 Teensy 포트를 열었다 | `/dev/saver-radar`(이름에 Espressif)를 연다 |
 | `boot` | XIAO(ESP32) 부팅 기록 | 몇 초 뒤에도 같으면 재부팅 반복을 의심한다 |
 | `text` | 그 밖의 글자 | 펌웨어와 포트를 확인한다 |

@@ -371,6 +371,10 @@ def classify(b):
                                  "(jetson/radar_fw/mr60bha2_passthrough)로 바꿔야 한다")
     if "ESP-ROM" in t or re.search(r"rst:0x[0-9a-f]+", t) or "boot:" in t:
         return "boot", "XIAO(ESP32) 부팅 기록입니다. 몇 초 기다려도 같으면 펌웨어가 다시 켜지기를 되풀이하는지 확인"
+    if looks_text(b) and re.search(r"^\s*-?\d+(\.\d+)?(\s*,\s*[^,\r\n]+){2,}\s*$", t, re.M):
+        return "csv", ("값을 쉼표로 나눈 글자 줄입니다. XIAO 에 다른 펌웨어(아두이노 스케치 등)가 올라가 값을 직접 내보내고 있다. "
+                       "전달 펌웨어(jetson/radar_fw/mr60bha2_passthrough)로 바꿔야 레이더 프레임이 나온다. 지금 펌웨어가 "
+                       "필요하면 먼저 백업(jetson/README.md)")
     if looks_text(b):
         return "text", ("글자 자료입니다. 레이더 프레임이 아니다. XIAO 펌웨어(기본 ESPHome 등)나 다른 장치의 출력으로 "
                         "보인다. 전달 펌웨어를 올렸는지, 레이더 포트가 맞는지 확인")
