@@ -12,9 +12,7 @@
       "Bash(esptool:*)",
       "Bash(esptool.py:*)",
       "Edit(~/SAVER/teensy/**)",
-      "Write(~/SAVER/teensy/**)",
-      "Edit(~/SAVER/docs/specs/**)",
-      "Write(~/SAVER/docs/specs/**)"
+      "Edit(~/SAVER/docs/specs/**)"
     ],
     "ask": [
       "Bash(saver-start:*)",
@@ -27,9 +25,7 @@
       "Bash(shutdown:*)",
       "Bash(git push:*)",
       "Edit(~/SAVER/protocol/**)",
-      "Write(~/SAVER/protocol/**)",
-      "Edit(~/SAVER/jetson/config.json)",
-      "Write(~/SAVER/jetson/config.json)"
+      "Edit(~/SAVER/jetson/config.json)"
     ]
   }
 }

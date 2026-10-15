@@ -148,13 +148,20 @@ git add ../jetson/ui_dist && git commit -m "[ui] 젯슨 UI 묶음 갱신"
 `claude --version` 이 안 되면 경고만 남긴다. 되면 재부팅 뒤 새 터미널에서 `claude` 를 한 번 실행해 로그인하고
 `claude doctor` 로 점검한다(SSH 로 접속했으면 화면의 주소를 다른 기기 브라우저로 열고 받은 코드를 붙여 넣는다).
 안 되면 노트북의 Claude Code 로 젯슨에 SSH 접속해 작업한다.
-작업은 `cd ~/SAVER && claude` 로 시작하고(루트에서 시작해야 `CLAUDE.md` 와 `AGENTS.md` 규칙이 읽힌다), 첫 지시로
-`jetson/AGENT_BRIEF.md` 를 읽게 한다.
+작업은 `cd ~/SAVER && claude` 로 시작하고(`CLAUDE.md` 가 `AGENTS.md` 규칙을 불러온다. 확인은 `/context` 의 Memory files),
+첫 지시로 `jetson/AGENT_BRIEF.md` 를 읽게 한다. 노트북에서 SSH 로 접속해 쓰면 키보드는 노트북, 실행은 젯슨이다.
+SSH 가 끊겨도 이어지도록 `tmux` 안에서 실행한다(`sudo apt-get install -y tmux`, 다시 붙기 `tmux attach`).
+SSH 에서 처음 로그인할 때는 화면의 주소를 노트북 브라우저로 열고, 받은 코드를 "Paste code here" 에 붙여 넣는다.
+휴대폰이나 claude.ai/code 에서 이어서 지시하려면 세션 안에서 `/remote-control`(유료 요금제, API 키 로그인은 안 됨).
 
 권한 설정(처음 한 번): `mkdir -p ~/.claude && cp -n ~/SAVER/jetson/setup/claude_settings.jetson.json ~/.claude/settings.json`.
 장치를 움직이는 명령(`saver-start`, 브리지 실행, 브리지가 돌 때의 `saver-update`), `sudo`, `git push`, `protocol/` 과
 `jetson/config.json` 수정은 실행 전에 묻고, 강제 푸시, `teensy/` 와 `docs/specs/` 수정, 펌웨어 기록 도구, `saver-off` 는 막는다.
 `~/.claude/settings.json` 이 이미 있으면 `cp -n` 은 덮어쓰지 않으므로 `permissions` 부분만 옮겨 넣는다.
+이 규칙은 명령 글자를 맞춰 보는 안전장치일 뿐 보안 경계가 아니다(`git -C . push` 같은 꼴은 걸리지 않는다). 사람 확인 원칙은
+`jetson/AGENT_BRIEF.md` 9절이 기준이다.
+젯슨에서 푸시하려면 저장소 쓰기 권한 토큰(SAVER 하나, Contents 읽기와 쓰기)이 필요하다. Claude 는 토큰을 입력할 수 없으므로
+작업 전에 사람이 터미널에서 `git -C ~/SAVER pull` 을 한 번 해 토큰을 넣는다(12시간 메모리 기억).
 
 ## 문제 해결
 
