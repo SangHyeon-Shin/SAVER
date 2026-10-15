@@ -1,0 +1,35 @@
+{
+  "permissions": {
+    "deny": [
+      "Bash(git push --force:*)",
+      "Bash(git push -f:*)",
+      "Bash(git push --force-with-lease:*)",
+      "Bash(git reset --hard:*)",
+      "Bash(git clean:*)",
+      "Bash(rm -rf:*)",
+      "Bash(saver-off:*)",
+      "Bash(teensy_loader_cli:*)",
+      "Bash(esptool:*)",
+      "Bash(esptool.py:*)",
+      "Edit(~/SAVER/teensy/**)",
+      "Write(~/SAVER/teensy/**)",
+      "Edit(~/SAVER/docs/specs/**)",
+      "Write(~/SAVER/docs/specs/**)"
+    ],
+    "ask": [
+      "Bash(saver-start:*)",
+      "Bash(saver-stop:*)",
+      "Bash(saver-update:*)",
+      "Bash(saver-fan test:*)",
+      "Bash(python3 -m saver.bridge:*)",
+      "Bash(sudo:*)",
+      "Bash(reboot:*)",
+      "Bash(shutdown:*)",
+      "Bash(git push:*)",
+      "Edit(~/SAVER/protocol/**)",
+      "Write(~/SAVER/protocol/**)",
+      "Edit(~/SAVER/jetson/config.json)",
+      "Write(~/SAVER/jetson/config.json)"
+    ]
+  }
+}

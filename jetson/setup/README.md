@@ -148,6 +148,13 @@ git add ../jetson/ui_dist && git commit -m "[ui] 젯슨 UI 묶음 갱신"
 `claude --version` 이 안 되면 경고만 남긴다. 되면 재부팅 뒤 새 터미널에서 `claude` 를 한 번 실행해 로그인하고
 `claude doctor` 로 점검한다(SSH 로 접속했으면 화면의 주소를 다른 기기 브라우저로 열고 받은 코드를 붙여 넣는다).
 안 되면 노트북의 Claude Code 로 젯슨에 SSH 접속해 작업한다.
+작업은 `cd ~/SAVER && claude` 로 시작하고(루트에서 시작해야 `CLAUDE.md` 와 `AGENTS.md` 규칙이 읽힌다), 첫 지시로
+`jetson/AGENT_BRIEF.md` 를 읽게 한다.
+
+권한 설정(처음 한 번): `mkdir -p ~/.claude && cp -n ~/SAVER/jetson/setup/claude_settings.jetson.json ~/.claude/settings.json`.
+장치를 움직이는 명령(`saver-start`, 브리지 실행, 브리지가 돌 때의 `saver-update`), `sudo`, `git push`, `protocol/` 과
+`jetson/config.json` 수정은 실행 전에 묻고, 강제 푸시, `teensy/` 와 `docs/specs/` 수정, 펌웨어 기록 도구, `saver-off` 는 막는다.
+`~/.claude/settings.json` 이 이미 있으면 `cp -n` 은 덮어쓰지 않으므로 `permissions` 부분만 옮겨 넣는다.
 
 ## 문제 해결
 
