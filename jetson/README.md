@@ -58,6 +58,11 @@ React UI ──ws://:8765── bridge.py ──USB Serial── Teensy 4.1
 
 빌드는 확인했고(`bin/BUILD_INFO.txt`), 키트에 올려 보지는 않았다.
 
+10/15 실기: 올리기와 검증(esptool-js `Hash of data verified`)은 됐지만, 리셋 뒤 `saver-radar --dump` 의 받은 바이트가 0 이었다.
+원인을 가리려고 진단 펌웨어 `radar_fw/mr60bha2_diag/` 를 두었다. 레이더 자료는 전달하지 않고, 1초마다 `SAVER-DIAG …` 글자
+줄(레이더에서 받은 바이트, 0x01 수, 수신 핀 수준, USB 연결 판단)만 USB 로 낸다. 빌드와 읽는 법은 스케치 머리말에 있다.
+진단이 끝나면 전달 펌웨어로 다시 올린다. 진단 펌웨어는 작성만 했고 아직 컴파일하지 않았다.
+
 ### 현장 확인 (`saver-radar`)
 
 `saver-stop` 뒤 `saver-radar`(또는 `python3 -m saver.radar /dev/saver-radar --floor 520`). 1초마다 포트 상태, 받은 바이트,
