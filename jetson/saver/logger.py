@@ -77,7 +77,8 @@ class CsvLogger(object):
     def radar(self, snap):
         """레이더 값 한 줄(1초마다). 호흡수, 심박수는 전용 칸, 거리와 EAPD 는 decision 칸에 글자로.
         측정 못 한 값은 비운다(0 을 쓰지 않는다)."""
-        extra = " ".join("%s=%s" % (k, snap[k]) for k in ("distance_mm", "eapd_mm", "presence") if k in snap)
+        extra = " ".join("%s=%s" % (k, snap[k]) for k in ("distance_mm", "eapd_mm", "presence", "frames", "lost")
+                         if k in snap)
         self._row(source="radar", radar_rr_bpm=snap.get("rr_bpm", ""), radar_hr_bpm=snap.get("hr_bpm", ""),
                   decision=("RADAR " + extra).strip())
 

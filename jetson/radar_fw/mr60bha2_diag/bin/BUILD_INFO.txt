@@ -1,0 +1,9 @@
+mr60bha2_diag_xiao_esp32c6.bin — XIAO ESP32C6 에 0x0 부터 올리는 합친 이미지(부트로더, 파티션 표, boot_app0, 앱)
+
+소스      ../mr60bha2_diag.ino  sha256 191f16e3e4e32bff5095577fdf79b5395ec5750306ba5452a0eaf5539c223503
+빌드      2026-10-15, arduino-cli 1.1.1, esp32:esp32 3.3.12, FQBN esp32:esp32:XIAO_ESP32C6
+          (보드 기본 메뉴: USB CDC On Boot Enabled, 4MB, Default 파티션). 프로그램 263,708 바이트, 경고 없음(--warnings all)
+구성      0x0 bootloader, 0x8000 partitions, 0xe000 boot_app0, 0x10000 app (esptool 5.3.1 merge-bin, 채움 없음)
+이미지    329360 바이트, sha256 332b6aef3761313522c2694a52410955096a6ba2271857d02ffb2b399e0072c8
+          md5 3679f6a183f9995be470d6cf7d2bf3c1 (esptool-js 의 File md5, Flash md5 와 대조)
+확인      esptool image-info: ESP32-C6, 체크섬과 검증 해시 정상. 실기에 올려 보지는 않았다

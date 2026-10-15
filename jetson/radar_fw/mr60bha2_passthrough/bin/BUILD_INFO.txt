@@ -5,4 +5,7 @@ mr60bha2_passthrough_xiao_esp32c6.bin — XIAO ESP32C6 에 0x0 부터 올리는 
           (보드 기본 메뉴: USB CDC On Boot Enabled, 4MB, Default 파티션). 프로그램 262,976 바이트, 경고 없음(--warnings all)
 구성      0x0 bootloader, 0x8000 partitions, 0xe000 boot_app0, 0x10000 app (esptool 5.3.1 merge-bin, 채움 없음)
 이미지    328624 바이트, sha256 4aef07dc3337299d58ea5d6d4a851d3ae01920a87cd159a9c4ae74f6939f5d9c
-확인      esptool image-info: ESP32-C6, 체크섬과 검증 해시 정상. 실기에 올려 보지는 않았다
+          md5 a96a33da3af630cb04d99373c7e71236 (esptool-js 의 File md5, Flash md5 와 대조)
+확인      esptool image-info: ESP32-C6, 체크섬과 검증 해시 정상.
+실기      10/15 젯슨 Chromium 의 esptool-js 로 0x0 에 기록(File md5 = Flash md5 = 위 값). 탭을 닫고 USB 를 다시 꽂은 뒤
+          saver-radar --dump 10초에서 레이더 프레임 1,190개(종류 radar)

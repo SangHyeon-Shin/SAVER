@@ -446,7 +446,7 @@ HIGH 전압부터 확인합니다. 고장 난 모터 1 엔코더는 관련 선 4
 | PPG (MAX30102) | I²C `18/19`, INT 미사용 | Teensy | 핀 반영, 실물값 미검증 |
 | 로드셀 (DYMH-103 + NAU7802) | 독립 Wire1 SDA`17` / SCL`16`, DRDY 미사용 | Teensy | 반력 기록 시험 버스 변경; 메인 취득 미구현 |
 | 자이로 (WT901C-TTL) | Serial8 RX`34` / TX`35` | Teensy | 핀 예약, 메인 드라이버 미구현 |
-| MR60BHA2 레이더 | XIAO ESP32C6 키트 USB → Jetson `/dev/saver-radar`(udev, Espressif 303a:1001). XIAO 에 전달 펌웨어 필요(`jetson/radar_fw`). 레이더 UART 직결이면 115200 → `/dev/ttyTHS1`(40핀 8번 TX, 10번 RX, 3.3 V) | Jetson | 판독 구현(`jetson/saver/radar.py`, D-50). 전달 펌웨어 빌드 확인, 실기 미확인. 설치 위치 미확정 |
+| MR60BHA2 레이더 | XIAO ESP32C6 키트 USB → Jetson `/dev/saver-radar`(udev, Espressif 303a:1001). XIAO 에 전달 펌웨어 필요(`jetson/radar_fw`). 레이더 UART 직결이면 115200 → `/dev/ttyTHS1`(40핀 8번 TX, 10번 RX, 3.3 V) | Jetson | 판독 구현(`jetson/saver/radar.py`, D-50). 10/15 실기: 키트에 전달 펌웨어를 올려 레이더 프레임 수신 확인(호흡수, 심박수, 거리, 사람 감지 프레임. 10초 1,190개). 거리 단위(cm)의 자 대조와 설치 위치는 미확정 |
 | Raspberry Pi Camera V2.1 | CSI → Jetson | Jetson | 미착수 |
 
 MAX30102 모듈의 버스 pull-up 선택 패드는 3.3 V로 설정합니다. 모듈 `VIN` 허용범위와

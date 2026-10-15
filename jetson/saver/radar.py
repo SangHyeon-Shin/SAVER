@@ -98,6 +98,8 @@ class FrameParser(object):
         self.frames = 0
         self.bad = 0            # 체크섬 실패, 길이 이상으로 버린 머리
         self.skipped = 0        # SOF 를 찾으며 버린 바이트
+        self.lost = 0           # 프레임 번호(ID)가 건너뛴 수. 전송 중 잃은 프레임 추정(MR60BHA2 는 프레임마다 ID 를 1씩 올린다, 10/15 실기)
+        self._last_id = None
 
     def feed(self, data):
         self.buf.extend(data)
@@ -134,6 +136,11 @@ class FrameParser(object):
             ftype = (self.buf[5] << 8) | self.buf[6]
             del self.buf[:total]
             self.frames += 1
+            if self._last_id is not None:
+                step = (fid - self._last_id) & 0xFFFF
+                if 1 < step < 1000:             # 0 이나 큰 되돌아감(레이더 재시작)은 손실로 세지 않는다
+                    self.lost += step - 1
+            self._last_id = fid
             out.append((ftype, data, fid))
         if len(self.buf) > BUF_MAX:              # 머리만 맞고 끝나지 않는 쓰레기가 쌓이지 않게
             self.skipped += len(self.buf) - BUF_MAX
@@ -325,7 +332,7 @@ class RadarLink(object):
     def snapshot(self, floor_mm=None):
         out = self.state.snapshot(floor_mm)
         out.update({"enabled": True, "port": self.port, "connected": self.connected,
-                    "frames": self.parser.frames, "bad": self.parser.bad,
+                    "frames": self.parser.frames, "bad": self.parser.bad, "lost": self.parser.lost,
                     "rx_bytes": self.rx_bytes, "skipped": self.parser.skipped})
         if self.error:
             out["error"] = self.error
@@ -454,8 +461,8 @@ def main(argv=None):
             s = link.snapshot(a.floor)
             err = s.get("error")
             state = "열림" if s["connected"] else ("없음" if err == "없음" else ("열기 실패" if err else "여는 중"))
-            print("%s 포트 %s 받음 %d B 프레임 %d 깨짐 %d | 호흡 %s 심박 %s 거리 %s mm EAPD %s mm 사람 %s" % (
-                time.strftime("%H:%M:%S"), state, s.get("rx_bytes", 0), s["frames"], s["bad"],
+            print("%s 포트 %s 받음 %d B 프레임 %d 깨짐 %d 빠짐 %d | 호흡 %s 심박 %s 거리 %s mm EAPD %s mm 사람 %s" % (
+                time.strftime("%H:%M:%S"), state, s.get("rx_bytes", 0), s["frames"], s["bad"], s.get("lost", 0),
                 s.get("rr_bpm", "—"), s.get("hr_bpm", "—"), s.get("distance_mm", "—"),
                 s.get("eapd_mm", "—"), {True: "있음", False: "없음"}.get(s.get("presence"), "—")))
             now = time.monotonic()
@@ -496,17 +503,18 @@ def dump(port, baud=BAUD, seconds=5.0):
     except Exception as e:
         print("포트를 열지 못했습니다: %s" % _open_error(e))
         return 1
-    got, off, end = bytearray(), 0, time.monotonic() + seconds
+    # 받는 동안에는 출력하지 않는다. 줄마다 화면에 쓰면 읽기가 밀려 키트 쪽에서 자료를 버린다
+    # (10/15 실기: 받으며 출력한 10초 덤프에서 프레임 번호 775개가 빠짐)
+    print("받는 중(출력은 끝난 뒤)...")
+    sys.stdout.flush()
+    got, end = bytearray(), time.monotonic() + seconds
     try:
         while time.monotonic() < end:
-            data = ser.read(256)
+            data = ser.read(4096)
             if data:
                 got.extend(data)
-                while len(got) - off >= 16:
-                    _dump_line(off, got[off:off + 16])
-                    off += 16
             else:
-                time.sleep(0.02)
+                time.sleep(0.005)
     except KeyboardInterrupt:
         pass
     finally:
@@ -514,11 +522,16 @@ def dump(port, baud=BAUD, seconds=5.0):
             ser.close()
         except Exception:
             pass
-    if len(got) > off:
-        _dump_line(off, got[off:])
-    frames = FrameParser().feed(bytes(got))
+    for off in range(0, len(got), 16):
+        _dump_line(off, got[off:off + 16])
+    parser = FrameParser()
+    frames = parser.feed(bytes(got))
     kind, msg = classify(got[:SAMPLE_MAX]) if not frames else ("radar", "레이더 프레임이 있다")
     print("합계 %d 바이트, 0x01 %d개, 레이더 프레임 %d개. 종류: %s. %s" % (len(got), got.count(1), len(frames), kind, msg))
+    if frames:
+        cnt = collections.Counter(t for t, _d, _i in frames)
+        print("프레임 종류: %s" % ", ".join("%04X %d" % (t, n) for t, n in sorted(cnt.items())))
+        print("번호 빠짐 %d개, 깨짐 %d개(빠짐은 전송 중 잃은 프레임 추정)" % (parser.lost, parser.bad))
     return 0
 
 

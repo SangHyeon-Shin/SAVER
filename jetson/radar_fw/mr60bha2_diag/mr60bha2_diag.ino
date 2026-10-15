@@ -16,7 +16,9 @@
 //   → build/esp32.esp32.XIAO_ESP32C6/mr60bha2_diag.ino.merged.bin 을 0x0 에 올린다
 // 진단이 끝나면 전달 펌웨어로 다시 올린다. 이 펌웨어로는 saver-radar, 브리지가 레이더 값을 읽지 못한다.
 //
-// 상태(10/15): 작성만 했다. 젯슨에 빌드 도구가 없어 컴파일하지 않았다.
+// 상태(10/15): 젯슨에서 작성(빌드 도구 없음). 클라우드 세션에서 arduino-cli 1.1.1, esp32 3.3.12 로 빌드해
+//   bin/mr60bha2_diag_xiao_esp32c6.bin(0x0 부터 합친 이미지)을 두었다(bin/BUILD_INFO.txt). 실기에 올려 보지는 않았다.
+//   같은 날 전달 펌웨어는 USB 를 다시 꽂은 뒤 정상 동작해(레이더 프레임 수신) 이 펌웨어는 쓰지 않았다.
 
 #include <Arduino.h>
 #include <esp_system.h>

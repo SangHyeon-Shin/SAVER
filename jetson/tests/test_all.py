@@ -1279,6 +1279,31 @@ _ff2.wait()
 ck("saver-radar --dump: 16진수 줄과 합계(레이더 프레임 수, 종류 radar)",
    _pd.returncode == 0 and _re.search(r"^000000  01 ", _od, _re.M) is not None and "종류: radar" in _od,
    _od.strip().splitlines()[-1][:120] if _od.strip() else "출력 없음")
+ck("saver-radar --dump: 다 받은 뒤 출력, 프레임 종류별 개수와 번호 빠짐 0(가짜 레이더는 ID 를 1씩 올림)",
+   "받는 중" in _od and "프레임 종류: " in _od and "0A14 " in _od and "번호 빠짐 0개" in _od,
+   " / ".join(l for l in _od.splitlines() if l.startswith(("프레임 종류", "번호 빠짐")))[:160])
+# 10/15 실기 덤프 앞부분(레이더 부팅 글자와 프레임 50개. 호흡, 심박, 거리 값은 모두 0 인 구간만 담았다)
+_real = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "mr60bha2_boot_1015.bin"), "rb").read()
+_rp2 = R.FrameParser()
+_rf = _rp2.feed(_real)
+_rtypes = set(t for t, _d, _i in _rf)
+_rvals = [R.decode(t, d) for t, d, _i in _rf]
+ck("실기 레이더 바이트(10/15): 부팅 글자는 건너뛰고 프레임 50개, 깨짐 0, 빠짐 0, 알려지지 않은 종류(0100 글자, 0A29, 0A17)는 넘김",
+   len(_rf) == 50 and _rp2.bad == 0 and _rp2.lost == 0 and _rp2.skipped > 0
+   and set([0x0100, 0x0A29, 0x0A17, 0x0A16, 0x0F09, 0x0A13, 0x0A14, 0x0A15]) <= _rtypes
+   and b"Andar ADT6101P" in _rf[0][1],
+   "프레임 %d 깨짐 %d 빠짐 %d 종류 %s" % (len(_rf), _rp2.bad, _rp2.lost, sorted("%04X" % t for t in _rtypes)))
+ck("실기 레이더 바이트(10/15): 값 0 프레임은 측정 못 함(비움), 사람 감지 0 은 없음",
+   all(v.get(k) is None for v in _rvals for k in ("rr_bpm", "hr_bpm", "distance_mm"))
+   and [v["presence"] for v in _rvals if "presence" in v] and not any(v.get("presence") for v in _rvals), "")
+# 실기 거리 프레임 하나(ID 0x0035): 유효 표시 1, float32 51.66 cm
+_dfr = R.FrameParser().feed(bytes.fromhex("01003500080a16df01000000d7a34e4286"))
+ck("실기 거리 프레임(10/15 원본 바이트) → 516.6 mm",
+   len(_dfr) == 1 and abs(R.decode(_dfr[0][0], _dfr[0][1])["distance_mm"] - 516.6) < 0.1, str(_dfr))
+# 번호 빠짐: ID 1, 2, 3, 10 이면 6개, 다시 0 부터(레이더 재시작)는 세지 않음
+_lp2 = R.FrameParser()
+_lp2.feed(b"".join(R.encode_frame(R.T_PRESENCE, b"\x00\x00", i) for i in (1, 2, 3, 10, 0, 1)))
+ck("번호 빠짐: 건너뛴 ID 수만 센다(되돌아감은 제외)", _lp2.lost == 6 and _lp2.frames == 6, str(_lp2.lost))
 ck("saver-radar: 연결되면 포트 정보 줄", "포트 정보: " + _rt in _ot, "")
 # 끊김과 다시 연결: 끊기면 포트 목록을 다시, 다시 연결되면 포트 정보와 종류 안내를 다시 보인다
 def _fake_txt(dur):
