@@ -1521,6 +1521,98 @@ ck("정적 UI(3.6 처리기): /, /assets 응답, 상위 폴더 접근 404, 작�
    "%s %s %s" % (_c2, _c3, _c4))
 _srv36.shutdown()
 
+print("\n== 레이더 시험 화면 (saver-radar --ui, radar_view.py) ==")
+from saver import radar_view as RV
+ck("거리 중앙값: 홀수, 짝수, 표본 부족(3개 미만), 5초 넘은 표본 제외",
+   R.distance_median([(0, 300.0), (1, 310.0), (2, 290.0)], 2.0) == 300.0
+   and R.distance_median([(0, 300.0), (1, 310.0), (2, 290.0), (2, 320.0)], 2.0) == 305.0
+   and R.distance_median([(0, 300.0), (1, 310.0)], 2.0) is None
+   and R.distance_median([(0, 300.0), (10, 310.0), (11, 290.0), (12, 320.0)], 12.0) == 310.0)
+_vh = RV.History(seconds=3)
+for _i in range(5):
+    _vh.add(1760500000.0 + _i, {"rr_bpm": 14.0, "hr_bpm": None, "presence": True, "distance_mm": 294.0, "eapd_mm": 206.0})
+_vr = _vh.rows()
+ck("시험 화면 기록: 최근 것만 남기고 거리, EAPD 는 cm, 측정 못 한 값은 None",
+   len(_vr) == 3 and _vr[-1] == [1760500004.0, 14.0, None, True, 29.4, 20.6], str(_vr[-1]))
+_vc = RV.to_csv(_vr).decode("utf-8").splitlines()
+ck("시험 화면 CSV: 머리줄, UTC ISO 8601 시각, 빈 값은 비움, 사람 1/0",
+   _vc[0] == "time_utc,rr_bpm,hr_bpm,distance_cm,eapd_cm,presence" and len(_vc) == 4
+   and _vc[-1] == time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(1760500004)) + ",14.0,,29.4,20.6,1", _vc[-1])
+class _VL(object):
+    port = "/dev/saver-radar"
+    def __init__(self, s):
+        self.s = s
+    def snapshot(self, floor_mm=None):
+        return dict(self.s)
+_vs = RV.state(_VL({"connected": True, "receiving": True, "presence": True, "distance_mm": 294.0,
+                    "distance_med_mm": 295.0, "eapd_mm": 205.0, "frames": 9}), _vh, 500, now=1760500010.0)
+ck("시험 화면 JSON: 거리, 중앙값, EAPD, 높이는 cm, 중앙값 구간 길이와 기록, 측정 못 한 값은 None",
+   _vs["distance_cm"] == 29.4 and _vs["distance_med_cm"] == 29.5 and _vs["eapd_cm"] == 20.5 and _vs["floor_cm"] == 50.0
+   and _vs["eapd_window_s"] == R.EAPD_WINDOW_S and len(_vs["history"]) == 3 and _vs["rr_bpm"] is None
+   and _vs["connected"] and _vs["frames"] == 9 and _vs["now"] == 1760500010.0, str(_vs)[:160])
+ck("시험 화면 JSON: 높이가 없거나 0 이하이면 floor_cm 없음, 연결 정보가 없으면 끊김",
+   all(RV.state(_VL({}), _vh, f_)["floor_cm"] is None for f_ in (None, 0, -5))
+   and RV.state(_VL({}), _vh)["connected"] is False)
+# 실제 실행: 가짜 레이더 + python -m saver.radar PORT --ui (브라우저 없이 HTTP 로 확인)
+_ru = "/tmp/ttyRADAR_UI_T"
+_fu = subprocess.Popen([sys.executable, "-u", os.path.join(SIMDIR, "fake_radar.py"), "--port", _ru, "--hz", "10",
+                        "--quiet", "--duration", "25"], stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+time.sleep(1.0)
+_pu = _free_port()
+# --open 도 함께: PATH 를 빈 폴더로 둬 Chromium 을 찾지 못하게 한다(젯슨에서 돌려도 화면에 창을 띄우지 않는다)
+_vpath = _tf.mkdtemp(prefix="saver_nopath_")
+_pv = subprocess.Popen([sys.executable, "-m", "saver.radar", _ru, "--ui", "--http-port", str(_pu), "--seconds", "9",
+                        "--floor", "500", "--open"], cwd=os.path.dirname(SIMDIR),
+                       env=dict(os.environ, PYTHONIOENCODING="utf-8", PATH=_vpath),
+                       stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+_vj, _end = {}, time.monotonic() + 8.0
+while time.monotonic() < _end:
+    _c, _b = _get(_pu, "/radar.json")
+    if _c == 200:
+        _vj = json.loads(_b.decode("utf-8"))
+        if all(_vj.get(k) is not None for k in ("rr_bpm", "hr_bpm", "distance_cm", "distance_med_cm", "eapd_cm")) \
+                and len(_vj.get("history", [])) >= 2:
+            break
+    time.sleep(0.3)
+_ch, _bh = _get(_pu, "/")
+_cc, _bc = _get(_pu, "/radar.csv")
+_cn, _ = _get(_pu, "/nope")
+_ov = _pv.communicate(timeout=30)[0].decode("utf-8", "replace")
+_fu.terminate()
+_fu.wait()
+ck("saver-radar --ui: 화면(/)에 호흡수, 심박수, 거리, EAPD 칸", _ch == 200 and all(w_.encode("utf-8") in _bh
+   for w_ in ("호흡수", "심박수", "거리", "EAPD", "radar.json")), str(_ch))
+ck("saver-radar --ui: /radar.json 값(가짜 레이더 호흡 14, 심박 72, 거리 29.4 cm, 높이 50 cm → EAPD ≈ 20.6 cm)",
+   _vj.get("connected") and _vj.get("receiving") and abs(_vj.get("rr_bpm", 0) - 14) <= 1
+   and abs(_vj.get("hr_bpm", 0) - 72) <= 2 and abs(_vj.get("distance_cm", 0) - 29.4) <= 0.4
+   and abs(_vj.get("distance_med_cm", 0) - 29.4) <= 0.4 and abs(_vj.get("eapd_cm", 0) - 20.6) <= 0.4
+   and _vj.get("floor_cm") == 50.0 and len(_vj.get("history", [])) >= 2,
+   str(dict((k, _vj.get(k)) for k in ("rr_bpm", "hr_bpm", "distance_cm", "eapd_cm", "floor_cm"))))
+_vcl = _bc.decode("utf-8").splitlines()
+ck("saver-radar --ui: /radar.csv 머리줄과 1초 기록, 없는 주소는 404",
+   _cc == 200 and _vcl[:1] == ["time_utc,rr_bpm,hr_bpm,distance_cm,eapd_cm,presence"] and len(_vcl) >= 3
+   and _vcl[-1].endswith(",1") and _cn == 404, "%s %d줄 %s" % (_cc, len(_vcl), _cn))
+ck("saver-radar --ui --open: 주소 안내, Chromium 이 없으면 안내만, 터미널 상태 줄(거리, EAPD cm), --seconds 뒤 정상 종료",
+   _pv.returncode == 0 and ("레이더 시험 화면: http://127.0.0.1:%d" % _pu) in _ov and "Chromium 을 찾지 못했습니다" in _ov
+   and _re.search(r"거리 2\d\.\d+ cm EAPD 2\d\.\d+ cm 사람 있음", _ov) is not None,
+   _ov.strip().splitlines()[-1][:120] if _ov.strip() else "출력 없음")
+_busy = socket.socket()
+_busy.bind(("127.0.0.1", 0))
+_busy.listen(1)
+_pz = subprocess.Popen([sys.executable, "-m", "saver.radar", "/tmp/no_such_radar_port", "--ui", "--http-port",
+                        str(_busy.getsockname()[1]), "--seconds", "2"], cwd=os.path.dirname(SIMDIR),
+                       env=dict(os.environ, PYTHONIOENCODING="utf-8"), stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+_oz = _pz.communicate(timeout=30)[0].decode("utf-8", "replace")
+_busy.close()
+ck("saver-radar --ui: 화면 포트를 이미 쓰고 있으면 이유와 --http-port 안내, 종료 코드 1",
+   _pz.returncode == 1 and "화면 서버를 열지 못했습니다" in _oz and "--http-port" in _oz,
+   _oz.strip().splitlines()[-1][:120] if _oz.strip() else "출력 없음")
+try:
+    os.remove(_ru)
+except OSError:
+    pass
+os.rmdir(_vpath)
+
 print("\n== 브리지 기동 (python -m saver.bridge, 이 Python %d.%d) ==" % sys.version_info[:2])
 # 노트북 대체 실행(새 Python)에서도 main() 이 뜨는지 본다(3.14 는 get_event_loop() 가 RuntimeError).
 # --serial 에 없는 경로를 줘 실제 장치를 찾지 않는다. 젯슨에서 saver-test 를 돌릴 때 Teensy 가 꽂혀 있어도

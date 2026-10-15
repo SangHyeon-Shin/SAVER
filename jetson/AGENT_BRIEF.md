@@ -37,6 +37,7 @@
 | `saver-status` | 서비스, 포트, UI 응답, 최근 기록의 S1 점검, 팬, 시각, IP | 없이 |
 | `timeout 20 saver-logs` | 브리지 실시간 기록. 끝나지 않는 명령이라 `timeout` 을 붙인다 | 없이 |
 | `saver-radar --seconds 15`, `saver-radar --dump --seconds 10` | 레이더 값, 원본 바이트와 자료 종류. 브리지가 돌면 실행을 거부한다 | 앞의 `saver-stop` 은 장치가 멈춰 있을 때만 |
+| `saver-radar --ui --seconds 60` | 레이더 시험 화면(웹 8090): 호흡수, 심박수, 거리 cm, EAPD(`--floor` 를 줬을 때). 장치를 움직이지 않는다. 젯슨 화면에 창을 띄우는 `--open` 은 사람이 화면 앞에 있을 때 | 위와 같음 |
 | `saver-test` | 자동 시험(`jetson/tests/test_all.py`) | 없이 |
 | `saver-start` | 브리지와 키오스크 시작. **브리지가 S1 에서 Teensy 에 ARM, HOME 을 보내 장치가 움직인다** | 필요 |
 | `saver-update` | `git pull --ff-only` 뒤 브리지 재시작 | 브리지가 돌고 있으면 필요 |
@@ -91,6 +92,8 @@
   `search.py` 의 설정값이 하나라도 비면 탐색을 시작하지 않는다.
 - 현장 확인: `saver-stop` 뒤 `saver-radar`. 프레임이 0 이면 안내 줄의 `종류`와 `saver-radar --dump` 의 합계 줄로
   원인을 가린다(`jetson/README.md` "현장 확인"). `esphome` 이면 XIAO 에 전달 펌웨어가 없다.
+- 시험 화면: `saver-radar --ui`(`saver/radar_view.py`). 거리 칸에 cm, EAPD 가 쓰는 5초 중앙값, EAPD 를 보인다.
+  거리 단위 확인(자 대조)과 `radar_floor_mm` 실측에 쓴다. 값은 표시용이며 판단에 쓰지 않는다.
 
 ## 7. 설정 파일
 

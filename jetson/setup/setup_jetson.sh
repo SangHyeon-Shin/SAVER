@@ -39,7 +39,7 @@
 # ============================================================================
 set -Eeuo pipefail
 
-SCRIPT_VERSION="2026-10-15.4"
+SCRIPT_VERSION="2026-10-15.5"
 DEFAULT_REPO_URL="https://github.com/SangHyeon-Shin/SAVER.git"
 # jetson/, ui/ 최신 작업 브랜치(10/14 기준 main 은 10/4 이후 변경이 반영되지 않았다)
 DEFAULT_BRANCH="claude/saver-project-onboarding-xpmdhw"
@@ -651,6 +651,7 @@ RADAR_PORT=\"$RADAR_PORT\"" <<'EOF'
 #   saver-radar /dev/ttyTHS1     다른 포트(40핀 UART 직결 등)
 #   saver-radar --floor 520      레이더 높이(mm)를 주면 가슴 두께(EAPD)도 계산
 #   saver-radar --dump           받은 바이트를 16진수와 글자로 5초 보이고 자료 종류를 판별
+#   saver-radar --ui --open      시험 화면(호흡수, 심박수, 거리 cm, EAPD)을 젯슨 화면에. http://127.0.0.1:8090
 # 포트 상태, 받은 바이트, 프레임 수를 함께 보이고, 포트가 없거나 레이더 프레임이 아닌 자료가 오면 원인을 안내한다.
 # 브리지가 같은 포트를 읽고 있으면 바이트를 나눠 가져 값이 깨지므로 먼저 saver-stop 한다.
 if systemctl is-active --quiet saver-bridge; then

@@ -49,7 +49,7 @@ git 이 없는 새 젯팩이면 `sudo apt-get install -y git` 을 먼저 하거�
 | `saver-link` | 최근 세션 기록의 링크 품질(처음과 마지막). 모터 끔 30분과 모터 켬 30분 비교용(`docs/noise_emi.md` 6절) |
 | `saver-sound` | 소리 출력을 HDMI(모니터 3.5 mm 단자의 헤드셋)로 맞추고 음성 하나를 재생. `saver-sound usb`(USB 헤드셋), `saver-sound list` |
 | `saver-time` | 인터넷(HTTP Date)으로 시각 맞춤. 인터넷이 없으면 `saver-time "2026-10-24 09:30"`(한국 시각) |
-| `saver-radar` | MR60BHA2 레이더를 1초마다 보기: 포트 상태, 받은 바이트, 프레임 수, 호흡, 심박, 거리(`--floor 높이` 를 주면 가슴 두께). 연결되면 실제 장치와 by-id 이름(`포트 정보:`)을 보이고, 포트가 없거나 레이더 프레임이 아닌 자료가 오면 자료 종류(ESPHome 기록, Teensy JSON 등)와 할 일을 안내한다. `saver-radar --dump` 는 받은 바이트를 16진수로 5초 보인다. 브리지와 같은 포트를 읽으므로 `saver-stop` 뒤에 쓴다 |
+| `saver-radar` | MR60BHA2 레이더를 1초마다 보기: 포트 상태, 받은 바이트, 프레임 수, 호흡, 심박, 거리(`--floor 높이` 를 주면 가슴 두께). 연결되면 실제 장치와 by-id 이름(`포트 정보:`)을 보이고, 포트가 없거나 레이더 프레임이 아닌 자료가 오면 자료 종류(ESPHome 기록, Teensy JSON 등)와 할 일을 안내한다. `saver-radar --dump` 는 받은 바이트를 16진수로 5초 보인다. `saver-radar --ui --open` 은 호흡수, 심박수, 거리(cm), EAPD 를 크게 보이는 시험 화면을 젯슨 화면에 띄운다(`--host 0.0.0.0` 이면 같은 망의 휴대폰에서 `http://<젯슨 IP>:8090`, `jetson/README.md` "시험 화면"). 브리지와 같은 포트를 읽으므로 `saver-stop` 뒤에 쓴다 |
 | `saver-fan` | 냉각 팬 상태(서비스, CPU, GPU 온도, PWM, 설정). `saver-fan test` 는 5초 동안 최대로 돌려 팬과 배선 확인(비밀번호), `saver-fan log` 는 서비스 기록 |
 | `saver-test` | 자동 시험 |
 | `saver-update` | `git pull --ff-only` 뒤 브리지 다시 시작 |

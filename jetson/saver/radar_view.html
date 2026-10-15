@@ -1,0 +1,429 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>레이더 시험</title>
+<link rel="icon" href="data:,">
+<style>
+:root {
+  color-scheme: light;
+  --page: #f9f9f7;
+  --surface: #fcfcfb;
+  --ink-1: #0b0b0b;
+  --ink-2: #52514e;
+  --ink-3: #898781;
+  --grid: #e1e0d9;
+  --axis: #c3c2b7;
+  --ring: rgba(11, 11, 11, 0.10);
+  --s-breath: #2a78d6;
+  --s-heart: #eb6834;
+  --s-dist: #1baf7a;
+  --good: #0ca30c;
+  --warning: #fab219;
+  --critical: #d03b3b;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --page: #0d0d0d;
+    --surface: #1a1a19;
+    --ink-1: #f0efec;
+    --ink-2: #c3c2b7;
+    --ink-3: #898781;
+    --grid: #2c2c2a;
+    --axis: #383835;
+    --ring: rgba(255, 255, 255, 0.10);
+    --s-breath: #3987e5;
+    --s-heart: #d95926;
+    --s-dist: #199e70;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --page: #0d0d0d;
+  --surface: #1a1a19;
+  --ink-1: #f0efec;
+  --ink-2: #c3c2b7;
+  --ink-3: #898781;
+  --grid: #2c2c2a;
+  --axis: #383835;
+  --ring: rgba(255, 255, 255, 0.10);
+  --s-breath: #3987e5;
+  --s-heart: #d95926;
+  --s-dist: #199e70;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body {
+  background: var(--page);
+  color: var(--ink-1);
+  font-family: 'Pretendard', 'Noto Sans CJK KR', 'Noto Sans KR', system-ui, sans-serif;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+  padding: 12px 16px 8px;
+}
+h1 { font-size: 20px; font-weight: 600; margin: 0 auto 0 0; }
+.chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 15px;
+  color: var(--ink-2);
+  background: var(--surface);
+  border: 1px solid var(--ring);
+  border-radius: 999px;
+  padding: 4px 12px;
+}
+.chip .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--ink-3); flex: none; }
+.chip[data-s="good"] .dot { background: var(--good); }
+.chip[data-s="warning"] .dot { background: var(--warning); }
+.chip[data-s="critical"] .dot { background: var(--critical); }
+main {
+  flex: 1;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 16px;
+  padding: 8px 16px;
+}
+.card {
+  position: relative;
+  container-type: inline-size;
+  background: var(--surface);
+  border: 1px solid var(--ring);
+  border-radius: 16px;
+  padding: 16px 20px 12px;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.label { display: flex; align-items: center; gap: 8px; font-size: 22px; color: var(--ink-2); }
+.key { width: 20px; height: 3px; border-radius: 2px; flex: none; }
+.value-row { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; margin: 4px 0 6px; }
+.value { font-size: clamp(56px, 9vw, 120px); font-size: clamp(56px, 30cqi, 140px); font-weight: 600; line-height: 1; color: var(--ink-1); font-variant-numeric: tabular-nums; }
+.value[data-empty="1"] { color: var(--ink-3); }
+.unit { font-size: 24px; color: var(--ink-2); }
+.sub { font-size: 16px; color: var(--ink-2); margin: 2px 0; font-variant-numeric: tabular-nums; }
+.sub strong { color: var(--ink-1); font-weight: 600; }
+.sub .muted { color: var(--ink-3); }
+.spark { position: relative; flex: 1; min-height: 120px; margin-top: 4px; }
+.spark svg { display: block; width: 100%; height: 100%; min-height: 120px; touch-action: none; }
+.spark text { font-size: 13px; fill: var(--ink-3); font-variant-numeric: tabular-nums; }
+.tip {
+  position: absolute;
+  pointer-events: none;
+  background: var(--surface);
+  border: 1px solid var(--ring);
+  border-radius: 8px;
+  padding: 6px 10px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+  white-space: nowrap;
+  display: none;
+}
+.tip strong { font-size: 18px; color: var(--ink-1); display: block; }
+.tip span { font-size: 13px; color: var(--ink-2); }
+footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 20px;
+  padding: 8px 16px 12px;
+  font-size: 14px;
+  color: var(--ink-3);
+  font-variant-numeric: tabular-nums;
+}
+footer a { color: var(--ink-2); }
+details { padding: 0 16px 12px; color: var(--ink-2); }
+summary { cursor: pointer; font-size: 15px; }
+.tbl-wrap { overflow-x: auto; }
+table { border-collapse: collapse; margin-top: 8px; font-variant-numeric: tabular-nums; }
+th, td { padding: 4px 14px 4px 0; text-align: right; font-size: 15px; white-space: nowrap; }
+th { color: var(--ink-3); font-weight: 500; }
+th:first-child, td:first-child { text-align: left; }
+@media (max-width: 480px) {
+  .label { font-size: 18px; }
+  .unit { font-size: 18px; }
+}
+</style>
+</head>
+<body>
+<header>
+  <h1>레이더 시험</h1>
+  <div class="chips">
+    <span class="chip" id="chip-link"><span class="dot"></span><span class="t">연결 확인 중</span></span>
+    <span class="chip" id="chip-rx"><span class="dot"></span><span class="t">수신 확인 중</span></span>
+    <span class="chip" id="chip-person"><span class="dot"></span><span class="t">사람 —</span></span>
+  </div>
+</header>
+<main>
+  <section class="card" id="card-rr">
+    <div class="label"><span class="key" style="background: var(--s-breath)"></span>호흡수</div>
+    <div class="value-row"><span class="value" data-empty="1">—</span><span class="unit">회/분</span></div>
+    <div class="spark"><svg aria-label="호흡수 최근 3분"></svg><div class="tip"></div></div>
+  </section>
+  <section class="card" id="card-hr">
+    <div class="label"><span class="key" style="background: var(--s-heart)"></span>심박수</div>
+    <div class="value-row"><span class="value" data-empty="1">—</span><span class="unit">회/분</span></div>
+    <div class="spark"><svg aria-label="심박수 최근 3분"></svg><div class="tip"></div></div>
+  </section>
+  <section class="card" id="card-dist">
+    <div class="label"><span class="key" style="background: var(--s-dist)"></span>거리</div>
+    <div class="value-row"><span class="value" data-empty="1">—</span><span class="unit">cm</span></div>
+    <div class="sub" id="dist-med">최근 5초 중앙값 <strong>—</strong></div>
+    <div class="sub" id="dist-eapd">EAPD <strong>—</strong></div>
+    <div class="spark"><svg aria-label="거리 최근 3분"></svg><div class="tip"></div></div>
+  </section>
+</main>
+<details id="tbl">
+  <summary>표로 보기(최근 30초)</summary>
+  <div class="tbl-wrap">
+    <table>
+      <thead><tr><th>시각</th><th>호흡수</th><th>심박수</th><th>거리(cm)</th><th>EAPD(cm)</th><th>사람</th></tr></thead>
+      <tbody></tbody>
+    </table>
+  </div>
+</details>
+<footer>
+  <span id="f-port">포트 —</span>
+  <span id="f-frames">프레임 —</span>
+  <span id="f-loss">빠짐 — 깨짐 —</span>
+  <span id="f-time">갱신 —</span>
+  <a href="radar.csv" download>CSV 받기(최근 10분)</a>
+</footer>
+<script>
+(function () {
+  'use strict';
+  var POLL_MS = 1000;
+  var WINDOW_S = 180;
+  var NS = 'http://www.w3.org/2000/svg';
+  // history 한 줄: [시각(UTC epoch 초), 호흡수, 심박수, 사람, 거리 cm, EAPD cm]
+  var SERIES = {
+    rr: { idx: 1, color: '--s-breath', name: '호흡수', unit: '회/분', minSpan: 4, digits: 0 },
+    hr: { idx: 2, color: '--s-heart', name: '심박수', unit: '회/분', minSpan: 4, digits: 0 },
+    dist: { idx: 4, color: '--s-dist', name: '거리', unit: 'cm', minSpan: 2, digits: 1 }
+  };
+  var last = null;
+
+  function css(name) { return getComputedStyle(document.documentElement).getPropertyValue(name).trim(); }
+  function isNum(v) { return typeof v === 'number' && isFinite(v); }
+  function fmtVal(v, digits) {
+    if (v === null || v === undefined) { return '—'; }
+    if (digits) { return v.toFixed(digits); }
+    return Math.abs(v - Math.round(v)) < 0.05 ? String(Math.round(v)) : v.toFixed(1);
+  }
+  function fmtTime(t) {
+    var d = new Date(t * 1000);
+    function p(n) { return n < 10 ? '0' + n : String(n); }
+    return p(d.getHours()) + ':' + p(d.getMinutes()) + ':' + p(d.getSeconds());
+  }
+  function setChip(id, state, text) {
+    var c = document.getElementById(id);
+    if (state) { c.setAttribute('data-s', state); } else { c.removeAttribute('data-s'); }
+    c.querySelector('.t').textContent = text;
+  }
+  function svgEl(name, attrs) {
+    var e = document.createElementNS(NS, name);
+    for (var k in attrs) { if (Object.prototype.hasOwnProperty.call(attrs, k)) { e.setAttribute(k, attrs[k]); } }
+    return e;
+  }
+
+  function geometry(svg, pts, now, s) {
+    var W = svg.clientWidth || 300;
+    var H = svg.clientHeight || 120;
+    var padL = 40, padR = 14, padT = 12, padB = 22;
+    var vals = [];
+    pts.forEach(function (p) { if (p[1] !== null) { vals.push(p[1]); } });
+    var lo = 0, hi = 1;
+    if (vals.length) {
+      lo = Math.min.apply(null, vals);
+      hi = Math.max.apply(null, vals);
+      if (hi - lo < s.minSpan) { var m = (hi + lo) / 2; lo = m - s.minSpan / 2; hi = m + s.minSpan / 2; }
+      lo = Math.floor(lo); hi = Math.ceil(hi);
+    }
+    return {
+      W: W, H: H, padL: padL, padR: padR, padT: padT, padB: padB, lo: lo, hi: hi, any: vals.length > 0,
+      x: function (t) { return padL + (W - padL - padR) * (1 - (now - t) / WINDOW_S); },
+      y: function (v) { return padT + (H - padT - padB) * (1 - (v - lo) / (hi - lo)); },
+      t: function (px) { return now - WINDOW_S * (1 - (px - padL) / (W - padL - padR)); }
+    };
+  }
+
+  function draw(key) {
+    if (!last) { return; }
+    var s = SERIES[key];
+    var card = document.getElementById('card-' + key);
+    var svg = card.querySelector('svg');
+    var now = last.now;
+    var pts = [];
+    (last.history || []).forEach(function (h) {
+      if (now - h[0] <= WINDOW_S) { pts.push([h[0], h[s.idx] === undefined ? null : h[s.idx]]); }
+    });
+    var g = geometry(svg, pts, now, s);
+    svg.setAttribute('viewBox', '0 0 ' + g.W + ' ' + g.H);
+    while (svg.firstChild) { svg.removeChild(svg.firstChild); }
+    var color = css(s.color);
+    svg.appendChild(svgEl('line', { x1: g.padL, x2: g.W - g.padR, y1: g.padT, y2: g.padT, stroke: css('--grid'), 'stroke-width': 1 }));
+    svg.appendChild(svgEl('line', { x1: g.padL, x2: g.W - g.padR, y1: g.H - g.padB, y2: g.H - g.padB, stroke: css('--axis'), 'stroke-width': 1 }));
+    if (g.any) {
+      var hiT = svgEl('text', { x: g.padL - 6, y: g.padT + 4, 'text-anchor': 'end' });
+      hiT.textContent = String(g.hi);
+      var loT = svgEl('text', { x: g.padL - 6, y: g.H - g.padB + 4, 'text-anchor': 'end' });
+      loT.textContent = String(g.lo);
+      svg.appendChild(hiT); svg.appendChild(loT);
+    }
+    var t0 = svgEl('text', { x: g.padL, y: g.H - 4, 'text-anchor': 'start' });
+    t0.textContent = '3분 전';
+    var t1 = svgEl('text', { x: g.W - g.padR, y: g.H - 4, 'text-anchor': 'end' });
+    t1.textContent = '지금';
+    svg.appendChild(t0); svg.appendChild(t1);
+    // 값이 없거나 2.5초 넘게 빈 곳은 선을 끊는다
+    var d = '', prev = null;
+    pts.forEach(function (p) {
+      if (p[1] === null) { prev = null; return; }
+      var cmd = (prev && p[0] - prev[0] <= 2.5) ? 'L' : 'M';
+      d += cmd + g.x(p[0]).toFixed(1) + ' ' + g.y(p[1]).toFixed(1) + ' ';
+      prev = p;
+    });
+    if (d) {
+      svg.appendChild(svgEl('path', { d: d, fill: 'none', stroke: color, 'stroke-width': 2, 'stroke-linejoin': 'round', 'stroke-linecap': 'round' }));
+    }
+    var lastPt = null;
+    for (var i = pts.length - 1; i >= 0; i--) { if (pts[i][1] !== null) { lastPt = pts[i]; break; } }
+    if (lastPt && now - lastPt[0] <= 5) {
+      svg.appendChild(svgEl('circle', { cx: g.x(lastPt[0]), cy: g.y(lastPt[1]), r: 5, fill: color, stroke: css('--surface'), 'stroke-width': 2 }));
+    }
+    card._geo = g; card._pts = pts;
+    if (card._hoverX !== undefined) { showTip(card, key, card._hoverX); }
+  }
+
+  function showTip(card, key, px) {
+    var s = SERIES[key];
+    var g = card._geo, pts = card._pts, tip = card.querySelector('.tip'), svg = card.querySelector('svg');
+    var old = svg.querySelector('.cross');
+    if (old) { svg.removeChild(old); }
+    if (!g || !pts || !pts.length) { tip.style.display = 'none'; return; }
+    var t = g.t(px), best = null;
+    pts.forEach(function (p) { if (p[1] !== null && (!best || Math.abs(p[0] - t) < Math.abs(best[0] - t))) { best = p; } });
+    if (!best || Math.abs(best[0] - t) > 3) { tip.style.display = 'none'; return; }
+    var x = g.x(best[0]);
+    svg.appendChild(svgEl('line', { 'class': 'cross', x1: x, x2: x, y1: g.padT, y2: g.H - g.padB, stroke: css('--ink-3'), 'stroke-width': 1 }));
+    tip.textContent = '';
+    var strong = document.createElement('strong');
+    strong.textContent = fmtVal(best[1], s.digits) + ' ' + s.unit;
+    var span = document.createElement('span');
+    span.textContent = s.name + ' ' + fmtTime(best[0]);
+    tip.appendChild(strong); tip.appendChild(span);
+    tip.style.display = 'block';
+    var left = Math.min(Math.max(x - tip.offsetWidth / 2, 0), Math.max(0, g.W - tip.offsetWidth));
+    tip.style.left = left + 'px';
+    tip.style.top = '0px';
+  }
+
+  Object.keys(SERIES).forEach(function (key) {
+    var card = document.getElementById('card-' + key);
+    var svg = card.querySelector('svg');
+    function at(ev) {
+      var r = svg.getBoundingClientRect();
+      card._hoverX = ev.clientX - r.left;
+      showTip(card, key, card._hoverX);
+    }
+    svg.addEventListener('pointermove', at);
+    svg.addEventListener('pointerdown', at);
+    svg.addEventListener('pointerleave', function () {
+      card._hoverX = undefined;
+      card.querySelector('.tip').style.display = 'none';
+      var c = svg.querySelector('.cross');
+      if (c) { svg.removeChild(c); }
+    });
+  });
+
+  function setValue(key, v) {
+    var el = document.querySelector('#card-' + key + ' .value');
+    el.textContent = fmtVal(v, SERIES[key].digits);
+    el.setAttribute('data-empty', v === null || v === undefined ? '1' : '0');
+  }
+
+  // 거리 칸 아래 두 줄: EAPD 가 쓰는 최근 중앙값, EAPD = 레이더 높이 − 중앙값(높이를 줬을 때)
+  function renderDistanceExtra(st) {
+    var med = document.getElementById('dist-med');
+    med.textContent = '최근 ' + (isNum(st.eapd_window_s) ? Math.round(st.eapd_window_s) : 5) + '초 중앙값 ';
+    var m = document.createElement('strong');
+    m.textContent = isNum(st.distance_med_cm) ? st.distance_med_cm.toFixed(1) + ' cm' : '—';
+    med.appendChild(m);
+    var e = document.getElementById('dist-eapd');
+    e.textContent = 'EAPD ';
+    if (!isNum(st.floor_cm)) {
+      var mu = document.createElement('span');
+      mu.className = 'muted';
+      mu.textContent = '— 레이더 높이 없음(--floor)';
+      e.appendChild(mu);
+      return;
+    }
+    var es = document.createElement('strong');
+    es.textContent = isNum(st.eapd_cm) ? st.eapd_cm.toFixed(1) + ' cm' : '—';
+    e.appendChild(es);
+    var formula = document.createElement('span');
+    formula.className = 'muted';
+    formula.textContent = ' = 높이 ' + st.floor_cm.toFixed(1) + ' − ' +
+      (isNum(st.distance_med_cm) ? st.distance_med_cm.toFixed(1) : '중앙값');
+    e.appendChild(formula);
+  }
+
+  function render(st) {
+    last = st;
+    var link;
+    if (st.connected) { link = ['good', '레이더 연결됨']; }
+    else if (st.error === '없음') { link = ['critical', '레이더 포트 없음']; }
+    else if (st.error) { link = ['critical', '레이더 열기 실패: ' + st.error]; }
+    else { link = ['warning', '레이더 여는 중']; }
+    setChip('chip-link', link[0], link[1]);
+    setChip('chip-rx', st.receiving ? 'good' : 'warning', st.receiving ? '수신 중' : '수신 없음');
+    setChip('chip-person', null, st.presence === true ? '사람 감지' : (st.presence === false ? '사람 없음' : '사람 —'));
+    setValue('rr', st.rr_bpm);
+    setValue('hr', st.hr_bpm);
+    setValue('dist', st.distance_cm);
+    renderDistanceExtra(st);
+    Object.keys(SERIES).forEach(draw);
+    document.getElementById('f-port').textContent = '포트 ' + (st.port || '—');
+    document.getElementById('f-frames').textContent = '프레임 ' + Number(st.frames || 0).toLocaleString('ko-KR');
+    document.getElementById('f-loss').textContent = '빠짐 ' + (st.lost || 0) + ' 깨짐 ' + (st.bad || 0);
+    document.getElementById('f-time').textContent = '갱신 ' + fmtTime(st.now);
+    if (document.getElementById('tbl').open) {
+      var body = document.querySelector('#tbl tbody');
+      body.textContent = '';
+      (st.history || []).slice(-30).reverse().forEach(function (h) {
+        var tr = document.createElement('tr');
+        [fmtTime(h[0]), fmtVal(h[1], 1), fmtVal(h[2], 1), fmtVal(h[4], 1), fmtVal(h[5], 1),
+         h[3] === true ? '있음' : (h[3] === false ? '없음' : '—')].forEach(function (c) {
+          var td = document.createElement('td');
+          td.textContent = c;
+          tr.appendChild(td);
+        });
+        body.appendChild(tr);
+      });
+    }
+  }
+
+  function poll() {
+    fetch('radar.json', { cache: 'no-store' }).then(function (r) {
+      if (!r.ok) { throw new Error(String(r.status)); }
+      return r.json();
+    }).then(render).catch(function () {
+      setChip('chip-link', 'critical', '화면 서버 응답 없음');
+      setChip('chip-rx', 'warning', '수신 없음');
+    }).then(function () { setTimeout(poll, POLL_MS); });
+  }
+  window.addEventListener('resize', function () { Object.keys(SERIES).forEach(draw); });
+  poll();
+})();
+</script>
+</body>
+</html>

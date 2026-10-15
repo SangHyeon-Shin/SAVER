@@ -8,6 +8,7 @@
   브리지 --radar PORT 로 켠다. 주지 않으면 레이더 기능을 쓰지 않는다.
   레이더는 켜지면 스스로 프레임을 보낸다. 젯슨은 읽기만 하고 명령을 보내지 않는다.
   현장 확인: python3 -m saver.radar PORT (포트 상태, 받은 바이트, 프레임 수와 값을 1초마다. 원인 안내 포함)
+  시험 화면: python3 -m saver.radar PORT --ui (호흡수, 심박수, 거리 cm 와 EAPD 를 크게 보이는 웹 화면, radar_view.py)
 
 프레임 (Seeed TinyFrame 형식. ESPHome seeed_mr60bha2 구성 요소와 같은 해석)
   SOF 0x01 | ID 2 | LEN 2 | TYPE 2 | 머리 체크섬 | DATA(LEN) | 데이터 체크섬     (ID, LEN, TYPE 은 big-endian)
@@ -165,15 +166,22 @@ def decode(ftype, data):
     return {}
 
 
-def eapd_estimate(samples, floor_mm, now, window_s=EAPD_WINDOW_S, min_n=EAPD_MIN_N):
-    """EAPD = floor_mm − 최근 거리 중앙값. 설정이 없거나 표본이 모자라거나 0 이하면 None."""
-    if not _num(floor_mm) or floor_mm <= 0:
-        return None
+def distance_median(samples, now, window_s=EAPD_WINDOW_S, min_n=EAPD_MIN_N):
+    """최근 window_s 초 안 유효 거리의 중앙값(mm). 표본이 min_n 개보다 적으면 None. EAPD 가 쓰는 값이다."""
     xs = sorted(d for t, d in samples if 0 <= now - t <= window_s)
     if len(xs) < min_n:
         return None
     n = len(xs)
-    med = xs[n // 2] if n % 2 else (xs[n // 2 - 1] + xs[n // 2]) / 2.0
+    return xs[n // 2] if n % 2 else (xs[n // 2 - 1] + xs[n // 2]) / 2.0
+
+
+def eapd_estimate(samples, floor_mm, now, window_s=EAPD_WINDOW_S, min_n=EAPD_MIN_N):
+    """EAPD = floor_mm − 최근 거리 중앙값. 설정이 없거나 표본이 모자라거나 0 이하면 None."""
+    if not _num(floor_mm) or floor_mm <= 0:
+        return None
+    med = distance_median(samples, now, window_s, min_n)
+    if med is None:
+        return None
     e = float(floor_mm) - med
     return e if e > 0 else None
 
@@ -217,7 +225,11 @@ class RadarState(object):
                 if k in self._vals and now - self._vals[k][1] <= FRESH_S:
                     v = self._vals[k][0]
                     out[k] = round(v, 1) if _num(v) else v
-            e = eapd_estimate(list(self._dist), floor_mm, now)
+            dist = list(self._dist)
+            med = distance_median(dist, now)
+            if med is not None:
+                out["distance_med_mm"] = round(med, 1)      # EAPD 가 쓰는 최근 거리 중앙값(시험 화면 표시용)
+            e = eapd_estimate(dist, floor_mm, now)
             if e is not None:
                 out["eapd_mm"] = round(e, 1)
             out["floor_set"] = _num(floor_mm) and floor_mm > 0
@@ -456,9 +468,16 @@ def main(argv=None):
     ap.add_argument("--floor", type=float, default=None, help="radar_floor_mm. 주면 EAPD 도 보인다")
     ap.add_argument("--seconds", type=float, default=0, help="이 시간 뒤 끝냄(0 이면 Ctrl+C 까지)")
     ap.add_argument("--dump", action="store_true", help="받은 바이트를 16진수와 글자로 그대로 보이기(기본 5초)")
+    ap.add_argument("--ui", action="store_true", help="호흡수, 심박수, 거리(cm) 시험 화면(웹, 기본 http://127.0.0.1:8090)")
+    ap.add_argument("--http-port", type=int, default=8090, help="--ui 화면 포트")
+    ap.add_argument("--host", default="127.0.0.1", help="--ui 화면을 열 주소. 다른 기기에서 보려면 0.0.0.0")
+    ap.add_argument("--open", action="store_true", help="--ui 화면을 젯슨 Chromium 창으로 띄움")
     a = ap.parse_args(argv)
     if a.dump:
         return dump(a.port, a.baud, a.seconds or 5.0)
+    if a.ui:
+        from .radar_view import serve
+        return serve(a.port, a.baud, a.host, a.http_port, a.open, a.seconds, a.floor)
     link = RadarLink(a.port, a.baud).start()
     print("레이더 %s %d bps. Ctrl+C 로 끝" % (a.port, a.baud))
     t0, shown, t_open = time.monotonic(), set(), None
