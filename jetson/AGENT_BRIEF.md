@@ -101,6 +101,7 @@
 |---|---|
 | `jetson/config.sim.json` | 시뮬레이션 전용. 의학적 근거가 없다. 실기에 쓰지 않는다 |
 | `jetson/config.json` | 확정값. 없으면 미확정 값은 0 으로 두고 Teensy 에 보내지 않는다(`START_CPR` 거부가 정상). 만들거나 바꾸는 일은 사람 확인 뒤에 하고, 서비스가 읽게 하려면 설치 스크립트를 다시 실행한다 |
+| `.claude/settings.local.json` | 이 젯슨에서만 쓰는 Claude Code 설정(저장소에 올라가지 않는다). 저장소 `.claude/settings.json` 이 켜는 CAD 플러그인 text-to-cad 는 클라우드 작업용이라 젯슨에서는 끈다: `{"enabledPlugins": {"text-to-cad@earthtojake": false}}`. 파일이 없으면 이 내용으로 만들고, 세션을 시작할 때 earthtojake 마켓플레이스 설치를 물으면 거절한다 |
 
 미확정 값은 추측으로 채우지 않는다. 0 이나 null 로 두고 그 값을 쓰는 기능을 켜지 않는다.
 
