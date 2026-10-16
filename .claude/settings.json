@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "env": {
+    "CADGEN_TELEMETRY": "0",
+    "DO_NOT_TRACK": "1",
+    "CADGEN_UPDATE_CHECK": "0"
+  },
+  "permissions": {
+    "allow": [
+      "Bash(uvx --no-config --managed-python --python 3.13 --from cadgen==0.7.21 *)"
+    ]
+  },
+  "extraKnownMarketplaces": {
+    "earthtojake": {
+      "source": {
+        "source": "github",
+        "repo": "earthtojake/text-to-cad",
+        "ref": "v0.7.21"
+      }
+    }
+  },
+  "enabledPlugins": {
+    "text-to-cad@earthtojake": true
+  }
+}
