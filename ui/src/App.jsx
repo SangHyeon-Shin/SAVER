@@ -8,6 +8,9 @@ import { useSearchDemo, DEMO } from './searchDemo'
 import { Screen09 } from './screens/Search'
 import { Screen21, Screen22 } from './screens/Aed'
 import { Btn } from './ui'
+import * as U from './screens/Units'
+import { UNIT_IDS } from './units'
+import { useSimDevice } from './unitSim'
 import VOICE from './voice/prompts.json'
 import { createVoice } from './voice/player'
 import { VoiceCtx } from './voice/VoiceContext'
@@ -41,7 +44,8 @@ function useStageScale() {
 }
 
 /* 오프라인 시연 옵션 (주소 뒤 ?start=X_SEARCH&eapd=none&phantom=flat&speed=2)
-   브리지에 연결되면 쓰지 않는다. 체험판·스모크 시험용 */
+   브리지에 연결되면 쓰지 않는다. 체험판·스모크 시험용.
+   ?start=노드 는 시연 메뉴를 건너뛰고 전체 UI 의 그 화면으로, ?unit=compress 는 그 유닛 화면으로 바로 간다 */
 const QS = new URLSearchParams(typeof location === 'undefined' ? ''
   : (location.search || location.hash.replace(/^#/, '')))      // 체험판은 #start=... 로도 받는다
 // 체험판 빌드(VITE_DEMO=1)에서만: 감싼 페이지와 상태·이벤트를 주고받는다. 실기 빌드에는 들어가지 않는다
@@ -68,8 +72,13 @@ export default function App() {
     positionError: QS.get('pos_err') === '1', vacuumError: QS.get('vac_err') === '1',
     vacResidual: QS.get('vac_residual') === '1',          // 종료 때 음압이 남은 경우(S13 → S12)
     searchEapd: qEapd(), searchFlat: QS.get('phantom') === 'flat',
+    forceSim: QS.get('sim') === '1',                     // 유닛 화면을 모의값으로(장치 명령 안 보냄). 개발 패널에서도 켠다
   })
   const demoRef = useRef(demo); demoRef.current = demo
+  /* 화면 묶음 (결선 시연 메뉴, D-51): 'menu' | 'full'(S1~S13 흐름) | 유닛 4개.
+     운용 브리지(상태머신 흐름)에 연결되면 메뉴 없이 'full'. 체험판(감싼 페이지)도 'full' */
+  const [view, setView] = useState(() => (QS.get('start') || DEMO_BUILD) ? 'full'
+    : UNIT_IDS.includes(QS.get('unit')) ? QS.get('unit') : 'menu')
   const [devOpen, setDevOpen] = useState(() => new URLSearchParams(location.search).has('dev'))
   const scale = useStageScale()
   const waves = useWaves()
@@ -92,10 +101,19 @@ export default function App() {
     })
   }, [])
 
-  const bridge = useBridge({ onState: applyState })
+  const liveRef = useRef(false)
+  const bridge = useBridge({ onState: (snap) => { if (liveRef.current) applyState(snap) } })
+  /* 브리지 모드: 'operate'(상태머신 흐름, 브리지가 주인) | 'unit_demo'(결선 시연 모드). 설정을 받기 전은 null.
+     시연 모드에서 전체 UI 는 모형(로컬 전이)이고, 유닛 화면만 장치와 주고받는다 */
+  const mode = bridge.config ? (bridge.config.mode || 'operate') : null
+  const unitDemo = mode === 'unit_demo'
+  const live = bridge.connected && !unitDemo           // 전체 UI 가 브리지 상태를 그리는 운용 흐름
+  liveRef.current = live
+  const unitDemoRef = useRef(false); unitDemoRef.current = unitDemo
   const [everUp, setEverUp] = useState(false)          // 키오스크: 한 번이라도 연결됐는지(끊김 안내 구분)
   useEffect(() => { if (bridge.connected) setEverUp(true) }, [bridge.connected])
-  const linkWait = KIOSK && !bridge.connected
+  const linkWait = KIOSK && !unitDemo && !bridge.connected
+  useEffect(() => { if (mode === 'operate' && view !== 'full') setView('full') }, [mode])
 
   /* ---------- 이벤트 발생 (모든 화면의 공통 진입점) ----------
      연결 시  : intent 만 보내고 화면은 브리지가 돌려준 state 로 바뀐다
@@ -104,7 +122,7 @@ export default function App() {
     // AED 패드 부착 여부는 화면 표시용으로 UI 가 기억한다(장치 상태가 아님)
     if (event === EV.AED_PADS_ON || event === EV.AED_NONE) setCtx((c) => ({ ...c, aedPads: event === EV.AED_PADS_ON }))
     if (bridgeRef.current && bridgeRef.current(event, payload)) return
-    if (KIOSK) return                       // 실기: 연결 없이는 전이하지 않는다
+    if (KIOSK && !unitDemoRef.current) return   // 실기 운용: 연결 없이는 전이하지 않는다(시연 모드의 전체 UI 는 모형)
     // 오프라인 시연: 음압 잔존이면 장치 플래그를 붙여 S13 → S12 redirect 를 보인다(redirect.js)
     if (event === EV.BACK_TO_IDLE && demoRef.current.vacResidual) {
       payload = { ...payload, mcuFlags: { rearm_lock: true, vac_released: false } }
@@ -117,7 +135,7 @@ export default function App() {
     })
   }, [])
 
-  bridgeRef.current = bridge.connected ? bridge.sendIntent : null
+  bridgeRef.current = live ? bridge.sendIntent : null
 
   /* ---------- 압박점 탐색 ----------
      연결 시  : 시작·중지 요청만 보내고 브리지의 search 메시지를 그린다.
@@ -139,18 +157,19 @@ export default function App() {
   const toggleMute = useCallback(() => { const m = !voice.muted; voice.setMuted(m); setMuted(m) }, [voice])
   const voiceValue = React.useMemo(() => ({ voice, muted, toggleMute }), [voice, muted, toggleMute])
   useEffect(() => {
+    if (view !== 'full') return
     voice.enter(ctx.node, { cause: ctx.errorCause, positionError: demoRef.current.positionError })
-  }, [ctx.node])
+  }, [ctx.node, view])
   useEffect(() => { if (ctx.battery === 'popup') voice.event('battery_low') }, [ctx.battery])
   useEffect(() => () => voice.stop(), [])
   useEffect(() => { if (linkWait) voice.stop() }, [linkWait])
 
-  const search = bridge.connected ? bridge.search : sdemo.snap
-  const startSearch = bridge.connected ? () => bridge.sendSearch('start') : sdemo.start
+  const search = live ? bridge.search : sdemo.snap
+  const startSearch = live ? () => bridge.sendSearch('start') : sdemo.start
   const searchCtl = {
-    live: bridge.connected,
+    live,
     start: () => { voice.event('search_start'); startSearch() },   // 장치가 움직이기 전에 손 떼기 안내
-    stop: bridge.connected ? () => bridge.sendSearch('stop') : () => sdemo.stop('USER_STOP'),
+    stop: live ? () => bridge.sendSearch('stop') : () => sdemo.stop('USER_STOP'),
   }
   const searchReason = search && search.reason
   useEffect(() => {
@@ -189,26 +208,27 @@ export default function App() {
       demo: { ...demo }, search: search ? { phase: search.phase, reason: search.reason } : null }, '*')
   }, [ctx.node, ctx.errorCause, demo, search && search.phase])
 
-  const vitals = useVitals(!!node.running, bridge.telemetry, bridge.stale)
+  const vitals = useVitals(!!node.running && view === 'full', live ? bridge.telemetry : null, live ? bridge.stale : false)
 
   /* ---------- 자동 전이 (오프라인 시연 전용, offline_auto) ----------
      브리지에 연결되면 S1 은 브리지의 초기화 절차(장치 응답)로 넘어가므로 UI 는 관여하지 않는다(v2.4).
      양쪽이 동시에 쏘면 같은 전이가 두 번 기록된다. */
+  const localFlow = !live && !(KIOSK && !unitDemo) && view === 'full'   // 로컬 전이로 도는 전체 UI(오프라인 시연, 모형)
   useEffect(() => {
-    if (!node.auto || bridge.connected || KIOSK) return
+    if (!node.auto || !localFlow) return
     const t = setTimeout(() => fire(node.auto.event), node.auto.ms)
     return () => clearTimeout(t)
-  }, [node, fire, bridge.connected])
+  }, [node, fire, localFlow])
 
   /* ---------- 오프라인 시연: 바닥 고정 완료를 장치 대신 알린다 (10/14) ----------
      실기에서는 장치가 음압에 도달하면 VACUUM_OK 를 보내고 브리지가 S5 → S6 으로 넘긴다(jetson bridge.py _on_evt).
      오프라인 시연에는 장치가 없어 [재확인]을 눌러야만 넘어갔으므로 같은 이벤트를 DEMO_VACUUM_MS 뒤에 낸다.
      흡착 오류 시연(vac_err)은 주의 화면을 보여야 하므로 [재확인]으로 넘긴다. 실기 키오스크에서는 하지 않는다 */
   useEffect(() => {
-    if (ctx.node !== 'S5' || bridge.connected || KIOSK || demo.vacuumError) return undefined
+    if (ctx.node !== 'S5' || !localFlow || demo.vacuumError) return undefined
     const t = setTimeout(() => fire(EV.VACUUM_OK), DEMO_VACUUM_MS)
     return () => clearTimeout(t)
-  }, [ctx.node, bridge.connected, demo.vacuumError, fire])
+  }, [ctx.node, localFlow, demo.vacuumError, fire])
 
   /* ---------- 압박 재시작 시 카운터 초기화 ---------- */
   useEffect(() => {
@@ -222,7 +242,11 @@ export default function App() {
     return () => window.removeEventListener('keydown', onKey)
   }, [])
   const holdRef = useRef(null)
-  const holdStart = () => { holdRef.current = setTimeout(() => setDevOpen((v) => !v), 1500) }
+  const holdFired = useRef(false)
+  const holdStart = () => {
+    holdFired.current = false
+    holdRef.current = setTimeout(() => { holdFired.current = true; setDevOpen((v) => !v) }, 1500)
+  }
   const holdEnd = () => clearTimeout(holdRef.current)
 
   const Screen = SCREEN[ctx.node]
@@ -231,12 +255,87 @@ export default function App() {
   // 일시정지 확인(v2.3): 장치에 연결돼 있으면 Teensy 가 CPR_PAUSED 를 보고한 뒤에만 '멈췄습니다'와 재개 버튼을 보인다.
   // 오프라인 시연(장치 없음)은 바로 멈춘 것으로 본다.
   // ?paused=0 은 오프라인에서 '멈추는 중' 화면을 보는 시험용(스모크)이다.
-  const paused = bridge.connected
+  const paused = live
     ? (!!bridge.telemetry && !bridge.stale && bridge.telemetry.state === 'CPR_PAUSED')
     : QS.get('paused') !== '0'
   // MR60BHA2 레이더: 브리지가 보낸 값만 쓴다. 오프라인 시연에는 없다(화면에 칸을 만들지 않는다)
-  const radar = bridge.connected ? bridge.radar : null
+  const radar = live ? bridge.radar : null
   const props = { fire, ctx, demo, vitals, waves, search, searchCtl, setPatient, aedWarnS, paused, radar }
+
+  /* ---------- 결선 시연 메뉴와 유닛 화면 (D-51) ----------
+     결선 시연 모드 브리지에 연결되면 유닛 화면은 장치 값만 그리고 시작·정지 요청만 보낸다.
+     연결이 없거나 개발 패널에서 모의를 강제하면 모의값(unitSim.js)으로, 화면에 '모의 데이터'로 표시한다 */
+  const unitLive = bridge.connected && unitDemo && !demo.forceSim
+  const onUnit = UNIT_IDS.includes(view)
+  const sim = useSimDevice({ on: onUnit && !unitLive, cfg: bridge.config })
+  const udemo = useSearchDemo({ eapd: demo.searchEapd, flat: demo.searchFlat, speed: parseFloat(QS.get('speed')) || 1, onDone: () => {} })
+  const unitLiveRef = useRef(false)
+  useEffect(() => {
+    // 유닛 화면에 들어가고 나갈 때 브리지에 알린다. 나가면(메뉴, 전체 UI, 모의 전환) 진행 중인 장치 동작을 브리지가 멈춘다
+    if (unitLive) bridge.sendUnit(onUnit ? view : null, onUnit ? 'enter' : 'leave')
+    else if (unitLiveRef.current && bridge.connected) bridge.sendUnit(null, 'leave')
+    unitLiveRef.current = unitLive
+  }, [view, unitLive])
+  const canMenu = !live && !DEMO_BUILD
+  const goMenu = () => {
+    voice.stop()
+    sdemo.stop('LEFT_NODE')
+    udemo.stop('LEFT_NODE')
+    sim.reset()
+    setView('menu')
+  }
+  const pick = (id) => {
+    if (id === 'full') {
+      // 전체 UI 는 매번 처음(S1)부터 보인다
+      sdemo.reset()
+      vitals.reset()
+      setCtx((c) => ({ ...INITIAL, patient: c.patient }))
+    } else if (id === 'drive') {
+      udemo.reset()
+      bridge.clearSearch()
+    }
+    sim.reset()
+    setView(id)
+  }
+  const uTel = unitLive ? bridge.telemetry : sim.tel
+  const uStale = unitLive ? bridge.stale : false
+  const uRadar = unitLive ? bridge.radar : sim.radar
+  const simOn = { compress: sim.st.cpr, vacuum: sim.st.vac }
+  const uMsg = (u) => (unitLive ? bridge.unit : { unit: u, phase: simOn[u] ? 'running' : 'idle' })
+  const uAct = (u, key) => ({
+    onStart: () => (unitLive ? bridge.sendUnit(u, 'start') : sim.set(key, true)),
+    onStop: () => (unitLive ? bridge.sendUnit(u, 'stop') : sim.set(key, false)),
+  })
+  // 구동: 압박 위치 찾기 화면. 탐색 전에 브리지가 멈추면(장치 미연결 등) 그 사유를 탐색 실패로 보인다
+  const du = unitLive && bridge.unit && bridge.unit.unit === 'drive' ? bridge.unit : null
+  const driveSearch = !unitLive ? udemo.snap
+    : du && du.phase === 'failed' && !bridge.search ? { phase: 'failed', reason: du.reason } : bridge.search
+  const driveCtl = {
+    live: unitLive,
+    linked: bridge.connected,
+    start: () => { if (unitLive) { bridge.clearSearch(); bridge.sendUnit('drive', 'start') } else udemo.start() },
+    stop: () => (unitLive ? bridge.sendUnit('drive', 'stop') : udemo.stop('USER_STOP')),
+  }
+  const menuStatus = { sim: !unitLive, bridge: bridge.connected, teensy: bridge.linkUp,
+                       radar: radarView(unitLive ? bridge.radar : null).live }
+
+  let body
+  if (linkWait) body = <A.ScreenLink lost={everUp} />
+  else if (view === 'menu') body = <U.UnitMenu onPick={pick} status={menuStatus} />
+  else if (view === 'patient') {
+    body = <U.PatientUnit live={unitLive} linked={bridge.connected} tel={uTel} stale={uStale} radar={uRadar} waves={waves} onMenu={goMenu}
+      sim={unitLive ? null : sim} />
+  } else if (view === 'compress') {
+    body = <U.CompressUnit live={unitLive} linked={bridge.connected} tel={uTel} stale={uStale} cfg={bridge.config} msg={uMsg('compress')} waves={waves}
+      onMenu={goMenu} {...uAct('compress', 'cpr')} />
+  } else if (view === 'vacuum') {
+    body = <U.VacuumUnit live={unitLive} linked={bridge.connected} tel={uTel} stale={uStale} cfg={bridge.config} msg={uMsg('vacuum')}
+      onMenu={goMenu} {...uAct('vacuum', 'vac')} />
+  } else if (view === 'drive') {
+    body = <Screen09 fire={(ev) => { if (ev === EV.CANCEL) goMenu() }} ctx={ctx} search={driveSearch} searchCtl={driveCtl}
+      setPatient={setPatient} radar={unitLive ? bridge.radar : null} backLabel="메뉴" again />
+  } else if (ctx.node === 'S0') body = <PowerOff onPress={() => fire(EV.POWER_ON)} />
+  else body = <Screen {...props} />
 
   return (
     <div style={{ position: 'fixed', inset: 0, background: '#0a0d12', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -245,16 +344,19 @@ export default function App() {
         transform: `scale(${scale})`, transformOrigin: 'center center', flexShrink: 0,
         boxShadow: '0 0 0 1px rgba(255,255,255,.06)',
       }}>
-        <VoiceCtx.Provider value={voiceValue}>
-          {linkWait
-            ? <A.ScreenLink lost={everUp} />
-            : ctx.node === 'S0'
-              ? <PowerOff onPress={() => fire(EV.POWER_ON)} />
-              : <Screen {...props} />}
+        <VoiceCtx.Provider value={view === 'full' ? voiceValue : null}>
+          {body}
         </VoiceCtx.Provider>
 
+        {/* 전체 UI 모형(로컬 전이): 왼쪽 위를 짧게 누르면 시연 메뉴로 */}
+        {view === 'full' && canMenu && !linkWait && (
+          <div data-mock-chip style={{ position: 'absolute', left: 4, top: 3, zIndex: 49, pointerEvents: 'none',
+            fontSize: 12, fontWeight: 700, color: '#fff', background: 'rgba(20,24,30,.55)', borderRadius: 999,
+            padding: '1px 9px', lineHeight: '17px' }}>≡ 메뉴 · 모형</div>
+        )}
+
         {/* 장치가 아직 준비되지 않아 전이가 거부됨 */}
-        {bridge.rejected && ['device_not_ready', 'no_pause_cmd', 'pause_unverified'].includes(bridge.rejected.reason) && (
+        {view === 'full' && bridge.rejected && ['device_not_ready', 'no_pause_cmd', 'pause_unverified'].includes(bridge.rejected.reason) && (
           <div style={{
             position: 'absolute', left: '50%', bottom: 92, transform: 'translateX(-50%)',
             background: 'rgba(232,168,0,.95)', color: '#1a1f29', borderRadius: 8,
@@ -270,12 +372,15 @@ export default function App() {
         )}
 
         {/* 배터리 부족 (화면 20) */}
-        {ctx.battery && <DE.BatteryBadge />}
-        {ctx.battery === 'popup' && <DE.BatteryPopup onClose={() => setCtx((c) => ({ ...c, battery: true }))} />}
+        {view === 'full' && ctx.battery && <DE.BatteryBadge />}
+        {view === 'full' && ctx.battery === 'popup' && <DE.BatteryPopup onClose={() => setCtx((c) => ({ ...c, battery: true }))} />}
 
-        {/* 개발/시연 패널 열기용 히든 핫스팟 (좌상단 90×60px 길게 누르기) */}
+        {/* 히든 핫스팟 (좌상단 90×60px): 1.5초 길게 누르면 개발/시연 패널, 짧게 누르면 시연 메뉴로(모형·유닛 화면에서만) */}
         <div
-          onPointerDown={holdStart} onPointerUp={holdEnd} onPointerLeave={holdEnd}
+          data-menu-hotspot
+          onPointerDown={holdStart}
+          onPointerUp={() => { holdEnd(); if (!holdFired.current && canMenu && view !== 'menu' && !linkWait) goMenu() }}
+          onPointerLeave={holdEnd}
           style={{ position: 'absolute', left: 0, top: 0, width: 90, height: 60, zIndex: 50 }}
         />
       </div>
@@ -284,6 +389,7 @@ export default function App() {
         <DevPanel
           ctx={ctx} node={node} demo={demo} setDemo={setDemo} setCtx={setCtx}
           fire={fire} bridge={bridge} scale={scale} onClose={() => setDevOpen(false)}
+          mode={mode} onMenu={canMenu ? () => { goMenu(); setDevOpen(false) } : null}
         />
       )}
     </div>
@@ -305,7 +411,7 @@ function PowerOff({ onPress }) {
 
 /* ================= 개발 / 시연 패널 =================
    실제 시연 시에는 닫아두고, 좌상단을 1.5초 길게 눌러 열 수 있습니다. */
-function DevPanel({ ctx, node, demo, setDemo, setCtx, fire, bridge, scale, onClose }) {
+function DevPanel({ ctx, node, demo, setDemo, setCtx, fire, bridge, scale, onClose, mode, onMenu }) {
   const box = { position: 'fixed', right: 0, top: 0, bottom: 0, width: 300, background: '#11151b', color: '#dfe4ea', padding: 14, overflowY: 'auto', fontSize: 13, fontFamily: 'ui-monospace,Menlo,monospace', zIndex: 100, borderLeft: '1px solid #232b37' }
   const h = { fontSize: 11, color: '#7c8492', marginTop: 14, marginBottom: 6, letterSpacing: '.08em' }
   const btn = (on) => ({ padding: '7px 9px', borderRadius: 6, border: `1px solid ${on ? C.warning : '#39424f'}`, background: on ? 'rgba(242,96,0,.18)' : '#1b212b', color: on ? C.warning : '#c3cad4', fontSize: 12, fontFamily: 'inherit', textAlign: 'left' })
@@ -322,7 +428,10 @@ function DevPanel({ ctx, node, demo, setDemo, setCtx, fire, bridge, scale, onClo
     <div style={box}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <b style={{ fontSize: 14 }}>SAVER 시연 패널</b>
-        <button onPointerDown={onClose} style={{ ...btn(false), padding: '4px 8px' }}>닫기</button>
+        <span style={{ display: 'flex', gap: 6 }}>
+          {onMenu && <button onPointerDown={onMenu} style={{ ...btn(false), padding: '4px 8px' }}>메뉴로</button>}
+          <button onPointerDown={onClose} style={{ ...btn(false), padding: '4px 8px' }}>닫기</button>
+        </span>
       </div>
 
       <div style={h}>현재 상태</div>
@@ -337,6 +446,7 @@ function DevPanel({ ctx, node, demo, setDemo, setCtx, fire, bridge, scale, onClo
       <div style={{ background: '#1b212b', borderRadius: 8, padding: 10, lineHeight: 1.6 }}>
         <div style={{ color: bridge.connected ? C.success : C.caution }}>
           ● 브리지 {bridge.connected ? '연결됨' : '미연결 · 로컬 전이'}
+          {mode && <span style={{ color: '#9aa3b0' }}> · {mode === 'unit_demo' ? '결선 시연 모드' : '운용 흐름'}</span>}
         </div>
         <div style={{ color: bridge.linkUp ? C.success : '#7c8492' }}>
           ● Teensy {bridge.linkUp ? '연결됨' : '미연결'}
@@ -365,6 +475,7 @@ function DevPanel({ ctx, node, demo, setDemo, setCtx, fire, bridge, scale, onClo
         <button style={btn(demo.vacuumError)} onPointerDown={() => toggle('vacuumError')}>흡착 오류 (화면08)</button>
         <button style={btn(!!ctx.battery)} onPointerDown={() => setCtx((c) => ({ ...c, battery: c.battery ? false : 'popup' }))}>배터리 부족 (화면20)</button>
         <button style={btn(demo.vacResidual)} onPointerDown={() => toggle('vacResidual')}>음압 잔존 (화면18 대기로 → 17)</button>
+        <button style={btn(demo.forceSim)} onPointerDown={() => toggle('forceSim')}>유닛 화면: 모의값으로 시연 (장치 명령 안 보냄)</button>
       </div>
 
       <div style={h}>탐색 시연 <span style={{ color: '#5b6470' }}>(장치 미연결 전용 · 모의값)</span></div>

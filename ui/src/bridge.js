@@ -17,12 +17,16 @@ import { useEffect, useRef, useState, useCallback } from 'react'
      {type:'link',         connected, port}
      {type:'rejected',     name, node, allowed, reason, mcu, need}
      {type:'search',       phase, reason, points[{x,F,ref,r}], tip_x, D_mm, target_x, pos_x, rule, ...}
-     {type:'config',       aed_pause_warn_s}   (AED 압박 중단 경고 기준, 비어 있으면 경고 안 함)
+     {type:'config',       mode, aed_pause_warn_s, target_bpm, target_depth_mm, force_max_N, vacuum_target_kPa}
+                           mode 'operate'(상태머신 흐름) | 'unit_demo'(결선 시연 모드, D-51). 없으면 operate.
+                           AED 경고 기준과 목표값은 비어 있으면 null
      {type:'radar',        enabled, connected, receiving, rr_bpm, hr_bpm, distance_mm, eapd_mm, floor_set}
                            (MR60BHA2 레이더, 1초마다. 측정 못 했거나 오래된 값은 키가 없다. radarView.js)
+     {type:'unit',         screen, unit, phase, step, reason, mcu}   결선 시연 모드의 유닛 동작 상태(jetson unit_demo.py)
 
    보내는 메시지 (intent, force 외)
      {type:'search', action:'start'|'stop'}   압박점 탐색 시작·중지 (X_SEARCH 에서만)
+     {type:'unit', unit, action:'enter'|'leave'|'start'|'stop'}   결선 시연 모드의 유닛 화면 진입·시작·정지
 
    VITE_WS_URL=off 로 빌드하면 연결하지 않는다(브라우저만으로 보는 체험판).
    ============================================================ */
@@ -42,6 +46,7 @@ export function useBridge({ onState, onRejected } = {}) {
   const [search, setSearch] = useState(null)       // 브리지가 보낸 마지막 탐색 진행
   const [config, setConfig] = useState(null)       // 브리지 설정(aed_pause_warn_s 등)
   const [radar, setRadar] = useState(null)         // 레이더 최신 상태(브리지가 1초마다)
+  const [unit, setUnit] = useState(null)           // 결선 시연 모드의 유닛 동작 상태
 
   const wsRef = useRef(null)
   const cbState = useRef(onState); cbState.current = onState
@@ -87,6 +92,8 @@ export function useBridge({ onState, onRejected } = {}) {
             setConfig(m); break
           case 'radar':
             setRadar(m); break
+          case 'unit':
+            setUnit(m); break
           case 'rejected':
             setRejected(m)
             cbReject.current && cbReject.current(m)
@@ -127,6 +134,14 @@ export function useBridge({ onState, onRejected } = {}) {
 
   const clearSearch = useCallback(() => setSearch(null), [])
 
-  return { connected, linkUp, telemetry, stale, lastError, rejected, search, config, radar,
-           sendIntent, sendForce, sendSearch, clearSearch, url: DISABLED ? '(연결 안 함)' : WS_URL }
+  /** 결선 시연 모드: 유닛 화면 진입·나감과 시작·정지 요청. 장치 동작 판단은 브리지와 Teensy 가 한다. */
+  const sendUnit = useCallback((u, action) => {
+    const ws = wsRef.current
+    if (!ws || ws.readyState !== WebSocket.OPEN) return false
+    ws.send(JSON.stringify({ type: 'unit', unit: u, action }))
+    return true
+  }, [])
+
+  return { connected, linkUp, telemetry, stale, lastError, rejected, search, config, radar, unit,
+           sendIntent, sendForce, sendSearch, clearSearch, sendUnit, url: DISABLED ? '(연결 안 함)' : WS_URL }
 }

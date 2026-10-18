@@ -9,11 +9,12 @@ import { radarView } from '../radarView'
    반력 곡선 F(x), 직전 N 점 평균(기준), 판정선(기준 × (1 − 감소율)), 말단, D, 압박점.
    연결 시: 브리지가 보낸 search 메시지만 그린다(UI 는 계산하지 않는다).
    미연결 시: searchDemo.js 의 모의 데이터. 화면에 '모의 데이터'로 표시한다.
-   시작은 사용자가 '탐색 시작'을 눌러야 한다(진입만으로 장치가 움직이지 않는다). */
+   시작은 사용자가 '탐색 시작'을 눌러야 한다(진입만으로 장치가 움직이지 않는다).
+   결선 시연 메뉴의 구동 화면도 이 화면을 쓴다(App.jsx, D-51). 그때 아래 왼쪽 버튼은 [메뉴]다. */
 
 const INK = '#111827', SUB = '#4b5563', MUTED = '#6b7280', GRID = '#e5e7eb'
 
-export function Screen09({ fire, ctx, search, searchCtl, setPatient, radar = null }) {
+export function Screen09({ fire, ctx, search, searchCtl, setPatient, radar = null, backLabel = '취소', again = false }) {
   const v = searchView(search)
   const rv = radarView(radar)            // 탐색 시작 전 가슴 두께(EAPD)를 레이더 값으로 미리 보인다
   const live = !!(searchCtl && searchCtl.live)
@@ -24,6 +25,7 @@ export function Screen09({ fire, ctx, search, searchCtl, setPatient, radar = nul
   const tried = !!search
   let action
   if (v.running) action = <Btn variant="warning" w={300} h={64} fs={25} onPress={() => searchCtl.stop()}>찾기 중지</Btn>
+  else if (v.done && again) action = <Btn w={300} h={64} fs={25} fw={700} onPress={() => searchCtl.start()}>다시 찾기</Btn>
   else if (v.done) action = <Btn variant="success" w={300} h={64} fs={22} onPress={() => {}}>위치 도착 · 다음 단계</Btn>
   else action = <Btn w={300} h={64} fs={25} fw={700} onPress={() => searchCtl.start()}>{tried ? '다시 찾기' : '찾기 시작'}</Btn>
 
@@ -34,7 +36,7 @@ export function Screen09({ fire, ctx, search, searchCtl, setPatient, radar = nul
     <Light>
       <Header title="압박 위치 찾기" titleSize={28} right={
         <span style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-          {!live && <SimBadge />}
+          {!live && <SimBadge linked={!!(searchCtl && searchCtl.linked)} />}
           {v.encMode === 1 && <EncBadge />}
           <span style={{ display: 'flex', alignItems: 'center', gap: 8, color: status[1], fontWeight: 700 }}>
             <span style={{ width: 12, height: 12, borderRadius: '50%', background: status[1],
@@ -53,7 +55,7 @@ export function Screen09({ fire, ctx, search, searchCtl, setPatient, radar = nul
           </div>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
-          <Btn variant="ghost" w={150} h={64} fs={23} onPress={() => fire(EV.CANCEL)}>취소</Btn>
+          <Btn variant="ghost" w={150} h={64} fs={23} onPress={() => fire(EV.CANCEL)}>{backLabel}</Btn>
           <div style={{ flex: 1, fontSize: 16, color: MUTED, lineHeight: 1.35, textAlign: 'center' }}>
             누르는 부분이 가슴을 {v.rule && v.rule.press_mm ? v.rule.press_mm : '—'} mm 누른 채 이동하며 힘을 잽니다.<br />
             사람 몸에서는 검증되지 않았습니다.
@@ -75,11 +77,11 @@ function EncBadge() {
   )
 }
 
-function SimBadge() {
+function SimBadge({ linked = false }) {
   return (
     <span data-sim style={{ fontSize: 15, fontWeight: 700, color: '#7a5a00', background: '#fff4cc',
       border: `1px solid ${C.caution}`, borderRadius: 999, padding: '4px 12px' }}>
-      모의 데이터 · 장치 미연결
+      {linked ? '모의 데이터 · 장치 명령 없음' : '모의 데이터 · 장치 미연결'}
     </span>
   )
 }

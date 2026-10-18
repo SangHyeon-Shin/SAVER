@@ -48,7 +48,15 @@ const check = (name, ok, detail = '') => {
 ;(async () => {
   console.log('\n── SAVER UI 스모크 테스트 ──\n')
 
-  check('01 부팅 화면 렌더링', await until(has('SAVER'), 3000), T().slice(0, 30))
+  // 결선 시연 메뉴(D-51): 첫 화면은 메뉴다. [전체 UI]를 눌러야 S1 부터 기존 화면 흐름(모형)
+  check('00 첫 화면은 시연 메뉴: 전체 UI, 환자 상태, 압박, 구동, 흡착',
+    await until(() => d.querySelectorAll('[data-unit]').length === 5, 3000)
+    && ['전체 UI', '환자 상태', '압박', '구동', '흡착'].every((t) => has(t)()))
+  check('00 메뉴: 장치 미연결이면 모의 데이터 표시, 전체 UI 는 모형, 장치는 각 화면의 [시작]으로만',
+    has('오프라인 · 모의 데이터')() && has('모형 화면')() && has('[시작]을 눌러야 움직입니다')())
+  tap(d.querySelector('[data-unit="full"]'))
+  check('01 부팅 화면 렌더링', await until(has('시스템 점검 중'), 3000) && has('SAVER')(), T().slice(0, 30))
+  check('01 전체 UI 모형 표시(왼쪽 위 메뉴)', !!d.querySelector('[data-mock-chip]'))
 
   check('02 바퀴 내리기 단계 없음 (바퀴는 평소 내려가 있음, 10/5)', !has('바퀴를 내리')())
   // 한 화면에 지시 하나(D-42): 장치를 끌고 가기 전에 119 신고가 먼저(10/14 팀장) → 이동 → 헤드셋(D-43)
@@ -458,6 +466,115 @@ const check = (name, ok, detail = '') => {
   const pv3 = createVoice({ prompts: VPP, makeAudio: mk })
   pv3.enter('S3S4'); pv3.event('battery_low'); pv3.event('battery_low')
   check('재생기: 같은 경고가 겹치면 한 번만', pv3.played.length === 1 && (objs[objs.length - 1].onended(), objs[objs.length - 1].onended(), objs[objs.length - 1].onended(), pv3.played.filter((i) => i === 'V35').length === 1), pv3.played.join())
+  // ── 결선 시연 메뉴와 유닛 화면 (D-51) ──
+  const UV = await import('../src/units.js')
+  const pvLive = UV.patientView({ ppg_hr_bpm: 71.6, spo2_pct: 97.2 }, false, { enabled: true, connected: true, receiving: true, rr_bpm: 14 })
+  check('유닛 표시: 환자 상태 실측(호흡은 레이더, 심박·산소포화도는 손가락 센서), 맥박 신호 있음',
+    pvLive.rr === '14 회/분' && pvLive.hr === '72 회/분' && pvLive.spo2 === '97 %' && pvLive.pulse && pvLive.rrNum === 14)
+  const pvNone = UV.patientView({ state: 'IDLE' }, false, null)
+  check('유닛 표시: 손가락 센서 값이 없으면 —, 맥박 신호 없음(0 으로 채우지 않음)',
+    pvNone.hr === UV.NA && pvNone.spo2 === UV.NA && !pvNone.pulse && pvNone.rr === UV.NA && pvNone.rrNum === null)
+  check('유닛 표시: stale 이면 손가락 센서 값을 쓰지 않음, 0 과 범위 밖 산소포화도는 —',
+    UV.patientView({ ppg_hr_bpm: 70, spo2_pct: 97 }, true, null).hr === UV.NA
+    && UV.patientView({ ppg_hr_bpm: 0, spo2_pct: 130 }, false, null).spo2 === UV.NA
+    && !UV.patientView({ ppg_hr_bpm: 0 }, false, null).pulse)
+  const cvL = UV.compressView({ state: 'CPR_RUNNING', cp_depth_mm: 49.24, cp_rate_cpm: 109.6, cp_force_N: 412.3 }, false,
+    { target_depth_mm: 50, target_bpm: 110, force_max_N: 600 })
+  check('유닛 표시: 압박 실측(깊이 mm, 속도 회/분, 강도 N), 목표값은 브리지 설정에서',
+    cvL.running && cvL.depth === '49.2 mm' && cvL.rate === '110 회/분' && cvL.force === '412 N' && cvL.forceKg === '약 42 kgf'
+    && cvL.targetDepth === 50 && cvL.forceMax === 600, JSON.stringify(cvL))
+  const cvN = UV.compressView({ state: 'HOMED' }, false, { target_depth_mm: null, target_bpm: 110 })
+  check('유닛 표시: 압박 값이 없으면 —, 목표 깊이 미설정은 null',
+    !cvN.running && cvN.depth === UV.NA && cvN.force === UV.NA && cvN.targetDepth === null && cvN.targetBpm === 110)
+  check('유닛 표시: 압박 횟수는 받은 속도를 시간에 대해 더함(값 없음, 2초 넘게 끊긴 구간은 더하지 않음)',
+    Math.abs(UV.countStep(0, 120, 1) - 2) < 1e-9 && UV.countStep(5, null, 1) === 5 && UV.countStep(5, 110, 3) === 5)
+  const vvL = UV.vacuumView({ state: 'VACUUM_HOLD', vac_kPa: -23.04, vac_leak: false }, false, { vacuum_target_kPa: -22.5 })
+  check('유닛 표시: 흡착 음압, 목표, 고정 상태, 누설', vvL.kPaText === '-23.0 kPa' && vvL.targetText === '-22.5 kPa'
+    && vvL.holding && vvL.leakText === '없음', JSON.stringify(vvL))
+  check('유닛 표시: 목표 음압 미설정, 음압 없음은 —', UV.vacuumView({}, false, {}).targetText === '미설정'
+    && UV.vacuumView({}, false, {}).kPaText === UV.NA && UV.vacuumView({ vac_kPa: -20 }, true, {}).kPaText === UV.NA)
+  check('유닛 표시: 파형 속도는 받은 분당 횟수에 맞춤, 값이 없으면 정지', UV.waveDur(110, 150) === '4.36s' && UV.waveDur(null, 150) === null)
+  check('유닛 사유 문구: 거부 사유를 쉬운 말로, 오류 코드는 그대로',
+    UV.unitReasonText('NOT_READY').includes('시연용 펌웨어') && UV.unitReasonText('3-CU-021') === '장치 오류 3-CU-021'
+    && UV.unitReasonText('TARGET_NOT_SET').includes('목표 깊이') && UV.unitReasonText('FAULT:3-MU-002').includes('3-MU-002'))
+  check('유닛 상태: 브리지 단계 → 화면 문구, 다른 유닛 상태는 대기',
+    UV.phaseView({ unit: 'compress', phase: 'starting', step: 'HOME' }, 'compress').text === '원점 복귀 중'
+    && UV.phaseView({ unit: 'vacuum', phase: 'running' }, 'compress').phase === 'idle'
+    && UV.phaseView({ unit: 'compress', phase: 'failed', reason: 'NOT_READY' }, 'compress').note.includes('시연용 펌웨어'))
+
+  const dm = openDom('?speed=8').window.document
+  const TM = () => (dm.querySelector('#root')?.textContent || '').replace(/\s+/g, ' ')
+  const BM = (s) => [...dm.querySelectorAll('#root button')].find((b) => b.textContent.trim() === s)
+  const ust = (label) => dm.querySelector(`[data-stat="${label}"]`)?.textContent
+  const up = (el) => el && el.dispatchEvent(new dom.window.Event('pointerup', { bubbles: true }))
+  const menuBack = () => until(() => dm.querySelectorAll('[data-unit]').length === 5, 2500)
+  await menuBack()
+  tap(dm.querySelector('[data-unit="patient"]'))
+  check('메뉴 → 환자 상태: 호흡·심박수·산소포화도 칸, 모의 데이터 표시, 맥박 신호 대기',
+    await until(() => TM().includes('환자 상태'), 3000) && TM().includes('산소포화도') && !!dm.querySelector('[data-source="sim"]')
+    && TM().includes('맥박 신호를 기다리고'))
+  check('환자 상태: 모의 호흡·손가락을 켜기 전에는 값 없음(—)',
+    ust('심박수 / Heart rate') === '—' && ust('산소포화도 / SpO₂') === '—' && ust('호흡수 / Respiration') === '—')
+  tap(dm.querySelectorAll('[data-simtoggle]')[1])
+  tap(dm.querySelectorAll('[data-simtoggle]')[0])
+  check('환자 상태: 값이 오면 심박수·산소포화도·호흡수 표시, 맥박 신호 알림(회복 판정은 사람이)',
+    await until(() => / 회\/분/.test(ust('심박수 / Heart rate') || '') && / %/.test(ust('산소포화도 / SpO₂') || '')
+      && / 회\/분/.test(ust('호흡수 / Respiration') || ''), 3000) && TM().includes('맥박 신호가 잡힙니다'))
+  tap(BM('회복을 확인했습니다'))
+  check('환자 상태: [회복을 확인했습니다] → 자발순환 회복 표시(구조자 확인)', await until(() => TM().includes('자발순환 회복(ROSC) · 구조자 확인'), 2000))
+  tap(BM('메뉴'))
+  check('환자 상태 → [메뉴] → 시연 메뉴', await menuBack())
+
+  tap(dm.querySelector('[data-unit="compress"]'))
+  await until(() => TM().includes('압박 리듬'), 3000)
+  const hold = dm.querySelector('[data-hold]')
+  check('압박: 진입만으로 시작 안 함, 목표값 칸, [길게 눌러 압박 시작]',
+    !TM().includes('만지지 마세요') && !!hold && hold.textContent.includes('길게 눌러') && ust('압박 횟수') === '—')
+  tap(hold); up(hold)
+  await wait(1300)
+  check('압박: 짧게 눌렀다 떼면 시작하지 않음(관람객이 스쳐도)', !TM().includes('만지지 마세요'))
+  tap(dm.querySelector('[data-hold]'))
+  check('압박: 1초 길게 누르면 시작(모의), 깊이·속도·강도 표시',
+    await until(() => TM().includes('만지지 마세요') && / mm$/.test(ust('압박 깊이 / Depth') || '')
+      && /회\/분$/.test(ust('압박 속도 / Rate') || '') && / N$/.test(ust('압박 강도 / Force') || ''), 4000),
+    `${ust('압박 깊이 / Depth')} ${ust('압박 속도 / Rate')} ${ust('압박 강도 / Force')}`)
+  check('압박: 경과 시간과 압박 횟수(약 N회)가 늘어남',
+    await until(() => /^약 [1-9]\d*회$/.test(ust('압박 횟수') || '') && ust('경과 시간') !== '0:00', 5000),
+    `${ust('경과 시간')} ${ust('압박 횟수')}`)
+  check('압박: 압박 중에는 시작 버튼 비활성', dm.querySelector('[data-hold]').disabled)
+  tap(BM('정지'))
+  check('압박: [정지] → 멈춤, 마지막 경과 시간 유지', await until(() => !TM().includes('만지지 마세요'), 3000) && ust('경과 시간') !== '0:00')
+  tap(BM('메뉴'))
+
+  await menuBack()
+  tap(dm.querySelector('[data-unit="vacuum"]'))
+  await until(() => TM().includes('흡착 고정'), 3000)
+  check('흡착: 진입만으로 시작 안 함, 해제 비활성', !TM().includes('바닥 고정 완료') && BM('해제').disabled)
+  tap(BM('흡착 시작'))
+  check('흡착: [흡착 시작] → 음압이 목표 쪽으로, 고정 완료 표시(모의)',
+    await until(() => TM().includes('바닥 고정 완료'), 6000) && /^-2\d\.\d kPa$/.test(ust('현재 음압 / Vacuum') || ''), ust('현재 음압 / Vacuum'))
+  tap(BM('해제'))
+  check('흡착: [해제] → 고정 해제', await until(() => !TM().includes('바닥 고정 완료'), 6000))
+  tap(BM('메뉴'))
+
+  await menuBack()
+  tap(dm.querySelector('[data-unit="drive"]'))
+  check('구동: 압박 위치 찾기 화면, 왼쪽 아래 [메뉴], 진입만으로 시작 안 함',
+    await until(() => TM().includes('압박 위치 찾기'), 3000) && !!BM('메뉴') && !BM('취소') && dm.querySelectorAll('[data-pt]').length === 0)
+  tap(BM('찾기 시작'))
+  check('구동: 찾기 시작 → 반력 곡선(모의 데이터)', await until(() => dm.querySelectorAll('[data-pt]').length >= 5, 8000) && TM().includes('모의 데이터'))
+  tap(BM('메뉴'))
+  check('구동 → [메뉴] → 시연 메뉴', await menuBack())
+
+  tap(dm.querySelector('[data-unit="full"]'))
+  check('전체 UI: 다시 들어가면 처음(부팅 화면)부터, 모형 표시', await until(() => TM().includes('시스템 점검 중'), 3000) && !!dm.querySelector('[data-mock-chip]'))
+  await until(() => TM().includes('119에 신고하세요'), 6000)
+  const hs = dm.querySelector('[data-menu-hotspot]')
+  tap(hs); up(hs)
+  check('전체 UI 모형: 왼쪽 위를 짧게 누르면 시연 메뉴로', await menuBack())
+  const du = openDom('?unit=vacuum').window.document
+  check('바로가기: ?unit=vacuum 은 흡착 화면', await until(() => (du.querySelector('#root')?.textContent || '').includes('흡착 고정'), 3000))
+
   const vb = d.querySelector('#root [data-voice]')
   check('화면: 헤더에 다시 듣기와 소리 끄기 버튼', !!vb && vb.textContent.includes('다시 듣기') && vb.querySelectorAll('button').length === 2)
   // 10/13: 운영체제 애니메이션 효과를 끈 PC에서 진행 막대와 파형이 멈춰 장치가 멈춘 것처럼 보였다(index.css 주석)
