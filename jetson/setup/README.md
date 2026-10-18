@@ -67,6 +67,8 @@ git 이 없는 새 젯팩이면 `sudo apt-get install -y git` 을 먼저 하거�
 | `--radar-port PATH` | MR60BHA2 레이더 포트(기본 `/dev/saver-radar` = USB 로 꽂은 XIAO 키트). 레이더 UART 를 40핀에 직접 이으면 `/dev/ttyTHS1`(8번 TX, 10번 RX) |
 | `--no-radar` | 레이더를 쓰지 않는다(브리지에 `--radar` 를 주지 않음) |
 | `--no-fan` | 냉각 팬 자동 제어를 설치하지 않는다. 이미 있으면 끄고 커널 자동 제어로 돌린다 |
+| `--unit-demo` | 결선 시연 모드(D-51): 브리지가 S1 자동 초기화(ARM, HOME) 없이 돌고, UI 첫 화면이 시연 메뉴(전체 UI, 환자 상태, 압박, 구동, 흡착)다. 장치는 유닛 화면의 [시작]으로만 움직인다 |
+| `--config PATH` | 브리지 설정 파일(기본: `jetson/config.json` 이 있으면 그것). 결선 벤치 시연은 `jetson/config.bench.json`(팀장 확인 뒤). `config.sim.json` 은 거부한다 |
 | `--branch`, `--repo-dir` | 복제 브랜치, 저장소 위치 |
 | `--dry-run` | 바꾸지 않고 할 일만 출력 |
 

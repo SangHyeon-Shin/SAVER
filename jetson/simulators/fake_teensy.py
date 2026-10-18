@@ -15,6 +15,7 @@ v1.1 초안(주행 탐색, bid·aid, mot)은 fake_teensy_v11.py 에 있습니다
   python3 fake_teensy.py --port /tmp/ttyFAKE  # 심볼릭 링크까지 생성
   python3 fake_teensy.py --scenario overcurrent@15
   python3 fake_teensy.py --fw 1.1 --sim-settings      # v1.1 초안, 시뮬레이션 설정으로 탐색 명령 허용
+  python3 fake_teensy.py --bench              # 결선 시연 제안: 흡착 없이 압박 시연 허용(실물 펌웨어 미구현, D-51)
 
 ※ 백그라운드(&)로 돌리려면 stdin 을 끊어야 합니다. 터미널을 읽는 백그라운드
    프로세스는 SIGTTIN 으로 정지됩니다. 아래 중 하나를 쓰세요.
@@ -53,7 +54,7 @@ MAX_LINE = 512
 
 class FakeTeensy(object):
 
-    def __init__(self, tel_hz=20, seed=None):
+    def __init__(self, tel_hz=20, seed=None, bench=False):
         self.master, self.slave = pty.openpty()
         # 실제 시리얼처럼 raw 모드로. 기본 pty 는 에코가 켜져 있어서
         # 자기가 보낸 텔레메트리를 되읽어 명령과 뒤엉킨다(→ 1-CM-003 유발).
@@ -75,6 +76,10 @@ class FakeTeensy(object):
 
         self.target_bpm = 110.0
         self.target_depth = 0.0      # SET_TARGET 전에는 0 → START_CPR 거부
+        self.vacuum = False          # 음압 출력(VACUUM_ON 완료 ~ VACUUM_OFF)
+        # 결선 시연 제안(D-51, 한건민 합의 전, 실물 펌웨어 미구현): 흡착 없이 HOMED 에서 START_CPR 을 받는다.
+        # 기본(False)은 명세 v1.0 §5 그대로 CPR_READY 에서만 받는다
+        self.bench = bench
         self.t0 = time.time()
         self.running = True
         self.lock = threading.Lock()
@@ -143,7 +148,7 @@ class FakeTeensy(object):
             m["cp_force_N"] = 0.0
             m["cp_motor_i_A"] = 0.1
 
-        if self.state in ("VACUUM_HOLD", "CPR_READY", "CPR_RUNNING", "CPR_PAUSED", "FAULT"):
+        if self.vacuum:
             base = -29.5 if not self.leak else -18.0
             m["vac_kPa"] = round(base + self.rng.uniform(-0.4, 0.4), 2)
         else:
@@ -229,6 +234,7 @@ class FakeTeensy(object):
             threading.Timer(1.2, self._vacuum_ok).start()
         elif cmd == "VACUUM_OFF":
             self.leak = False
+            self.vacuum = False
             if self.state in ("VACUUM_HOLD", "CPR_READY"):
                 self.state = "HOMED"
             self.ack(seq)
@@ -250,7 +256,8 @@ class FakeTeensy(object):
             self.ack(seq)
             threading.Timer(1.0, self.evt, ["TRIAL_RESULT"]).start()
         elif cmd == "START_CPR":
-            if not self.require(seq, ("CPR_READY",), "NOT_READY"):
+            need = ("CPR_READY", "HOMED") if self.bench else ("CPR_READY",)
+            if not self.require(seq, need, "NOT_READY"):
                 return
             if self.target_depth <= 0:            # 미확정 목표값으로 구동 금지
                 self.ack(seq, False, "2-CU-012", "TARGET_NOT_SET")
@@ -295,6 +302,7 @@ class FakeTeensy(object):
     def _vacuum_ok(self):
         if self.state == "HOMED":
             self.state = "VACUUM_HOLD"
+            self.vacuum = True
             self.evt("VACUUM_OK")
 
     def _scan_result(self, points):
@@ -326,6 +334,7 @@ class FakeTeensy(object):
         elif what == "ok":
             self.dropped = False
             self.leak = False
+            self.vacuum = False
             self.estop = False
             self.fault = None
             self.tel_period = 1.0 / 20
@@ -381,6 +390,8 @@ def main():
     ap.add_argument("--sim-settings", nargs="?", const="__default__", default=None,
                     help="v1.1 설정값 JSON(시뮬레이션 전용). 값 없이 쓰면 teensy_settings.sim.json")
     ap.add_argument("--time-scale", type=float, default=1.0, help="v1.1 동작 소요 시간 배율")
+    ap.add_argument("--bench", action="store_true",
+                    help="결선 시연 제안(D-51): 흡착 없이 HOMED 에서 START_CPR 허용. 실물 펌웨어에는 아직 없다(한건민 합의 전)")
     a = ap.parse_args()
 
     if a.fw == "1.1":
@@ -395,7 +406,7 @@ def main():
             print("[주의] 시뮬레이션 설정을 불러왔습니다(%s). 실기에 쓰지 마세요." % path)
         fake = FakeTeensy11(tel_hz=a.hz, seed=a.seed, settings=settings, time_scale=a.time_scale)
     else:
-        fake = FakeTeensy(tel_hz=a.hz, seed=a.seed)
+        fake = FakeTeensy(tel_hz=a.hz, seed=a.seed, bench=a.bench)
     link = None
     if a.port:
         try:

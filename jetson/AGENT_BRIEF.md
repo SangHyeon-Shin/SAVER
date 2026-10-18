@@ -25,7 +25,7 @@
 | Node.js | 없다. `ui/` 를 고쳐도 젯슨에서 빌드할 수 없다. PC 에서 `cd ui && npm run bundle:jetson` 뒤 `jetson/ui_dist` 를 커밋한다 |
 | Teensy 4.1 | `/dev/saver-teensy`(udev, USB 16c0:0483) |
 | 레이더 키트 | `/dev/saver-radar`(udev, XIAO ESP32C6 303a:1001). 레이더 UART 를 40핀에 직결하면 `/dev/ttyTHS1` |
-| 브리지 서비스 | `saver-bridge.service`: `python3 -m saver.bridge --serial /dev/saver-teensy --serve jetson/ui_dist`, UI http 8080, WebSocket 8765, 기록 `~/saver_logs`, `--radar /dev/saver-radar`. `--config jetson/config.json` 은 **설치할 때 그 파일이 있었을 때만** 붙는다 |
+| 브리지 서비스 | `saver-bridge.service`: `python3 -m saver.bridge --serial /dev/saver-teensy --serve jetson/ui_dist`, UI http 8080, WebSocket 8765, 기록 `~/saver_logs`, `--radar /dev/saver-radar`. `--config jetson/config.json` 은 **설치할 때 그 파일이 있었을 때만** 붙는다. 결선 시연 모드는 설치 스크립트 `--unit-demo`(와 `--config jetson/config.bench.json`)로 켠다(D-51) |
 | 냉각 팬 | `saver-fan.service`, 설정 `/etc/saver/fan.json` |
 | 키오스크 | `chromium-browser --kiosk` (`saver-kiosk`) |
 | 카메라 | 미착수(코드 없음) |
@@ -39,7 +39,7 @@
 | `saver-radar --seconds 15`, `saver-radar --dump --seconds 10` | 레이더 값, 원본 바이트와 자료 종류. 브리지가 돌면 실행을 거부한다 | 앞의 `saver-stop` 은 장치가 멈춰 있을 때만 |
 | `saver-radar --ui --seconds 60` | 레이더 시험 화면(웹 8090): 호흡수, 심박수, 거리 cm, EAPD(`--floor` 를 줬을 때). 장치를 움직이지 않는다. 젯슨 화면에 창을 띄우는 `--open` 은 사람이 화면 앞에 있을 때 | 위와 같음 |
 | `saver-test` | 자동 시험(`jetson/tests/test_all.py`) | 없이 |
-| `saver-start` | 브리지와 키오스크 시작. **브리지가 S1 에서 Teensy 에 ARM, HOME 을 보내 장치가 움직인다** | 필요 |
+| `saver-start` | 브리지와 키오스크 시작. **운용 모드면 브리지가 S1 에서 Teensy 에 ARM, HOME 을 보내 장치가 움직인다.** 결선 시연 모드(`--unit-demo`)면 자동 명령 없이 시연 메뉴가 뜬다 | 필요 |
 | `saver-update` | `git pull --ff-only` 뒤 브리지 재시작 | 브리지가 돌고 있으면 필요 |
 | `saver-fan test` | 팬 5초 최대(비밀번호를 묻는다) | 필요 |
 | `saver-off` | 젯슨 끄기 | 사람만 |
@@ -101,6 +101,7 @@
 |---|---|
 | `jetson/config.sim.json` | 시뮬레이션 전용. 의학적 근거가 없다. 실기에 쓰지 않는다 |
 | `jetson/config.json` | 확정값. 없으면 미확정 값은 0 으로 두고 Teensy 에 보내지 않는다(`START_CPR` 거부가 정상). 만들거나 바꾸는 일은 사람 확인 뒤에 하고, 서비스가 읽게 하려면 설치 스크립트를 다시 실행한다 |
+| `jetson/config.bench.json` | 결선 벤치 시연 설정(110 회/분, 50 mm, 600 N, -22.5 kPa, PROJECT_STATE §2). 결선 시연 모드에서 팀장 확인 뒤 `--config` 로 쓴다(D-51) |
 | `.claude/settings.local.json` | 이 젯슨에서만 쓰는 Claude Code 설정(저장소에 올라가지 않는다). 저장소 `.claude/settings.json` 이 켜는 CAD 플러그인 text-to-cad 는 클라우드 작업용이라 젯슨에서는 끈다: `{"enabledPlugins": {"text-to-cad@earthtojake": false}}`. 파일이 없으면 이 내용으로 만들고, 세션을 시작할 때 earthtojake 마켓플레이스 설치를 물으면 거절한다 |
 
 미확정 값은 추측으로 채우지 않는다. 0 이나 null 로 두고 그 값을 쓰는 기능을 켜지 않는다.
@@ -149,3 +150,4 @@ cd ~/SAVER/jetson && python3 tests/test_all.py
 | 3 | 실물 Teensy 연결 확인 | `saver-status` 의 S1 점검 결과. 첫 연결은 모터와 블로워 전원을 끈 상태에서 |
 | 4 | 키오스크 표시 확인 | 레이더 값은 S8, S9 화면과 개발 패널(D 키) |
 | 5 | 냉각 팬 실기 확인 | `saver-fan`, `saver-fan test` |
+| 6 | 결선 시연 모드(10/18, D-51) | 팀장 확인 뒤 `bash setup/setup_jetson.sh --unit-demo --config jetson/config.bench.json --skip-apt --no-claude`. 키오스크 첫 화면이 시연 메뉴인지, 유닛 화면 [시작]으로만 장치가 움직이는지(첫 시도는 모터, 블로워 전원 끈 채). 펌웨어 요청 `docs/unit_demo_firmware.md` |

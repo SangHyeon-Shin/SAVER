@@ -39,7 +39,7 @@
 # ============================================================================
 set -Eeuo pipefail
 
-SCRIPT_VERSION="2026-10-15.5"
+SCRIPT_VERSION="2026-10-18.1"
 DEFAULT_REPO_URL="https://github.com/SangHyeon-Shin/SAVER.git"
 # jetson/, ui/ 최신 작업 브랜치(10/14 기준 main 은 10/4 이후 변경이 반영되지 않았다)
 DEFAULT_BRANCH="claude/saver-project-onboarding-xpmdhw"
@@ -56,6 +56,8 @@ MAXN=0
 RADAR=1
 RADAR_PORT="${SAVER_RADAR_PORT:-/dev/saver-radar}"   # MR60BHA2 키트(XIAO ESP32C6 USB, 전달 펌웨어). 직결이면 /dev/ttyTHS1
 FAN=1
+UNIT_DEMO=0
+CONFIG_FILE=""
 BRANCH="${SAVER_BRANCH:-$DEFAULT_BRANCH}"
 REPO_URL="${SAVER_REPO_URL:-$DEFAULT_REPO_URL}"
 REPO_DIR="${SAVER_REPO_DIR:-}"
@@ -76,6 +78,10 @@ SAVER 젯슨 나노 일괄 설정 ($SCRIPT_VERSION)
                      레이더 UART 를 40핀에 직접 이으면 /dev/ttyTHS1)
   --no-radar         레이더를 쓰지 않는다
   --no-fan           냉각 팬 자동 제어(saver-fan)를 설치하지 않는다(이미 있으면 끈다)
+  --unit-demo        결선 시연 모드(D-51): 브리지가 상태머신 흐름(S1 자동 ARM, HOME)을 돌리지 않고,
+                     UI 첫 화면이 시연 메뉴(전체 UI, 환자 상태, 압박, 구동, 흡착)다
+  --config PATH      브리지 설정 파일(기본: jetson/config.json 이 있으면 그것). 결선 벤치 시연은
+                     jetson/config.bench.json (팀장 확인 뒤)
   --branch NAME      저장소를 새로 복제할 때 쓸 브랜치 (기본: $DEFAULT_BRANCH)
   --repo-dir DIR     저장소 위치를 직접 지정
   --dry-run          바꾸지 않고 할 일만 출력
@@ -95,6 +101,8 @@ while [ $# -gt 0 ]; do
     --no-radar) RADAR=0 ;;
     --no-fan) FAN=0 ;;
     --radar-port) RADAR_PORT="${2:?--radar-port 뒤에 경로}"; shift ;;
+    --unit-demo) UNIT_DEMO=1 ;;
+    --config) CONFIG_FILE="${2:?--config 뒤에 경로}"; shift ;;
     --dry-run) DRY_RUN=1 ;;
     --branch) BRANCH="${2:?--branch 뒤에 이름}"; shift ;;
     --repo-dir) REPO_DIR="${2:?--repo-dir 뒤에 경로}"; shift ;;
@@ -339,11 +347,22 @@ if [ "$RADAR" -eq 1 ]; then
   [ -e "$RADAR_PORT" ] || [ "$DRY_RUN" -eq 1 ] || warn "$RADAR_PORT 가 지금은 없음. 연결하면 브리지가 스스로 연다"
 fi
 CONFIG_ARG=""
-if [ -f "$JETSON_DIR/config.json" ]; then
+if [ -n "$CONFIG_FILE" ]; then
+  case "$CONFIG_FILE" in /*) ;; *) CONFIG_FILE="$REPO_DIR/$CONFIG_FILE" ;; esac
+  [ "$DRY_RUN" -eq 1 ] || [ -f "$CONFIG_FILE" ] || die "설정 파일이 없습니다: $CONFIG_FILE"
+  case "$CONFIG_FILE" in *config.sim.json) die "config.sim.json 은 시뮬레이션 전용이라 서비스에 쓰지 않습니다" ;; esac
+  CONFIG_ARG=" --config $CONFIG_FILE"
+  info "설정 $CONFIG_FILE 사용"
+elif [ -f "$JETSON_DIR/config.json" ]; then
   CONFIG_ARG=" --config $JETSON_DIR/config.json"
   info "확정 설정 jetson/config.json 사용"
 else
   info "jetson/config.json 없음: 미확정 값은 0 으로 두고 보내지 않는다(START_CPR 거부가 정상, config.sim.json 은 쓰지 않음)"
+fi
+MODE_ARG=""
+if [ "$UNIT_DEMO" -eq 1 ]; then
+  MODE_ARG=" --unit-demo"
+  info "결선 시연 모드: S1 자동 초기화(ARM, HOME) 없음. 장치는 UI 유닛 화면의 [시작]으로만 움직인다"
 fi
 if [ -f "$UI_DIST/index.html" ] && [ -d "$REPO_DIR/.git" ] && [ -f "$UI_DIST/BUILD_INFO.json" ]; then
   B_UI="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("ui_tree",""))' "$UI_DIST/BUILD_INFO.json")"
@@ -361,8 +380,9 @@ fi
 PY_BIN="$(command -v python3)"
 write_root /etc/systemd/system/saver-bridge.service 0644 <<EOF
 # SAVER 젯슨 브리지. jetson/setup/setup_jetson.sh 가 만든다.
-# 장치에 연결되면 S1 초기화(PING, GET_STATUS, ARM, HOME)를 자동으로 보낸다. 종료 화면의 [대기로]도 S1 로 돌아가
-# 같은 초기화를 다시 한다(상태머신 v2.5). 압박은 화면에서 사람이 시작해야만 한다.
+# 운용 흐름: 장치에 연결되면 S1 초기화(PING, GET_STATUS, ARM, HOME)를 자동으로 보낸다. 종료 화면의 [대기로]도 S1 로
+# 돌아가 같은 초기화를 다시 한다(상태머신 v2.5). 압박은 화면에서 사람이 시작해야만 한다.
+# 결선 시연 모드(--unit-demo, D-51): 자동 초기화 없음. 장치는 유닛 화면의 [시작]으로만 움직인다.
 [Unit]
 Description=SAVER Jetson bridge (state machine, Teensy USB, UI :$HTTP_PORT, WebSocket :$WS_PORT)
 After=network.target
@@ -379,7 +399,7 @@ Environment=LANG=C.UTF-8
 Environment=LC_ALL=C.UTF-8
 Environment=PYTHONIOENCODING=utf-8
 Environment=PYTHONUNBUFFERED=1
-ExecStart=$PY_BIN -m saver.bridge --serial /dev/saver-teensy --serve $UI_DIST --http-port $HTTP_PORT --port $WS_PORT --logdir $LOG_DIR$CONFIG_ARG$RADAR_ARG
+ExecStart=$PY_BIN -m saver.bridge --serial /dev/saver-teensy --serve $UI_DIST --http-port $HTTP_PORT --port $WS_PORT --logdir $LOG_DIR$CONFIG_ARG$RADAR_ARG$MODE_ARG
 Restart=on-failure
 RestartSec=3
 

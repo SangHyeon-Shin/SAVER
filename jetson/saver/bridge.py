@@ -13,12 +13,18 @@
   UI ← {"type":"search", ...}                    탐색 진행 (반력 곡선, 판정, D, 압박점)
   UI ← {"type":"radar", ...}                     MR60BHA2 레이더(1초마다): 호흡수, 심박수, 거리, EAPD.
                                                  측정 못 했거나 오래된 값은 보내지 않는다(radar.py)
+  UI ← {"type":"config", "mode":"operate"|"unit_demo", 목표값...}
+
+결선 시연 모드(--unit-demo, D-51): 상태머신 흐름(S1 자동 초기화 포함)을 돌리지 않는다.
+  UI → {"type":"unit","unit":"patient"|"compress"|"drive"|"vacuum","action":"enter"|"leave"|"start"|"stop"}
+  UI ← {"type":"unit", screen, unit, phase, step, reason, mcu}   (unit_demo.py)
 
 실행
   python3 -m saver.bridge                                  # 시리얼 없이 (UI 시험)
   python3 -m saver.bridge --serial /tmp/ttyFAKE            # 가짜 Teensy 연결
   python3 -m saver.bridge --serial /dev/ttyACM0 --serve dist --http-port 8080
   python3 -m saver.bridge --radar /dev/ttyTHS1             # MR60BHA2 레이더(40핀 UART)
+  python3 -m saver.bridge --unit-demo --serial /tmp/ttyFAKE   # 결선 시연 모드(유닛별 시연)
 """
 import argparse
 import asyncio
@@ -44,6 +50,7 @@ if __package__ in (None, ""):                     # 직접 실행 대응
     from saver.search import SearchRunner, PARAM_KEYS as SEARCH_KEYS
     from saver.init_seq import InitRunner
     from saver.radar import RadarLink
+    from saver.unit_demo import UnitDemo
 else:
     from . import protocol as P
     from .state_machine import StateMachine
@@ -52,6 +59,7 @@ else:
     from .search import SearchRunner, PARAM_KEYS as SEARCH_KEYS
     from .init_seq import InitRunner
     from .radar import RadarLink
+    from .unit_demo import UnitDemo
 
 
 # ─────────────────────────────────────────────────────────────
@@ -126,7 +134,8 @@ def warn_unset():
     miss = [k for k, v in CONFIG.items() if not v and k != "sim_eapd_mm"]
     if miss:
         print("[주의] 미확정 설정값: %s" % ", ".join(miss))
-        print("       확정 전까지 압박 개시(START_CPR)는 Teensy가 거부합니다. 정상입니다.")
+    if "target_depth_mm" in miss:
+        print("       목표 깊이가 확정되기 전까지 압박 개시(START_CPR)는 Teensy가 거부합니다. 정상입니다.")
 
 
 class Bridge(object):
@@ -136,6 +145,8 @@ class Bridge(object):
 
     def __init__(self, args):
         self.args = args
+        # 결선 시연 모드(D-51): 상태머신 흐름을 돌리지 않고 유닛 화면의 시작·정지만 장치로 보낸다
+        self.unit_demo = bool(getattr(args, "unit_demo", False))
         self.clients = set()
         self.loop = None
         self.log = CsvLogger(args.logdir)
@@ -171,6 +182,8 @@ class Bridge(object):
         # S1 초기화 절차(v2.4, D-46): ACK 와 장치 상태를 보며 PING → GET_STATUS → ARM/HOME 을 차례로 보낸다
         self.init = InitRunner(self.link, fire=lambda ev, payload=None: self.fsm.fire(ev, payload),
                                cfg=CONFIG, logger=self.log)
+        self.units = UnitDemo(self.link, CONFIG, search=self.search, eapd=self._unit_eapd,
+                              push=self.push, logger=self.log)
 
     # ── 브로드캐스트 ────────────────────────────────────────
     def push(self, msg):
@@ -233,10 +246,13 @@ class Bridge(object):
 
     def _on_tel(self, msg):
         self.log.telemetry(msg)
-        self.init.on_tel(msg)
-        r = self.fsm.retry_device()          # 상태 조건에 막혀 보류한 장치 이벤트(fire_device)
-        if r and r[0] == "expired":
-            self.log.event("sys", "DEVICE_EVENT_EXPIRED:" + r[1])
+        if self.unit_demo:
+            self.units.on_tel(msg)
+        else:
+            self.init.on_tel(msg)
+            r = self.fsm.retry_device()          # 상태 조건에 막혀 보류한 장치 이벤트(fire_device)
+            if r and r[0] == "expired":
+                self.log.event("sys", "DEVICE_EVENT_EXPIRED:" + r[1])
         out = dict(msg)
         out["type"] = "telemetry"
         out["stale"] = False
@@ -250,7 +266,10 @@ class Bridge(object):
 
     def _on_ack(self, msg):
         self.search.on_ack(msg)
-        self.init.on_ack(msg)
+        if self.unit_demo:
+            self.units.on_ack(msg)
+        else:
+            self.init.on_ack(msg)
 
     def _on_search(self, snap):
         out = dict(snap)
@@ -260,6 +279,9 @@ class Bridge(object):
 
     def _on_search_done(self, ok, snap):
         self._on_search(snap)
+        if self.unit_demo:
+            self.units.on_search_done(ok, snap)   # 구동 시연: 상태머신 이벤트를 내지 않는다
+            return
         if self.fsm.node != "X_SEARCH":
             return
         if ok:
@@ -271,13 +293,16 @@ class Bridge(object):
 
     def _on_evt(self, msg):
         self.search.on_event(msg)
-        self.init.on_event(msg)
         name = msg.get("evt", "")
         self.log.event("mcu", name)
-        # 장비가 UI 상태를 바꿔야 하는 경우만 상태머신에 주입
-        mapping = {"VACUUM_OK": "VACUUM_OK", "VACUUM_FAIL": "VACUUM_ERROR"}
-        if name in mapping:
-            self.fsm.fire_device(mapping[name], P.STALE_S)
+        if self.unit_demo:
+            self.units.on_event(msg)
+        else:
+            self.init.on_event(msg)
+            # 장비가 UI 상태를 바꿔야 하는 경우만 상태머신에 주입
+            mapping = {"VACUUM_OK": "VACUUM_OK", "VACUUM_FAIL": "VACUUM_ERROR"}
+            if name in mapping:
+                self.fsm.fire_device(mapping[name], P.STALE_S)
         out = dict(msg)
         out["type"] = "device_event"
         self.push(out)
@@ -289,6 +314,9 @@ class Bridge(object):
                "why": msg.get("why", ""), "latched": bool(msg.get("latched")),
                "desc": P.ERR.get(msg.get("code", ""), "")}
         self.push(out)
+        if self.unit_demo:
+            self.units.on_error(msg)          # 시연 모드: 상태머신 대신 유닛 동작을 멈추고 실패로 알린다
+            return
         if self.init.owns(msg.get("seq")):
             # 초기화 명령의 거부·무응답은 절차가 INIT_ERROR → S10 으로 처리한다(장치 상태표, D-46)
             self.init.on_error(msg)
@@ -320,6 +348,34 @@ class Bridge(object):
             return sim, "sim"
         return None, None
 
+    def _unit_eapd(self):
+        """구동 시연이 탐색을 시작하는 순간의 EAPD. X_SEARCH 의 탐색 시작과 같은 출처 순서로 정하고 기록한다."""
+        self.eapd_mm, src = self.current_eapd()
+        self.eapd_sim = src == "sim"
+        self.log.event("sys", "EAPD:%s:%s" % (src, self.eapd_mm))
+        return self.eapd_mm
+
+    def config_msg(self):
+        """UI 로 보내는 설정. 비어 있는 목표값(0, None)은 null 로 보낸다(화면은 '미설정'으로 표시)."""
+        def val(k):
+            v = CONFIG.get(k)
+            return v if v else None
+        return {"type": "config", "mode": "unit_demo" if self.unit_demo else "operate",
+                "aed_pause_warn_s": CONFIG.get("aed_pause_warn_s"),
+                "target_bpm": val("target_bpm"), "target_depth_mm": val("target_depth_mm"),
+                "force_max_N": val("force_max_N"), "vacuum_target_kPa": val("vacuum_target_kPa")}
+
+    def unit_msg(self, msg):
+        """UI 의 유닛 요청(결선 시연 모드). 거부하면 UI 에 보낼 응답을, 받아들이면 None 을 돌려준다."""
+        unit, act = msg.get("unit"), msg.get("action")
+        self.log.event("ui", "UNIT_%s:%s" % (str(act).upper(), unit))
+        if not self.unit_demo:
+            return {"type": "rejected", "name": "UNIT", "reason": "not_unit_demo"}
+        ok, why = self.units.request(unit, act)
+        if ok:
+            return None
+        return {"type": "rejected", "name": "UNIT", "unit": unit, "action": act, "reason": why}
+
     def _on_radar_link(self, connected, port):
         self.log.event("sys", "RADAR_UP" if connected else "RADAR_DOWN")
         self.push(self.radar_snapshot())
@@ -344,6 +400,13 @@ class Bridge(object):
         if not connected:
             self.log_link()
         self.push({"type": "link", "connected": connected, "port": port})
+        if self.unit_demo:
+            running = self.units.unit == "compress" and self.units.phase == "running"
+            self.units.on_link(connected)
+            if not connected and running:
+                self.push({"type": "error", "code": "3-CM-010", "sev": 2,
+                           "why": "COMM_LOST", "desc": P.ERR["3-CM-010"]})
+            return
         self.init.on_link(connected)
         if not connected and self.fsm.is_running():
             # 압박 중 두절: Teensy 가 T_comm 까지 유지한다. UI 에는 경고만.
@@ -353,10 +416,13 @@ class Bridge(object):
     # ── UI 연결 ─────────────────────────────────────────────
     async def handler(self, ws, path=None):
         self.clients.add(ws)
-        await ws.send(json.dumps(dict(self.fsm.snapshot(), type="state", event="SYNC")))
+        if not self.unit_demo:                  # 시연 모드는 상태머신 흐름을 돌리지 않는다(UI 전체 흐름은 모형)
+            await ws.send(json.dumps(dict(self.fsm.snapshot(), type="state", event="SYNC")))
         await ws.send(json.dumps({"type": "link", "connected": self.link.connected}))
-        await ws.send(json.dumps({"type": "config", "aed_pause_warn_s": CONFIG.get("aed_pause_warn_s")}))
+        await ws.send(json.dumps(self.config_msg()))
         await ws.send(json.dumps(self.radar_snapshot(), ensure_ascii=False))
+        if self.unit_demo:
+            await ws.send(json.dumps(self.units.snapshot()))
         try:
             async for raw in ws:
                 try:
@@ -385,6 +451,14 @@ class Bridge(object):
                             r["mcu"] = b["mcu"]
                             r["need"] = b["need"]
                         await ws.send(json.dumps(r))
+                elif t == "unit":
+                    r = self.unit_msg(msg)
+                    if r:
+                        await ws.send(json.dumps(r))
+                elif t == "search" and self.unit_demo:
+                    # 시연 모드의 탐색은 구동 유닛 요청(unit drive)으로만 시작한다
+                    await ws.send(json.dumps({"type": "rejected", "name": "SEARCH_START",
+                                              "reason": "unit_demo"}))
                 elif t == "search":
                     act = msg.get("action")
                     self.log.event("ui", "SEARCH_" + str(act).upper())
@@ -407,16 +481,22 @@ class Bridge(object):
             pass
         finally:
             self.clients.discard(ws)
+            if self.unit_demo and not self.clients:
+                self.log.event("sys", "UI_GONE")
+                self.units.ui_gone()            # 화면이 모두 닫히면 진행 중인 시연 동작을 멈춘다
 
     # ── 주기 작업 ───────────────────────────────────────────
     async def ticker(self):
         while True:
             await asyncio.sleep(0.1)
-            ev = self.fsm.auto_due()
-            if ev:
-                self.fsm.fire(ev)
+            if self.unit_demo:
+                self.units.tick()
+            else:
+                ev = self.fsm.auto_due()
+                if ev:
+                    self.fsm.fire(ev)
+                self.init.tick()
             self.search.tick()
-            self.init.tick()
             if self.link.connected and self.link.is_stale() and self.link.last_tel_at:
                 self.push({"type": "telemetry", "stale": True})
             if time.monotonic() - self._link_logged_at >= self.LINK_LOG_S:
@@ -429,9 +509,15 @@ class Bridge(object):
         if self.radar is not None:
             self.radar.start()
             print("[radar] %s" % self.radar.port)
-        self.fsm.enter_initial()
+        if self.unit_demo:
+            # 상태머신 흐름(S1 자동 초기화: ARM, HOME)을 시작하지 않는다. 장치는 유닛 화면의 [시작]으로만 움직인다
+            self.log.event("sys", "MODE_UNIT_DEMO")
+            print("[mode] 결선 시연 모드(유닛별). 상태머신 흐름 없음, 장치는 유닛 화면의 [시작]으로만 움직임")
+        else:
+            self.fsm.enter_initial()
         print("[ws]  ws://0.0.0.0:%d" % self.args.port)
-        print("[fsm] %s · %s" % (self.fsm.node, self.fsm.cur.get("name")))
+        if not self.unit_demo:
+            print("[fsm] %s · %s" % (self.fsm.node, self.fsm.cur.get("name")))
         print("[log] %s" % self.log.path)
         server = websockets.serve(self.handler, "0.0.0.0", self.args.port)
         await server
@@ -478,6 +564,8 @@ def main():
     ap.add_argument("--radar", default=None,
                     help="MR60BHA2 레이더 포트(/dev/ttyTHS1 등). 없으면 레이더를 쓰지 않는다")
     ap.add_argument("--radar-baud", type=int, default=115200)
+    ap.add_argument("--unit-demo", action="store_true",
+                    help="결선 시연 모드(유닛별 시연, D-51): 상태머신 흐름을 돌리지 않고 유닛 화면의 시작·정지만 보낸다")
     a = ap.parse_args()
 
     load_config(a.config)

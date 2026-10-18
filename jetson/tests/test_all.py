@@ -1670,5 +1670,327 @@ _lc = [l_ for l_ in _oc.splitlines() if l_.strip()]
 ck("파일 인코딩: UTF-8 아닌 기본 인코딩에서 상태머신, 설정 읽기와 한글 기록 쓰기",
    _pc.returncode == 0 and "ENC_OK" in _oc, _lc[-1] if _lc else "출력 없음")
 
+print("\n== 14. 결선 시연 모드: 유닛별 시연 (unit_demo.py, D-51) ==")
+from saver.unit_demo import UnitDemo, STEP_TIMEOUT_S, STATUS_TEL_S
+
+
+class _UL(object):
+    """유닛 시연 시험용 링크. 명령을 기록하고 seq 를 돌려준다. 장치 응답은 시험이 넣는다."""
+    def __init__(self, proto="1.0"):
+        self.connected, self.proto, self.caps, self.mcu_state = True, proto, set(), None
+        self.sent, self.n = [], 500
+    def send(self, cmd, **kw):
+        self.n += 1
+        self.sent.append((cmd, kw, self.n))
+        return self.n
+
+
+class _SR(object):
+    """탐색 모듈 자리. start, cancel 만 기록한다."""
+    def __init__(self):
+        self.calls, self.active = [], False
+    def start(self, eapd):
+        self.calls.append(("start", eapd)); self.active = True
+    def cancel(self, reason):
+        self.calls.append(("cancel", reason)); self.active = False
+
+
+def urig(cfg=None, proto="1.0", eapd=None):
+    lk, sr, clk, pushed = _UL(proto), _SR(), {"t": 0.0}, []
+    c = {"target_bpm": 110, "target_depth_mm": 0, "force_max_N": 0, "vacuum_target_kPa": 0}
+    c.update(cfg or {})
+    ud = UnitDemo(lk, c, search=sr, eapd=lambda: eapd, push=pushed.append, clock=lambda: clk["t"])
+    return lk, ud, sr, clk, pushed
+
+
+def ucmds(lk):
+    return [c for c, _, _ in lk.sent]
+
+
+def uack(ud, lk, ok=True, why=None):
+    ud.on_ack({"t": "ack", "seq": lk.sent[-1][2], "ok": ok, "err": "" if ok else "2-CU-011", "why": why or ""})
+
+
+def utel(ud, lk, state, estop=False, faults=None):
+    lk.mcu_state = state
+    ud.on_tel({"t": "tel", "state": state, "estop": estop, "faults": faults or []})
+
+
+CP = {"target_depth_mm": 50, "force_max_N": 600}
+
+
+def cp_running(cfg=CP, state="IDLE"):
+    """압박 시연을 running 까지 진행한 rig"""
+    lk, ud, sr, clk, pushed = urig(cfg)
+    ud.request("compress", "enter"); ud.request("compress", "start"); uack(ud, lk); utel(ud, lk, state)
+    if state == "IDLE":
+        uack(ud, lk)                                 # ARM
+    if state in ("IDLE", "ARMED"):
+        uack(ud, lk); utel(ud, lk, "ARMED"); ud.on_event({"evt": "HOMING_DONE", "result": "OK"})   # HOME
+    uack(ud, lk)                                     # SET_TARGET
+    uack(ud, lk)                                     # START_CPR
+    utel(ud, lk, "CPR_RUNNING")
+    return lk, ud, sr, clk, pushed
+
+
+lk, ud, sr, clk, pushed = urig(CP)
+r_en = ud.request("compress", "enter")
+ck("시연 모드: 화면에 들어가기만 하면 명령 없음(자동 시작 없음), 화면 상태는 UI 로 알림",
+   r_en == (True, None) and lk.sent == [] and ud.phase == "idle" and pushed and pushed[-1]["screen"] == "compress"
+   and pushed[-1]["type"] == "unit", str(pushed[-1:]))
+lk, ud, sr, clk, pushed = urig(CP)
+ck("시연 모드: 보고 있지 않은 유닛은 시작 거부(NOT_ON_SCREEN), 명령 없음",
+   ud.request("compress", "start") == (False, "NOT_ON_SCREEN") and lk.sent == [])
+lk, ud, sr, clk, pushed = urig()
+ud.request("compress", "enter")
+ck("압박: 목표 깊이가 비어 있으면 아무 명령 없이 실패(TARGET_NOT_SET, 원점 복귀도 안 함)",
+   ud.request("compress", "start") == (True, None) and ud.phase == "failed" and ud.reason == "TARGET_NOT_SET"
+   and lk.sent == [], str(ucmds(lk)))
+
+lk, ud, sr, clk, pushed = urig(CP)
+ud.request("compress", "enter"); ud.request("compress", "start")
+a1 = ucmds(lk) == ["GET_STATUS"]
+uack(ud, lk); utel(ud, lk, "IDLE"); a2 = ucmds(lk)[-1] == "ARM"
+uack(ud, lk); a3 = ucmds(lk)[-1] == "HOME"
+uack(ud, lk); utel(ud, lk, "ARMED"); a4 = ucmds(lk)[-1] == "HOME" and ud.step == "HOME"   # 원점 완료 전에는 다음으로 안 감
+ud.on_event({"evt": "HOMING_DONE", "result": "OK"}); a5 = ucmds(lk)[-1] == "SET_TARGET"
+st_kw = lk.sent[-1][1]
+uack(ud, lk); a6 = ucmds(lk)[-1] == "START_CPR" and ud.phase == "starting"
+uack(ud, lk); a7 = ud.phase == "running"
+ck("압박: IDLE → GET_STATUS, ARM, HOME(원점 완료 뒤), SET_TARGET, START_CPR 차례, ACK 뒤 running",
+   all([a1, a2, a3, a4, a5, a6, a7]), str(ucmds(lk)))
+ck("압박: SET_TARGET 은 설정 파일 값만(bpm, depth_mm, force_max_N)",
+   st_kw == {"bpm": 110, "depth_mm": 50, "force_max_N": 600}, str(st_kw))
+utel(ud, lk, "CPR_RUNNING")
+ud.request("compress", "stop"); s_kw = lk.sent[-1][1]
+a8 = ucmds(lk)[-1] == "STOP_CPR" and s_kw.get("reason") == "USER_STOP" and ud.phase == "stopping"
+uack(ud, lk)
+ck("압박 정지: STOP_CPR{reason:USER_STOP} → ACK 뒤 stopped", a8 and ud.phase == "stopped", "%s %s" % (ud.phase, s_kw))
+
+lk, ud, sr, clk, pushed = urig({"target_depth_mm": 50})
+ud.request("compress", "enter"); ud.request("compress", "start"); uack(ud, lk); utel(ud, lk, "HOMED")
+ck("압박: HOMED 면 ARM, HOME 없이 SET_TARGET 부터, 비어 있는 힘 상한은 보내지 않음",
+   ucmds(lk) == ["GET_STATUS", "SET_TARGET"] and "force_max_N" not in lk.sent[-1][1], str(lk.sent[-1]))
+uack(ud, lk); uack(ud, lk, ok=False, why="NOT_READY")
+ck("압박: 표준 펌웨어가 흡착 없이 START_CPR 을 거부(NOT_READY) → 실패, 사유 그대로, 정지 명령 추가 없음",
+   ud.phase == "failed" and ud.reason == "NOT_READY" and ucmds(lk)[-1] == "START_CPR", str(ucmds(lk)))
+
+lk, ud, sr, clk, pushed = urig(CP)
+ud.request("compress", "enter"); ud.request("compress", "start"); uack(ud, lk); utel(ud, lk, "ARMED")
+uack(ud, lk)                                         # HOME ACK 전에 완료 이벤트가 먼저 처리된 경우를 아래에서
+lk2, ud2, _, _, _ = urig(CP)
+ud2.request("compress", "enter"); ud2.request("compress", "start"); uack(ud2, lk2); utel(ud2, lk2, "ARMED")
+ud2.on_event({"evt": "HOMING_DONE", "result": "OK"}); b1 = ucmds(lk2)[-1] == "HOME"
+uack(ud2, lk2)
+ck("압박: HOMING_DONE 이 HOME ACK 보다 먼저 와도 ACK 뒤 바로 다음 단계", b1 and ucmds(lk2)[-1] == "SET_TARGET", str(ucmds(lk2)))
+ud.on_event({"evt": "HOMING_DONE", "result": "STALL"})
+ck("압박: 원점 복귀 결과가 OK 아님 → 실패", ud.phase == "failed" and ud.reason == "HOMING_STALL", str(ud.reason))
+
+lk, ud, sr, clk, pushed = cp_running()
+utel(ud, lk, "HOMED")
+ck("압박 중 장치가 스스로 멈춤(HOMED) → stopped(DEVICE_STOPPED)", ud.phase == "stopped" and ud.reason == "DEVICE_STOPPED")
+lk, ud, sr, clk, pushed = cp_running()
+utel(ud, lk, "ESTOP", estop=True)
+ck("압박 중 비상정지 → 실패(ESTOP), 모터 정지 요청 STOP_CPR{SAFETY}",
+   ud.phase == "failed" and ud.reason == "ESTOP" and lk.sent[-1][0] == "STOP_CPR" and lk.sent[-1][1]["reason"] == "SAFETY")
+lk, ud, sr, clk, pushed = cp_running()
+ud.on_error({"t": "err", "code": "3-CU-021", "sev": 3, "why": "OVER_CURRENT"})
+ck("압박 중 고장(sev 3) → 실패(코드), STOP_CPR", ud.phase == "failed" and ud.reason == "3-CU-021" and ucmds(lk)[-1] == "STOP_CPR")
+lk, ud, sr, clk, pushed = cp_running()
+ud.on_error({"t": "err", "code": "2-MU-011", "sev": 2, "why": "OVER_TEMPERATURE"})
+ck("압박 중 경고(sev 2)는 계속(장치가 정한다)", ud.phase == "running")
+lk, ud, sr, clk, pushed = urig(CP)
+ud.request("compress", "enter"); ud.request("compress", "start"); uack(ud, lk); utel(ud, lk, "HOMED"); uack(ud, lk)
+ud.on_error({"code": "2-CM-002", "sev": 2, "seq": lk.sent[-1][2], "why": "ACK_TIMEOUT:START_CPR"})
+ck("압박: START_CPR 응답 없음 → 실패(TIMEOUT), 혹시 돌고 있을 수 있어 STOP_CPR 요청",
+   ud.phase == "failed" and ud.reason == "TIMEOUT" and ucmds(lk)[-1] == "STOP_CPR", str(ucmds(lk)))
+lk, ud, sr, clk, pushed = cp_running()
+ud.request(None, "leave")
+ck("압박 중 화면을 나가면 STOP_CPR(USER_STOP), 사유 LEFT_SCREEN",
+   ucmds(lk)[-1] == "STOP_CPR" and lk.sent[-1][1]["reason"] == "USER_STOP" and ud.reason == "LEFT_SCREEN" and ud.screen is None)
+lk, ud, sr, clk, pushed = cp_running()
+ud.ui_gone()
+ck("압박 중 UI 연결이 모두 끊기면 STOP_CPR(SAFETY)", ucmds(lk)[-1] == "STOP_CPR" and lk.sent[-1][1]["reason"] == "SAFETY")
+lk, ud, sr, clk, pushed = cp_running()
+n_before = len(lk.sent); lk.connected = False; ud.on_link(False)
+ck("압박 중 링크 두절 → 실패(LINK_DOWN), 보내지 않음(장치 통신 감시가 정지)",
+   ud.phase == "failed" and ud.reason == "LINK_DOWN" and len(lk.sent) == n_before)
+lk, ud, sr, clk, pushed = cp_running()
+ck("압박 중 다시 시작 요청은 거부(BUSY)", ud.request("compress", "start") == (False, "BUSY"))
+
+lk, ud, sr, clk, pushed = urig(CP)
+ud.request("compress", "enter"); ud.request("compress", "start"); uack(ud, lk)
+clk["t"] += STATUS_TEL_S + 0.1; ud.tick()
+ck("시작 확인: GET_STATUS 뒤 텔레메트리 없음 → 실패(NO_STATUS)", ud.phase == "failed" and ud.reason == "NO_STATUS")
+lk, ud, sr, clk, pushed = urig(CP)
+ud.request("compress", "enter"); ud.request("compress", "start"); uack(ud, lk); utel(ud, lk, "ARMED"); uack(ud, lk)
+clk["t"] += STEP_TIMEOUT_S + 1; ud.tick()
+ck("원점 대기 한도 초과 → 실패(HOME_TIMEOUT)", ud.phase == "failed" and ud.reason == "HOME_TIMEOUT")
+f_ok = []
+for st_, est_, flt_ in (("FAULT", False, None), ("ESTOP", True, None), ("IDLE", True, None), ("IDLE", False, ["3-CU-021"])):
+    lk, ud, sr, clk, pushed = urig(CP)
+    ud.request("compress", "enter"); ud.request("compress", "start"); uack(ud, lk); utel(ud, lk, st_, est_, flt_)
+    f_ok.append(ud.phase == "failed" and ucmds(lk) == ["GET_STATUS"])
+ck("시작 확인: FAULT, ESTOP, 비상정지 표시, 활성 고장 → 실패, ARM 안 보냄", all(f_ok), str(f_ok))
+lk, ud, sr, clk, pushed = urig(CP); lk.connected = False
+ud.request("compress", "enter"); ud.request("compress", "start")
+lk2, ud2, _, _, _ = urig(CP, proto=None)
+ud2.request("compress", "enter"); ud2.request("compress", "start")
+ck("장치 미연결 → NOT_CONNECTED, 펌웨어 판 확인 전 → LINK_CHECKING (명령 없음)",
+   ud.reason == "NOT_CONNECTED" and ud2.reason == "LINK_CHECKING" and lk.sent == [] and lk2.sent == [])
+
+VC = {"vacuum_target_kPa": -22.5}
+lk, ud, sr, clk, pushed = urig(VC)
+ud.request("vacuum", "enter"); ud.request("vacuum", "start"); uack(ud, lk); utel(ud, lk, "IDLE")
+uack(ud, lk); uack(ud, lk); ud.on_event({"evt": "HOMING_DONE", "result": "OK"})
+v1 = ucmds(lk) == ["GET_STATUS", "ARM", "HOME", "VACUUM_ON"] and lk.sent[-1][1] == {"target_kPa": -22.5}
+uack(ud, lk); v2 = ud.phase == "starting"
+ud.on_event({"evt": "VACUUM_OK"}); v3 = ud.phase == "running"
+ck("흡착: ARM, HOME 뒤 VACUUM_ON(target_kPa), VACUUM_OK 뒤 running", v1 and v2 and v3, str(lk.sent[-1]))
+ud.request("compress", "enter")
+ck("흡착 중 다른 유닛 화면으로 가면 VACUUM_OFF", ucmds(lk)[-1] == "VACUUM_OFF" and ud.phase == "stopping")
+uack(ud, lk)
+ck("해제 ACK 뒤 stopped, 화면은 새 유닛", ud.phase == "stopped" and ud.screen == "compress")
+lk, ud, sr, clk, pushed = urig()
+ud.request("vacuum", "enter"); ud.request("vacuum", "start"); uack(ud, lk); utel(ud, lk, "HOMED")
+ck("흡착: 목표 음압이 비어 있으면 target_kPa 없이 VACUUM_ON(장치 기본값)", lk.sent[-1][0] == "VACUUM_ON" and lk.sent[-1][1] == {})
+uack(ud, lk); clk["t"] += STEP_TIMEOUT_S + 1; ud.tick()
+ck("흡착 완료 대기 한도 초과 → 실패(VACUUM_TIMEOUT), 블로워를 끄도록 VACUUM_OFF",
+   ud.phase == "failed" and ud.reason == "VACUUM_TIMEOUT" and ucmds(lk)[-1] == "VACUUM_OFF")
+lk, ud, sr, clk, pushed = urig()
+ud.request("vacuum", "enter"); ud.request("vacuum", "start"); uack(ud, lk); utel(ud, lk, "HOMED"); uack(ud, lk)
+ud.on_event({"evt": "VACUUM_FAIL"})
+ck("흡착: VACUUM_FAIL → 실패", ud.phase == "failed" and ud.reason == "VACUUM_FAIL")
+lk, ud, sr, clk, pushed = urig()
+ud.request("vacuum", "enter"); ud.request("vacuum", "start"); uack(ud, lk); utel(ud, lk, "VACUUM_HOLD")
+ud.request("vacuum", "stop"); uack(ud, lk)
+ck("흡착: 이미 고정 중이면 바로 running, 해제는 VACUUM_OFF", ucmds(lk) == ["GET_STATUS", "VACUUM_OFF"] and ud.phase == "stopped")
+
+lk, ud, sr, clk, pushed = urig()
+ud.request("drive", "enter"); ud.request("drive", "start"); uack(ud, lk); utel(ud, lk, "IDLE")
+d1 = sr.calls == [("start", None)] and "ARM" not in ucmds(lk)
+ud.on_search_done(False, {"phase": "failed", "reason": "PARAM_UNSET"})
+ck("구동: 탐색 조건이 안 되면(설정 없음, v1.0) ARM 없이 탐색 모듈에 맡겨 사유를 받음(PARAM_UNSET)",
+   d1 and ud.phase == "failed" and ud.reason == "PARAM_UNSET", str(sr.calls))
+SIMCFG = dict((k, v) for k, v in json.load(open(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                                                           "config.sim.json"))).items() if not k.startswith("_"))
+lk, ud, sr, clk, pushed = urig(SIMCFG, proto="1.1", eapd=205.8)
+lk.caps = set(["DRIVE", "HEAD_HOLD", "MOT", "AID"])
+ud.request("drive", "enter"); ud.request("drive", "start"); uack(ud, lk); utel(ud, lk, "IDLE")
+d2 = ucmds(lk)[-1] == "ARM" and sr.calls == []
+uack(ud, lk)
+d3 = sr.calls == [("start", 205.8)] and ud.phase == "running"
+ud.request("drive", "stop")
+d4 = sr.calls[-1] == ("cancel", "USER_STOP") and ud.phase == "stopping"
+ud.on_search_done(False, {"phase": "failed", "reason": "USER_STOP"})
+ck("구동(v1.1, 설정과 EAPD 있음): ARM 뒤 탐색 시작(시작 순간 EAPD), 중지는 탐색 모듈 중지 → stopped",
+   d2 and d3 and d4 and ud.phase == "stopped", str(sr.calls))
+lk, ud, sr, clk, pushed = urig(SIMCFG, proto="1.1", eapd=205.8)
+lk.caps = set(["DRIVE", "HEAD_HOLD", "MOT", "AID"])
+ud.request("drive", "enter"); ud.request("drive", "start"); uack(ud, lk); utel(ud, lk, "HOMED")
+ud.on_search_done(True, {"phase": "done"})
+ck("구동: HOMED 면 ARM 없이 탐색, 완료 → done", ucmds(lk) == ["GET_STATUS"] and ud.phase == "done")
+lk, ud, sr, clk, pushed = urig()
+ud.request("patient", "enter")
+ck("환자 상태: 시작할 장치 동작 없음(NO_ACTION), 명령 없음",
+   ud.request("patient", "start") == (False, "NO_ACTION") and lk.sent == [])
+ck("유닛 이름, 동작 이름 검사", urig()[1].request("x", "enter") == (False, "UNKNOWN_UNIT")
+   and urig()[1].request("compress", "jump") == (False, "UNKNOWN_ACTION"))
+
+# 브리지 + 모의 Teensy(v1.0): 시연 모드는 연결만으로 ARM, HOME 을 보내지 않는다
+_udkeep = dict((k, B.CONFIG.get(k)) for k in ("target_depth_mm", "force_max_N", "vacuum_target_kPa"))
+
+
+def _ud_bridge(port, unit_demo=True):
+    b_ = B.Bridge(argparse.Namespace(serial=port, logdir=tempfile.mkdtemp(prefix="saver_ud_"), spec=None, port=0,
+                                     unit_demo=unit_demo))
+    sent_ = []
+    orig_ = b_.link.send
+    def rec_(cmd, **kw):
+        sent_.append((cmd, kw))
+        return orig_(cmd, **kw)
+    b_.link.send = rec_
+    pushed_ = []
+    b_.units.push = pushed_.append
+    return b_, sent_, pushed_
+
+
+def _ud_wait(b_, cond, limit):
+    end = time.monotonic() + limit
+    while time.monotonic() < end and not cond():
+        b_.units.tick(); time.sleep(0.05)
+    return cond()
+
+
+def _ud_sim(port, extra=()):
+    p_ = subprocess.Popen([sys.executable, "-u", os.path.join(SIMDIR, "fake_teensy.py"), "--port", port, "--hz", "20",
+                           "--seed", "8", "--quiet"] + list(extra),
+                          stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+    time.sleep(1.2)
+    return p_
+
+
+B.CONFIG.update({"target_depth_mm": 50, "force_max_N": 600, "vacuum_target_kPa": -22.5})
+simu = _ud_sim("/tmp/ttyFAKE_UD", ["--bench"])
+bu, sentu, pushu = _ud_bridge("/tmp/ttyFAKE_UD")
+bu.link.start()
+up_ = _ud_wait(bu, lambda: bu.link.connected and bu.link.proto == "1.0" and bu.link.mcu_state == "IDLE", 6.0)
+time.sleep(1.0)
+moving = [c for c, _ in sentu if c not in ("PING", "GET_STATUS", "GET_INFO")]
+ck("브리지 시연 모드: 장치 연결만으로 ARM, HOME 등 동작 명령 없음, 상태머신 흐름 기록 없음",
+   up_ and moving == [] and bu.fsm.log == [], "%s %s" % (moving, bu.link.mcu_state))
+cm = bu.config_msg()
+ck("브리지 시연 모드: 설정 메시지에 mode unit_demo, 목표값", cm["mode"] == "unit_demo" and cm["target_depth_mm"] == 50
+   and cm["force_max_N"] == 600 and cm["vacuum_target_kPa"] == -22.5 and cm["target_bpm"] == 110, str(cm))
+ck("브리지 시연 모드: 보고 있지 않은 유닛 시작 요청은 거부 응답",
+   (bu.unit_msg({"type": "unit", "unit": "compress", "action": "start"}) or {}).get("reason") == "NOT_ON_SCREEN")
+bu.unit_msg({"type": "unit", "unit": "compress", "action": "enter"})
+bu.unit_msg({"type": "unit", "unit": "compress", "action": "start"})
+run_ = _ud_wait(bu, lambda: bu.units.phase == "running" and (bu.link.last_tel or {}).get("state") == "CPR_RUNNING", 8.0)
+seq_ = [c for c, _ in sentu if c not in ("PING", "GET_INFO")]
+ck("브리지 + 모의 Teensy(시연 허용 --bench): 압박 시작 → ARM, HOME, SET_TARGET, START_CPR → 장치 CPR_RUNNING",
+   run_ and seq_[-4:] == ["ARM", "HOME", "SET_TARGET", "START_CPR"], "%s %s %s" % (bu.units.phase, bu.units.reason, seq_))
+tel_ = dict(bu.link.last_tel)
+ck("브리지 + 모의 Teensy: 압박 중 텔레메트리에 깊이, 속도, 힘(UI 표시 값)",
+   all(isinstance(tel_.get(k), (int, float)) for k in ("cp_depth_mm", "cp_rate_cpm", "cp_force_N")), str(sorted(tel_)))
+bu.unit_msg({"type": "unit", "unit": "compress", "action": "stop"})
+st_ = _ud_wait(bu, lambda: bu.units.phase == "stopped" and (bu.link.last_tel or {}).get("state") == "HOMED", 5.0)
+ck("브리지 + 모의 Teensy: 정지 → STOP_CPR, 장치 HOMED, stopped", st_, "%s %s" % (bu.units.phase, bu.link.mcu_state))
+bu.unit_msg({"type": "unit", "unit": "vacuum", "action": "enter"})
+bu.unit_msg({"type": "unit", "unit": "vacuum", "action": "start"})
+vh_ = _ud_wait(bu, lambda: bu.units.phase == "running" and (bu.link.last_tel or {}).get("vac_kPa", 0) < -20, 6.0)
+ck("브리지 + 모의 Teensy: 흡착 시작 → VACUUM_ON → VACUUM_OK, 음압 텔레메트리", vh_,
+   "%s %s %s" % (bu.units.phase, bu.units.reason, (bu.link.last_tel or {}).get("vac_kPa")))
+bu.units.ui_gone()
+vo_ = _ud_wait(bu, lambda: bu.units.phase == "stopped", 4.0)
+ck("브리지 + 모의 Teensy: UI 가 모두 끊기면 흡착 해제(VACUUM_OFF)", vo_ and sentu[-1][0] in ("VACUUM_OFF", "PING")
+   and "VACUUM_OFF" in [c for c, _ in sentu], bu.units.phase)
+bu.link.stop(); simu.terminate(); simu.wait()
+
+simn = _ud_sim("/tmp/ttyFAKE_UD2")
+bn, sentn, pushn = _ud_bridge("/tmp/ttyFAKE_UD2")
+bn.link.start()
+_ud_wait(bn, lambda: bn.link.connected and bn.link.proto == "1.0" and bn.link.mcu_state == "IDLE", 6.0)
+bn.unit_msg({"type": "unit", "unit": "compress", "action": "enter"})
+bn.unit_msg({"type": "unit", "unit": "compress", "action": "start"})
+rj_ = _ud_wait(bn, lambda: bn.units.phase == "failed", 8.0)
+ck("브리지 + 모의 Teensy(표준 v1.0): 흡착 없는 압박 시작은 장치가 거부(NOT_READY), 화면에 사유",
+   rj_ and bn.units.reason == "NOT_READY" and bn.link.mcu_state == "HOMED",
+   "%s %s %s" % (bn.units.phase, bn.units.reason, bn.link.mcu_state))
+bn.link.stop(); simn.terminate(); simn.wait()
+for _p in ("/tmp/ttyFAKE_UD", "/tmp/ttyFAKE_UD2"):
+    try:
+        os.remove(_p)
+    except OSError:
+        pass
+bo, _, _ = _ud_bridge("/nonexistent_ud", unit_demo=False)
+ck("운용 모드 브리지: 유닛 요청 거부(not_unit_demo), 설정 메시지 mode operate",
+   (bo.unit_msg({"type": "unit", "unit": "compress", "action": "enter"}) or {}).get("reason") == "not_unit_demo"
+   and bo.config_msg()["mode"] == "operate")
+B.CONFIG.update(_udkeep)
+cm0 = bo.config_msg()
+ck("설정 메시지: 비어 있는 목표값(0)은 null", cm0["target_depth_mm"] is None and cm0["force_max_N"] is None
+   and cm0["vacuum_target_kPa"] is None, str(cm0))
+
 print("\n%s  (통과 %d / 실패 %d)\n" % ("전체 통과" if P_["fail"] == 0 else "실패 있음", P_["pass"], P_["fail"]))
 sys.exit(0 if P_["fail"] == 0 else 1)

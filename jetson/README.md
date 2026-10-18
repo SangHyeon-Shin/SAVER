@@ -19,6 +19,37 @@ React UI ──ws://:8765── bridge.py ──USB Serial── Teensy 4.1
 젯팩 4.6 을 새로 깐 젯슨에서는 `bash setup/setup_jetson.sh` 한 번으로 패키지, 권한(Teensy udev), 브리지 서비스,
 냉각 팬 자동 제어(`saver-fan`), 키오스크, Claude Code, 자동 시험을 설정합니다. 자세한 내용은 `setup/README.md`.
 
+## 결선 시연 모드 (`--unit-demo`, D-51)
+
+결선(10/24) 포스터 시연용이다. UI 첫 화면이 시연 메뉴(전체 UI, 환자 상태, 압박, 구동, 흡착)가 되고, 브리지는
+상태머신 흐름과 S1 자동 초기화(ARM, HOME)를 돌리지 않는다. 장치는 유닛 화면의 [시작]으로만 움직인다.
+기본(운용 모드)은 그대로 메뉴 없이 상태머신 흐름이다.
+
+```bash
+# 젯슨 서비스(설치 스크립트가 서비스를 다시 쓴다. 벤치 설정은 팀장 확인 뒤)
+bash setup/setup_jetson.sh --unit-demo --config jetson/config.bench.json --skip-apt --no-claude
+# 직접 실행
+python3 -m saver.bridge --unit-demo --serial /dev/saver-teensy --radar /dev/saver-radar --config config.bench.json
+# 모의 시험: 흡착 없이 압박을 허용하는 펌웨어 제안(--bench, 실물 미구현)을 흉내 낸 가짜 Teensy
+python3 simulators/fake_teensy.py --port /tmp/ttyFAKE --bench
+python3 -m saver.bridge --unit-demo --serial /tmp/ttyFAKE --config config.bench.json
+```
+
+| 화면 | 장치 명령 (`saver/unit_demo.py`, [시작] 뒤 `GET_STATUS` 로 상태를 보고 지난 단계는 건너뜀) | 보이는 값 |
+|---|---|---|
+| 전체 UI | 없음. S1~S13 화면 흐름을 처음부터 모형으로(로컬 전이) | 모의값 |
+| 환자 상태 | 없음 | 레이더 호흡수, 손가락 센서 `ppg_hr_bpm`, `spo2_pct` |
+| 압박 | ARM → HOME → SET_TARGET → START_CPR, 정지 STOP_CPR | `cp_depth_mm`, `cp_rate_cpm`, `cp_force_N`, 경과 시간, 횟수(속도 적분, "약") |
+| 구동 | ARM → 압박점 탐색(`search.py`, v1.1 명령) | 탐색 진행(압박 위치 찾기 화면) |
+| 흡착 | ARM → HOME → VACUUM_ON, 해제 VACUUM_OFF | `vac_kPa`, 목표, 고정 유지 시간, `vac_leak` |
+
+- 진입만으로는 명령이 없다. 압박 시작은 1초 길게 누르기. 다른 화면으로 가거나 UI 연결이 모두 끊기면 진행 중인 동작을 멈춘다.
+  비상정지, 고장(sev 3), 링크 두절, 응답 없음은 실패로 끝내고 사유를 화면에 보인다. 목표 깊이가 비면 아무 명령도 보내지 않는다.
+- 회복(ROSC)은 장치가 판정하지 않는다. 손가락 센서 맥박 신호가 잡히면 확인하라고 띄우고, 회복 표시는 사람이 누른다.
+- 브리지 미연결이면 유닛 화면은 모의값("모의 데이터")이다. 개발 패널(왼쪽 위 1.5초)에서 연결 중에도 모의값을 강제할 수 있다.
+- **펌웨어 의존**: 메인 펌웨어는 PPG 송신만 있고 HOME, 흡착, 압박 제어는 자리표시다. 흡착 없이 압박하려면
+  `START_CPR` 허용 상태 변경이 필요하다(합의 전). 요청 사항은 `docs/unit_demo_firmware.md`.
+
 ## MR60BHA2 레이더 (D-50)
 
 `saver/radar.py` 가 레이더 원시 프레임을 읽어 호흡수, 심박수, 거리를 받는다. 브리지에 `--radar PORT` 를 주면 켜지고
@@ -204,6 +235,9 @@ python3 tests/test_all.py
 
 `config.sim.json`은 **시뮬레이션 전용**이며 의학적 근거가 없습니다. 불러오면 경고가 출력됩니다.
 확정값이 나오면 `config.json`을 따로 만들어 쓰고, 실기에는 절대 `config.sim.json`을 쓰지 마세요.
+
+결선 벤치 시연 설정 `config.bench.json`: 110 회/분, 깊이 50 mm, 힘 상한 600 N, 음압 -22.5 kPa
+(`docs/PROJECT_STATE.md` §2, D-30, D-23. 임상 적용값 아님). 팀장 확인 뒤 결선 시연 모드에서만 씁니다(D-51).
 
 ## UI 연동
 

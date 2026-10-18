@@ -1,0 +1,13 @@
+{
+  "_README": "KSME 결선(10/24) 벤치 시연 설정. 브리지를 결선 시연 모드(--unit-demo)로 돌릴 때 --config 로 넘긴다(D-51). 값은 docs/PROJECT_STATE.md 의 확정값이며 임상 적용값이 아니다. 팀장 확인 뒤 사용한다. 시뮬레이션 전용 config.sim.json 과 다르며, 압박점 탐색 설정값과 radar_floor_mm 은 확정 전이라 넣지 않았다(구동 시연은 설정이 생길 때까지 PARAM_UNSET 으로 시작하지 않는다).",
+  "_basis": {
+    "target_bpm": "PROJECT_STATE §2 BPM 110 고정(설계 확정)",
+    "target_depth_mm": "PROJECT_STATE §2 벤치 시험 설정값 깊이 50 mm(D-30, 임상 적용값 아님). 한성윤 10/1 회신 50~60 mm",
+    "force_max_N": "PROJECT_STATE §2 벤치 시험 설정값 힘 상한 600 N(D-30). 한성윤 10/1 회신 650 N 은 구조 재해석 전이라 600 N 유지",
+    "vacuum_target_kPa": "PROJECT_STATE §2 VAC_TARGET_KPA -22.5 kPa(펌웨어 확정, D-23)"
+  },
+  "target_bpm": 110,
+  "target_depth_mm": 50,
+  "force_max_N": 600,
+  "vacuum_target_kPa": -22.5
+}
