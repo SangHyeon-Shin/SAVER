@@ -50,13 +50,13 @@
 - 흡착: (IDLE) ARM{bid,aid} → VACUUM_ON{bid,aid,"target_kPa":-22.5} → 30 s 안에 evt VACUUM_OK{VACUUM_ON 의 seq,aid}
   또는 state VACUUM_HOLD. 30 s 를 넘기면 젯슨이 VACUUM_OFF 를 보내고 실패(VACUUM_TIMEOUT). evt VACUUM_FAIL 도 실패.
   [해제]·화면 이탈·UI 끊김: VACUUM_OFF{bid,aid} → ack ok. 해제가 확인되면 evt VACUUM_RELEASED{seq,aid,vac_kPa}, state IDLE.
-- 압박: (IDLE) ARM → SET_TARGET{bid,aid,"bpm":30,"depth_mm":30,"force_max_N":600} → START_CPR{bid,aid}. ACK ok 면 압박 중 화면.
-  (팀장 10/23: 시연 속도가 너무 빨라 30 mm / 30 회/분. 설계값 110 회/분, 벤치 시험 설정 50 mm 는 그대로)
+- 압박: (IDLE) ARM → SET_TARGET{bid,aid,"bpm":10,"depth_mm":15,"force_max_N":600} → START_CPR{bid,aid}. ACK ok 면 압박 중 화면.
+  (팀장 10/24: 시연 깊이 15 mm, 속도 10 회/분. 설계값 110 회/분, 벤치 시험 설정 50 mm 는 그대로)
   [정지]·화면 이탈: STOP_CPR{bid,aid,"reason":"USER_STOP"}. 젯슨 실패 처리 중에는 "reason":"SAFETY".
   장치가 스스로 CPR_RUNNING 을 벗어나면 "장치가 압박을 멈췄습니다"로 끝낸다.
-- 강성 측정: 압박과 같은 순서. 목표는 강성 측정 전용 설정(stiff_bpm, stiff_depth_mm)으로 지금 SET_TARGET{bid,aid,"bpm":30,
-  "depth_mm":30,"force_max_N":600}(팀장 10/23 "강성측정시에 속도 깊이를 30/30"). START_CPR 뒤 30 s 안에 CPR_RUNNING 이 아니면 실패(NOT_RUNNING).
-  처음 2주기를 버리고 10주기(30 회/분에서 20 s, 버리는 주기까지 약 24 s) 동안 tel 의 ms, cp_force_N, cp_depth_mm 로 주기마다
+- 강성 측정: 압박과 같은 순서. 목표는 강성 측정 전용 설정(stiff_bpm, stiff_depth_mm)으로 지금 SET_TARGET{bid,aid,"bpm":10,
+  "depth_mm":15,"force_max_N":600}(팀장 10/24). START_CPR 뒤 30 s 안에 CPR_RUNNING 이 아니면 실패(NOT_RUNNING).
+  처음 2주기를 버리고 10주기(10 회/분에서 60 s, 버리는 주기까지 약 72 s) 동안 tel 의 ms, cp_force_N, cp_depth_mm 로 주기마다
   k = 최대 힘 ÷ 최대 깊이(N/mm)를 구한 뒤 STOP_CPR{"reason":"END"}. 두 값이 오지 않으면 실패(STIFF_NO_DATA).
 - 30 s 는 젯슨 화면 대기 한도이며 안전 판단이 아니다. 실측이 더 걸리면 신상현에게 알린다(젯슨 쪽에서 늘린다).
 
@@ -124,7 +124,7 @@
   START_TOLERANCE_MM 등)은 시연을 위해 바꾸지 않는다. 한건민의 검증 절차로 풀릴 때까지 원격 START_CPR 은 그 사유로 거부된다.
 - 브리지 연결 전에 직접 명령으로 하는 준비(ZERO, CAL, TARE, FORCE_CAL 등)가 USB 재연결 뒤에도 남는지 확인한다.
   남지 않으면 브리지 연결 중에는 할 수 없으므로 EEPROM 복원이나 다른 경로가 필요하다. 어느 쪽인지 보고한다.
-- SET_TARGET 은 지금처럼 TARGET, FORCELIMIT 로 넘긴다(젯슨 값 압박·강성 측정 모두 30 회/분·30 mm, 힘 상한 600 N 은
+- SET_TARGET 은 지금처럼 TARGET, FORCELIMIT 로 넘긴다(젯슨 값 압박·강성 측정 모두 깊이 15 mm·10 회/분, 힘 상한 600 N 은
   설정 파일값이며 펌웨어 범위 검사를 그대로 거친다).
 - 압박 중 tel: cp_depth_mm, cp_rate_cpm, cp_force_N(힘 보정이 됐을 때만), ms. 강성 측정은 cp_force_N 과 cp_depth_mm 가 모두 필요하다.
 - 실행 시간은 지금처럼 MAX_RUN_MS 안에서 끝난다. STOP_CPR 은 지금처럼 출력을 먼저 끈다. 2 s 통신 감시(3-CM-010)는 그대로 둔다.

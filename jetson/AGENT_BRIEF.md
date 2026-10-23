@@ -102,7 +102,7 @@
 |---|---|
 | `jetson/config.sim.json` | 시뮬레이션 전용. 의학적 근거가 없다. 실기에 쓰지 않는다 |
 | `jetson/config.json` | 확정값. 없으면 미확정 값은 0 으로 두고 Teensy 에 보내지 않는다(`START_CPR` 거부가 정상). 만들거나 바꾸는 일은 사람 확인 뒤에 하고, 서비스가 읽게 하려면 설치 스크립트를 다시 실행한다 |
-| `jetson/config.bench.json` | 결선 벤치 시연 설정(압박 30 회/분·30 mm, 강성 측정 `stiff_bpm` 30·`stiff_depth_mm` 30 은 팀장 10/23 시연 지시, 600 N, -22.5 kPa 는 PROJECT_STATE §2). 결선 시연 모드에서 팀장 확인 뒤 `--config` 로 쓴다(D-51). `estop_wired: false`: 비상정지 버튼 미연결이라 S1·시연 시작 점검에서 `estop` 표시를 보지 않는다(D-54) |
+| `jetson/config.bench.json` | 결선 벤치 시연 설정(압박 15 mm·10 회/분, 강성 측정 `stiff_depth_mm` 15·`stiff_bpm` 10 은 팀장 10/24 시연 지시, 600 N, -22.5 kPa 는 PROJECT_STATE §2). 결선 시연 모드에서 팀장 확인 뒤 `--config` 로 쓴다(D-51). `estop_wired: false`: 비상정지 버튼 미연결이라 S1·시연 시작 점검에서 `estop` 표시를 보지 않는다(D-54) |
 | `.claude/settings.local.json` | 이 젯슨에서만 쓰는 Claude Code 설정(저장소에 올라가지 않는다). 저장소 `.claude/settings.json` 이 켜는 CAD 플러그인 text-to-cad 는 클라우드 작업용이라 젯슨에서는 끈다: `{"enabledPlugins": {"text-to-cad@earthtojake": false}}`. 파일이 없으면 이 내용으로 만들고, 세션을 시작할 때 earthtojake 마켓플레이스 설치를 물으면 거절한다 |
 
 미확정 값은 추측으로 채우지 않는다. 0 이나 null 로 두고 그 값을 쓰는 기능을 켜지 않는다.

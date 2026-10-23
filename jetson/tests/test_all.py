@@ -2058,14 +2058,30 @@ ck("강성 측정: CP_ZERO 없음 → HOME 없이 ARM → SET_TARGET → START_C
 BENCH = dict((k, v) for k, v in _bench.items() if not k.startswith("_"))
 lk, ud, sr, clk, pushed = urig(BENCH)
 ud.request("compress", "enter"); ud.request("compress", "start"); uack(ud, lk); utel(ud, lk, "HOMED")
-ck("결선 벤치 설정(팀장 10/23 \"압박 원래값으로 돌리지말고\"): 압박 SET_TARGET 30 회/분, 30 mm, 힘 상한 600 N",
-   lk.sent[-1][0] == "SET_TARGET" and lk.sent[-1][1] == {"bpm": 30, "depth_mm": 30, "force_max_N": 600}, str(lk.sent[-1]))
+ck("결선 벤치 설정(팀장 \"압박, 음압 모두 15/10\" = 깊이 15 mm, 10 회/분): 압박 SET_TARGET 10 회/분, 15 mm, 힘 상한 600 N",
+   lk.sent[-1][0] == "SET_TARGET" and lk.sent[-1][1] == {"bpm": 10, "depth_mm": 15, "force_max_N": 600}, str(lk.sent[-1]))
 lk, ud, sr, clk, pushed = urig(BENCH)
 ud.request("stiff", "enter"); ud.request("stiff", "start"); p_ = (ud._stf or {}).get("period")
 uack(ud, lk); utel(ud, lk, "HOMED")
-ck("결선 벤치 설정(팀장 10/23 \"강성측정시에 속도 깊이를 30/30\"): 강성 측정 SET_TARGET 30 회/분, 30 mm, 600 N, 주기 2 s",
-   lk.sent[-1][0] == "SET_TARGET" and lk.sent[-1][1] == {"bpm": 30, "depth_mm": 30, "force_max_N": 600} and p_ == 2.0,
+ck("결선 벤치 설정(\"음압\"은 강성 측정): 강성 측정 SET_TARGET 10 회/분, 15 mm, 600 N, 주기 6 s",
+   lk.sent[-1][0] == "SET_TARGET" and lk.sent[-1][1] == {"bpm": 10, "depth_mm": 15, "force_max_N": 600} and p_ == 6.0,
    "%s %s" % (lk.sent[-1], p_))
+uack(ud, lk); uack(ud, lk)                          # SET_TARGET, START_CPR
+for i_ in range(int(73.0 / 0.05)):
+    if ud.phase != "running":
+        break
+    lk.mcu_state = "CPR_RUNNING"
+    clk["t"] += 0.05
+    ud.on_tel({"t": "tel", "state": "CPR_RUNNING", "ms": 1000 + i_ * 50, "estop": False, "faults": [],
+               "cp_force_N": 150.0, "cp_depth_mm": 15.0})
+    if i_ % 20 == 0:
+        ud.tick()                                   # 1 s 마다 시간 한도 검사(STIFF_TIMEOUT 은 (2+10)×6 + 5 = 77 s)
+end_ = (ud.phase, ucmds(lk)[-1], lk.sent[-1][1].get("reason"), clk["t"])
+uack(ud, lk)
+sv10 = ud.snapshot().get("stiff") or {}
+ck("결선 벤치 설정: 강성 측정 10 회/분이면 12주기 약 72 s 뒤 STOP_CPR(END), 시간 초과 없이 done, k = 150 N ÷ 15 mm = 10",
+   end_[:3] == ("stopping", "STOP_CPR", "END") and 71.5 < end_[3] < 73.0 and ud.phase == "done"
+   and sv10.get("n") == 10 and abs(sv10.get("k_N_mm", 0) - 10.0) < 0.01, "%s %s" % (end_, sv10))
 lk, ud, sr, clk, pushed = urig(dict(CP, target_bpm=110, stiff_bpm=30, stiff_depth_mm=30))
 ud.request("stiff", "enter"); ud.request("stiff", "start"); uack(ud, lk); utel(ud, lk, "HOMED")
 s_kw = lk.sent[-1][1]
