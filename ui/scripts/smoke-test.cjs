@@ -195,6 +195,16 @@ const check = (name, ok, detail = '') => {
   check('redirect: rearm_lock 값 없음(오래됨) → S12', redirectTarget(rule, { rearm_lock: null, vac_released: true }) === 'S12')
 
   // 압박점 탐색 판정 (jetson/saver/search.py 와 같은 합성 곡선, tests/test_all.py 9절)
+  // D-54(팀장 10/23): 비상정지 버튼 미연결. 초기화 오류 화면에 늘 보이던 비상정지 안내를 빼고 젯슨이 알린 실제 사유를 보인다
+  const { initReason } = await import('../src/initReason.js')
+  const ir = (w) => initReason(w) || { t: '', s: '' }
+  check('초기화 오류 사유(D-54): HOME·ARM 거부는 장치 거부 문구와 원래 코드, 비상정지는 사유가 ESTOP 일 때만',
+    ir('HOME_REJECTED:HOME_UNAVAILABLE_NO_VERIFIED_LIMIT').t.includes('원점 복귀')
+    && ir('HOME_REJECTED:HOME_UNAVAILABLE_NO_VERIFIED_LIMIT').s.includes('HOME_UNAVAILABLE_NO_VERIFIED_LIMIT')
+    && ir('ARM_REJECTED:VACUUM_RELEASE_NOT_VERIFIED').t.includes('구동 준비')
+    && ir('ESTOP').t.includes('비상정지') && !ir('UNEXPECTED_MCU_STATE:ESTOP').t.includes('비상정지')
+    && initReason(null) === null && initReason('FW_VERSION:1.0') === null)
+  check('초기화 오류 화면(D-54): 늘 보이던 "비상정지 버튼을 확인하세요" 안내 없음', !HTML.includes('비상정지 버튼을 확인하세요'))
   const S = await import('../src/search.js')
   const SD = await import('../src/searchDemo.js')
   const xs = Array.from({ length: 16 }, (_, i) => 5 * (i + 1))

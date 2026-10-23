@@ -97,6 +97,7 @@ export default function App() {
         ...prev,
         node: snap.node,
         errorCause: snap.error_cause || null,
+        errorWhy: snap.error_why || null,       // 오류 화면의 세부 사유(예: 초기화 점검이 멈춘 단계와 장치 거부 사유)
         log: [...prev.log.slice(-199),
               { ts: Date.now(), from: prev.node, event: snap.event || 'SYNC',
                 to: snap.node, state: snap.state }],

@@ -5,6 +5,7 @@ import { Dark, AlarmRed, Header, Btn, WavePanel } from '../ui'
 
 import { IMG } from '../images'
 import { reasonText } from '../search'
+import { initReason } from '../initReason'
 import { radarView } from '../radarView'
 
 /* ================= 13 · ROSC 의심 · S9 · UI-09 · ★핵심·경고 ================= */
@@ -60,9 +61,10 @@ const CAUSES = {
   position: [{ t: '압박 위치를 확인하세요',   s: '' },
              { t: '장치가 가슴 가운데에서 벗어났습니다', s: '→ 장치를 들어 다시 놓으세요.' }],
   sensor:   [{ t: '센서 신호가 불안정합니다', s: '→ 손가락 센서가 잘 끼워져 있는지 확인하세요.' }],
-  // 초기화 오류(v2.4): 부팅 점검이나 원점 복귀를 마치지 못함. 재확인은 처음 점검부터 다시 한다
-  init:     [{ t: '장치 점검을 마치지 못했습니다', s: '→ 재확인을 누르면 처음 점검부터 다시 합니다.' },
-             { t: '비상정지 버튼을 확인하세요',   s: '→ 눌려 있으면 푼 뒤 재확인을 누르세요.' }],
+  // 초기화 오류(v2.4): 부팅 점검이나 원점 복귀를 마치지 못함. 재확인은 처음 점검부터 다시 한다.
+  // 10/23 팀장: 비상정지 버튼은 연결하지 않았으므로 늘 보이던 비상정지 안내를 뺐다(D-54). 대신 젯슨이 알린
+  // 실제 사유(initReason)를 한 줄 더 보인다. 사유가 비상정지일 때만 비상정지 안내가 나온다
+  init:     [{ t: '장치 점검을 마치지 못했습니다', s: '→ 재확인을 누르면 처음 점검부터 다시 합니다.' }],
   search:   [{ t: '압박 위치 찾기가 중단되었습니다', s: '→ 환자 몸 위치를 확인한 뒤 재확인을 누르면 찾기 화면으로 돌아갑니다.' }],
 }
 
@@ -70,6 +72,8 @@ export function Screen14({ fire, ctx, search, fw = null }) {
   let list = CAUSES[ctx.errorCause] || CAUSES.tubing
   const why = ctx.errorCause === 'search' && search ? reasonText(search.reason) : null
   if (why) list = [...list, { t: why.title, s: '→ ' + why.sub + ' (' + why.code + ')' }]
+  const initWhy = ctx.errorCause === 'init' ? initReason(ctx.errorWhy) : null
+  if (initWhy) list = [...list, initWhy]
   // 장치 점검 실패의 원인이 펌웨어 판 불일치(v1.1 아님)면 그 사유를 맨 위에 둔다
   if (ctx.errorCause === 'init' && fw === false) {
     list = [{ t: '장치 펌웨어 판이 맞지 않습니다', s: '→ Teensy 에 v1.1 펌웨어를 올린 뒤 재확인을 누르세요. (3-CM-001)' }, ...list]

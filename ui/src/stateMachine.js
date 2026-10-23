@@ -54,6 +54,7 @@ export const INITIAL = {
   node: spec.initial,
   errorReturn: 'S2',
   errorCause: null,
+  errorWhy: null,
   battery: false,
   patient: { sex: 'male', age: 'adult' },
   log: [],
@@ -90,8 +91,10 @@ export function transition(ctx, event, payload = {}) {
       event === EV.VACUUM_ERROR ? 'vacuum' :
       event === EV.INIT_ERROR ? 'init' :
       payload.cause || 'tubing'
+    next.errorWhy = payload.why || null
   } else {
     next.errorCause = null
+    next.errorWhy = null
   }
 
   if (payload.patient) next.patient = { ...ctx.patient, ...payload.patient }
