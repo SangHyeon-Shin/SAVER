@@ -63,7 +63,8 @@ export function unitReasonText(reason) {
   if (r.startsWith('STATE:')) return '장치 상태가 맞지 않습니다 (' + r.slice(6) + ')'
   if (r.startsWith('HOMING')) return '원점 복귀에 실패했습니다 (' + r + ')'
   if (r.startsWith('NOT_SENT')) return '명령을 보내지 못했습니다'
-  if (r.startsWith('STOP_REJECTED')) return '정지 요청이 거부됐습니다 · 비상정지 버튼을 누르세요'
+  // 10/23 팀장: 비상정지 버튼은 연결하지 않았고(D-54), 시연 중 정지 수단은 파워서플라이 전원 차단이다
+  if (r.startsWith('STOP_REJECTED')) return '정지 요청이 거부됐습니다 · 파워서플라이 전원을 차단하세요'
   if (/^\d-[A-Z]{2}-\d{3}$/.test(r)) return '장치 오류 ' + r
   return '장치가 요청을 처리하지 못했습니다 (' + r + ')'
 }

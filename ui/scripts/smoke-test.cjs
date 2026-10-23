@@ -519,6 +519,9 @@ const check = (name, ok, detail = '') => {
     UV.unitReasonText('NOT_READY').includes('시연용 펌웨어') && UV.unitReasonText('3-CU-021') === '장치 오류 3-CU-021'
     && UV.unitReasonText('TARGET_NOT_SET').includes('목표 깊이') && UV.unitReasonText('FAULT:3-MU-002').includes('3-MU-002')
     && UV.unitReasonText('FW_VERSION').includes('v1.1'))
+  check('유닛 사유 문구(팀장 10/23): 정지 거부는 파워서플라이 전원 차단 안내, 비상정지 버튼 안내 없음',
+    UV.unitReasonText('STOP_REJECTED:NOT_CPR_ACTIVE').includes('파워서플라이 전원을 차단')
+    && !UV.unitReasonText('STOP_REJECTED:NOT_CPR_ACTIVE').includes('비상정지'))
   check('유닛 상태: 브리지 단계 → 화면 문구, 다른 유닛 상태는 대기',
     UV.phaseView({ unit: 'compress', phase: 'starting', step: 'HOME' }, 'compress').text === '원점 복귀 중'
     && UV.phaseView({ unit: 'vacuum', phase: 'running' }, 'compress').phase === 'idle'
