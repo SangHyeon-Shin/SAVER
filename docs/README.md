@@ -14,7 +14,7 @@
 |---|---|
 | `PROJECT_STATE.md` | **지금 무엇이 사실인가.** 확정값·마감·검증 상태의 단일 출처 |
 | `hardware_mapping.md` | 핀·센서·전원. Teensy 외부 5 V 전원 계획(10/4, 미검증) 포함 |
-| `protocol_v1.1_draft.md` | **프로토콜 v1.1 합의본(7차, 10/4).** `protocol/` 반영 전까지 v1.1의 기준 |
+| `protocol_v1.1_draft.md` | 프로토콜 v1.1 합의 경과(8차, 10/4). **10/23 `protocol/teensy_usb_protocol_v1.md` v1.1 부록 A로 반영**, 규범은 그쪽 |
 | `protocol_v1.1_worst_len.py` | v1.1 메시지 최대 길이 계산(본문 511 byte 한도) |
 | `protocol_review_한건민.md` | 프로토콜 검토 기록 |
 | `document_index.md` | 프로젝트 문서 85건 색인. `specs/` 에 15건 포함 |

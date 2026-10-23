@@ -56,7 +56,7 @@ SAVER/
 │   ├── PROJECT.md         프로젝트 개요 · 팀 · 환경
 │   ├── DECISIONS.md       ★ 기술 결정과 그 근거. 설계에 의문이 들면 여기부터
 │   ├── hardware_mapping.md  핀·센서·전원 (Teensy 외부 5 V 전원 계획 포함)
-│   ├── protocol_v1.1_draft.md  ★ 프로토콜 v1.1 합의본(7차, 10/4). protocol/ 반영 전 기준
+│   ├── protocol_v1.1_draft.md  프로토콜 v1.1 합의 경과(8차, 10/4). 규범은 protocol/ v1.1 부록 A(10/23 반영)
 │   ├── protocol_v1.1_worst_len.py  v1.1 메시지 최대 길이 계산
 │   ├── protocol_review_한건민.md   프로토콜 검토 기록
 │   ├── document_index.md  프로젝트 문서 색인
@@ -173,7 +173,7 @@ py -3 tools/patent_scan.py --all --report   # 미공개 항목 혼입 여부
 | 항목 | 상태 |
 |---|---|
 | 상태머신 S0~S13 + X_ | 구현 완료 (JSON 단일 기준). 탐색 후 고정 순서로 바꾸는 작업은 v1.1 묶음 |
-| 프로토콜 v1.1 | **7차 합의본(10/4)** `docs/protocol_v1.1_draft.md`. `protocol/` 반영과 양쪽 구현 대기 |
+| 프로토콜 v1.1 | **10/23 통일**: `protocol/teensy_usb_protocol_v1.md` v1.1(합의본 8차 10/4 = 부록 A). 젯슨은 v1.1 전용. 반영본은 한건민 검토 필요 |
 | Jetson 브리지 | 구현 완료 · 자동시험 45/45(PC). 젯슨 실기는 40항목 판까지 확인 · 시작 seq 무작위(Jetson만 재시작될 때 중복 무시 방지) |
 | 가짜 Teensy | 구현 완료 (고장 주입 7종) |
 | 7인치 UI | 20화면 구현 완료 · 연결 중 생략·stale 텔레메트리는 "—"로 표시(모의값으로 채우지 않음) |

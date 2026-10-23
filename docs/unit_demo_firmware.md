@@ -5,6 +5,10 @@
 지원해야 한다. **프로토콜 메시지 형식은 바꾸지 않는다.** 1번(흡착 없는 압박 허용)만 허용 상태가 v1.0 §5 와 달라
 합의가 필요하다. `protocol/` 과 `teensy/` 는 고치지 않았다.
 
+> **10/23 추가: 프로토콜 v1.1 통일.** 젯슨은 v1.1 펌웨어(`GET_INFO` 에 `proto` "1.1", `caps` 에 `AID`)하고만 동작한다.
+> v1.0 펌웨어면 판 불일치(`3-CM-001`)로 보고 조회와 정지 명령 말고는 보내지 않으므로, 아래 유닛 시연도 시작하지 않는다(`FW_VERSION`).
+> 메인 펌웨어의 v1.1 통신 계층은 10/23 작업 브랜치에 있다(구동은 자리표시, 한건민 검토 필요). 명세 `protocol/teensy_usb_protocol_v1.md` v1.1.
+
 ## 지금 상태 (저장소 기준, 10/18)
 
 | 구분 | 상태 |
@@ -27,7 +31,7 @@ Teensy 하나에는 펌웨어 하나만 올라간다. 결선에서 세 시연(�
 | 환자 상태 | 없음 | MAX30102 읽기(이미 있음) | `ppg_hr_bpm`, `spo2_pct`. 손가락이 없거나 유효하지 않으면 **생략** |
 | 압박 | (IDLE) `ARM` → (ARMED) `HOME` → `SET_TARGET{bpm, depth_mm, force_max_N}` → `START_CPR`. 정지 `STOP_CPR{reason}` | `HOME` 실제 원점 복귀와 `HOMING_DONE`. **흡착 없이 `START_CPR` 허용(1번)**. 압박 제어, `STOP_CPR` 즉시 정지 | `state`, `cp_depth_mm`(직전 사이클 최대), `cp_rate_cpm`, `cp_force_N` |
 | 흡착 | (IDLE) `ARM` → (ARMED) `HOME` → `VACUUM_ON{target_kPa}`. 정지 `VACUUM_OFF` | 블로워 제어, 목표 도달 시 `VACUUM_HOLD` 와 `VACUUM_OK`, 실패 `VACUUM_FAIL`, 해제 `VACUUM_RELEASED` | `vac_kPa`(음수), `vac_leak` |
-| 구동 | (IDLE) `ARM` → 압박점 탐색(`jetson/saver/search.py`): `HOME`, `HEAD_HOLD`, `DRIVE_STEP`, `DRIVE_STOP` | 프로토콜 v1.1 초안 명령과 `GET_INFO` caps `DRIVE`, `HEAD_HOLD`, `MOT`, `AID` | v1.1 `tel`, `mot` |
+| 구동 | (IDLE) `ARM` → 압박점 탐색(`jetson/saver/search.py`): `HOME`, `HEAD_HOLD`, `DRIVE_STEP`, `DRIVE_STOP` | 프로토콜 v1.1 명령과 `GET_INFO` caps `DRIVE`, `HEAD_HOLD`, `MOT`, `AID` | v1.1 `tel`, `mot` |
 
 목표값은 브리지 설정 파일에서만 온다. 결선 벤치 설정 `jetson/config.bench.json`(팀장 확인 뒤 사용):
 `target_bpm` 110, `target_depth_mm` 50, `force_max_N` 600, `vacuum_target_kPa` -22.5
