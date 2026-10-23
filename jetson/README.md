@@ -42,7 +42,11 @@ python3 -m saver.bridge --unit-demo --serial /tmp/ttyFAKE --config config.bench.
 | 압박 | ARM → HOME → SET_TARGET → START_CPR, 정지 STOP_CPR | `cp_depth_mm`, `cp_rate_cpm`, `cp_force_N`, 경과 시간, 횟수(속도 적분, "약") |
 | 강성 측정 (10/23, D-53) | 압박과 같은 순서 → 2주기 버리고 10주기 측정 → STOP_CPR{END} | 힘-깊이 그림, 유효 강성 k = 주기 최대 힘 ÷ 최대 깊이(N/mm), 최대 힘, 최대 깊이, 진행, 편차. 결과는 기록에 `UNIT_STIFF` |
 | (구동, 메뉴에서 뺌) | ARM → 압박점 탐색(`search.py`, v1.1 명령). 개발용 바로가기 `?unit=drive` | 탐색 진행(압박 위치 찾기 화면) |
-| 흡착 | ARM → HOME → VACUUM_ON, 해제 VACUUM_OFF. `GET_INFO` `caps`에 `CP_ZERO`가 없으면(리미트 없는 수동 배치 펌웨어) HOME 없이 ARM → VACUUM_ON (10/23, `docs/teensy_ppg_vacuum_test.md`) | `vac_kPa`, 목표, 고정 유지 시간, `vac_leak` |
+| 흡착 | ARM → HOME → VACUUM_ON, 해제 VACUUM_OFF | `vac_kPa`, 목표, 고정 유지 시간, `vac_leak` |
+
+압박, 강성 측정, 흡착 모두 `GET_INFO` `caps`에 `CP_ZERO`(v1.1 의미의 HOME)가 없으면(리미트 없는 수동 배치 펌웨어) HOME 을 빼고
+ARM 다음 단계로 간다(10/23 팀장: 모든 시작은 젯슨 UI 터치, `docs/teensy_ppg_vacuum_test.md`). 정지가 거부되면 화면은
+파워서플라이 전원 차단을 안내한다(비상정지 버튼 미연결, D-54).
 
 - 진입만으로는 명령이 없다. 압박 시작은 1초 길게 누르기. 다른 화면으로 가거나 UI 연결이 모두 끊기면 진행 중인 동작을 멈춘다.
   비상정지, 고장(sev 3), 링크 두절, 응답 없음은 실패로 끝내고 사유를 화면에 보인다. 목표 깊이가 비면 아무 명령도 보내지 않는다.

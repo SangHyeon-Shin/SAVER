@@ -689,9 +689,15 @@ Teensy 쪽 미구현(HOME 실제 복귀, ARM 인터록, PAUSE·STOP 압박 정�
 **추가(10/23 밤, 팀장 지시: PPG·음압 모터·음압 센서만 우선 젯슨 연동 시험)**: 흡착 시작은 `GET_INFO` `caps`에
 `CP_ZERO`(v1.1 의미의 HOME)가 없으면 `HOME`을 보내지 않고 `ARM → VACUUM_ON`으로 간다(v1.1 §4.7-4 "caps 에 없는 기능의
 명령은 끈다"). 리미트가 없는 수동 배치 펌웨어(`codex/teensy-integration-20261023`)는 `HOME`을 늘 거부하고 `ARMED`의
-`VACUUM_ON`을 받는다. §5 표의 `VACUUM_ON` 허용 상태(`HOMED`)와 다르며, 받아들일지는 Teensy가 정한다. 압박·강성 측정
-절차는 바꾸지 않았다. 펌웨어 쪽 요청(PPG 상시 관측, 음압 설정값 보존, 대기압 영점)은 `docs/teensy_ppg_vacuum_test.md`.
-`implemented`, PC 모의 `tested`(Jetson 413/413), 실기 `planned`.
+`VACUUM_ON`을 받는다. §5 표의 `VACUUM_ON` 허용 상태(`HOMED`)와 다르며, 받아들일지는 Teensy가 정한다.
+펌웨어 쪽 요청(PPG 상시 관측, 음압 설정값 보존, 대기압 영점)은 `docs/teensy_ppg_vacuum_test.md`.
+
+**추가(10/23 밤, 팀장 결정)**: "압박이던 흡착이던 강성측정이던 시작 명령은 젯슨 UI에서 사용자가 터치하면 jetson에서
+teensy한테 명령하는거임". 같은 규칙(`caps`에 `CP_ZERO`가 없으면 HOME 생략)을 압박과 강성 측정에도 적용했다
+(`ARM → SET_TARGET → START_CPR`). §5 표의 `START_CPR` 허용 상태(`CPR_READY`)와 다르다. 3e710c8 펌웨어는 `CPR_READY`를
+직접 명령 `CP PREPARE`로만 만들고 압박 설정 잠금(`BENCH_DRIVE_CONFIRMED` 등)이 걸려 있어, 원격 시작 경로(같은 검사로
+준비와 시작)를 한건민에게 요청했다. 잠금은 한건민의 검증 절차로만 푼다. `implemented`, PC 모의 `tested`(Jetson 416/416),
+실기 `planned`.
 
 **수준**: 젯슨, UI `implemented`(jetson 375/375 Python 3.6, ui smoke 164/164). 모의 Teensy(`--bench`), 모의 레이더, 키오스크
 빌드, 브리지를 브라우저로 끝까지 돌려 명령 순서와 화면 값을 확인했다(`simulated`). 실물 Teensy 와의 동작 `planned`.
@@ -772,7 +778,11 @@ Teensy 쪽 미구현(HOME 실제 복귀, ARM 인터록, PAUSE·STOP 압박 정�
 `PHYSICAL_ESTOP_POWER_CUT_USER_CONFIRMED = true`(10/15 보고 근거)가 지금도 맞는지 한건민이 확인한다. 버튼을 연결하면
 `estop_wired` 를 `true` 로 바꾼다.
 
-**수준**: 젯슨·UI `implemented`, PC 모의 시험 `tested`(Jetson 410/410, UI smoke 172/172). 실기 `planned`.
+**추가(10/23 밤, 팀장 결정)**: "시연중 전원은 파워서플라이의 전원 차단으로 하겠다". 시연 중 정지 거부 문구를
+"정지 요청이 거부됐습니다 · 파워서플라이 전원을 차단하세요"로 바꿨다(`ui/src/units.js`, 비상정지 버튼 안내 삭제).
+이 차단이 압박 모터 드라이버와 블로워 전원을 실제로 끊는지는 한건민이 확인한다(`assumed`).
+
+**수준**: 젯슨·UI `implemented`, PC 모의 시험 `tested`(Jetson 410/410, UI smoke 172/172, 10/23 밤 추가 뒤 416/416, 173/173). 실기 `planned`.
 
 ## 보고서·논문
 
