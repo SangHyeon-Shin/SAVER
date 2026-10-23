@@ -1,0 +1,14 @@
+{"v":1,"t":"ack","seq":65535,"ok":true,"state":"VACUUM_HOLD"}
+{"v":1,"t":"ack","seq":65535,"ok":false,"err":"3-TU-010","why":"VACUUM_NOT_RELEASED"}
+{"v":1,"t":"err","ms":4294967295,"code":"3-TU-010","sev":3,"latched":true,"why":"XXXXXXXXXXXXXXXXXXXXXXXX"}
+{"v":1,"t":"evt","ms":4294967295,"evt":"VACUUM_RELEASED"}
+{"v":1,"t":"tel","ms":4294967295,"tn":4294967295,"boot_id":65535,"state":"VACUUM_HOLD","cp_rate_cpm":-9999.99,"cp_depth_mm":-9999.99,"cp_force_N":-9999.99,"cp_motor_i_A":-9999.99,"vac_kPa":-9999.99,"ppg_hr_bpm":-9999.99,"spo2_pct":-9999.99,"ppg_sqi":-9999.99,"temp_C":-9999.99,"fan_pct":-9999.99,"estop":false,"limit_top":false,"limit_bottom":false,"vac_leak":false,"faults":["3-TU-010","3-TU-010","3-TU-010","3-TU-010","3-TU-010","3-TU-010"],"faults_more":true}
+{"v":1,"t":"mot","ms":4294967295,"tn":4294967295,"boot_id":65535,"busy":"HEAD_SEARCH","busy_seq":65535,"busy_aid":4294967295,"head_hold_active":false,"drv_settled":false,"drv_pos_mm":-9999.99,"drv_yaw_deg":-9999.99,"drv_pitch_deg":-9999.99,"drv_roll_deg":-9999.99,"head_pos_mm":-9999.99,"head_contact_mm":-9999.99,"mot_last_seq":65535,"mot_last_aid":4294967295,"mot_last_cmd":"TRIAL_COMPRESSION","mot_last_result":"SETTLE_FAIL","rearm_lock":false,"vac_released":false}
+{"v":1,"t":"evt","ms":4294967295,"evt":"INFO","seq":65535,"fw":"XXXXXXXXXXXXXXXX","proto":"1.1","caps":["DRIVE","HEAD_HOLD","CP_ZERO","MOT","AID","FAULTS"],"boot_id":65535,"last_seq":65535,"last_aid":4294967295,"drv_enc_mode":1,"drv_enc_side":"R"}
+{"v":1,"t":"evt","ms":4294967295,"evt":"DRIVE_DONE","seq":65535,"aid":4294967295,"result":"SETTLE_FAIL","code":"3-TU-010","drive_mm":-9999.99,"drv_pos_mm":-9999.99,"drv_yaw_deg":-9999.99,"cp_force_N":-9999.99,"force_n":65535,"drv_enc_mode":1}
+{"v":1,"t":"evt","ms":4294967295,"evt":"HEAD_HELD","seq":65535,"aid":4294967295,"result":"NO_CONTACT","code":"3-TU-010","head_contact_mm":-9999.99,"head_pos_mm":-9999.99,"cp_force_N":-9999.99}
+{"v":1,"t":"evt","ms":4294967295,"evt":"HOMING_DONE","seq":65535,"aid":4294967295,"result":"NO_CONTACT","code":"3-TU-010","head_contact_mm":-9999.99,"head_pos_mm":-9999.99,"cp_force_N":-9999.99}
+{"v":1,"t":"evt","ms":4294967295,"evt":"CP_ZERO_SET","seq":65535,"aid":4294967295,"result":"NO_CONTACT","code":"3-TU-010","head_contact_mm":-9999.99,"head_pos_mm":-9999.99,"cp_force_N":-9999.99}
+{"v":1,"t":"evt","ms":4294967295,"evt":"TRIAL_RESULT","seq":65535,"aid":4294967295,"result":"ABORTED","code":"3-TU-010"}
+{"v":1,"t":"evt","ms":4294967295,"evt":"VACUUM_RELEASED","seq":65535,"aid":4294967295,"vac_kPa":-9999.99}
+{"v":1,"t":"evt","ms":4294967295,"evt":"FAULTS_END","seq":65535,"n":65535}
