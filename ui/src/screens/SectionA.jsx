@@ -67,7 +67,7 @@ export function Screen03({ fire }) {
                 <div style={{ width: 0, height: 0, borderTop: '15px solid transparent', borderBottom: '15px solid transparent', borderLeft: `26px solid ${C.success}` }} />
               </div>
               <div style={{ width: 330, height: 240, border: `1px solid ${C.lightLine}`, borderRadius: 10, overflow: 'hidden', background: '#0e1116', flexShrink: 0 }}>
-                <img src={IMG.patient_angled} alt="환자" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+                <img src={IMG.patient_angled} alt="환자" style={{ width: '100%', height: '100%', objectFit: 'contain', display: 'block' }} />
               </div>
             </div>
             <div style={{ fontSize: 26, fontWeight: 600 }}>환자 위치로 끌고 이동해 주세요</div>
@@ -143,15 +143,13 @@ export function Screen04({ fire }) {
    외투 제거는 인식하지 않는다(D-38). 벗기라고 안내만 하고,
    구조자가 [외투를 벗겼습니다]를 누르면 다음 화면으로 간다.
    외투만 벗기고 안에 입은 옷은 그대로 둔다(10/14 팀장). 사전 뜻으로 외투는 겉옷 위에 덧입는 옷이다.
-   그림은 벗기기 전과 뒤를 나란히 보여 주는 안내용이다. */
+   그림은 벗기기 전과 뒤를 나란히 보여 주는 안내용이다. 원본 clothes.png 한 장에 왼쪽(지금), 화살표, 오른쪽(벗긴 뒤)이
+   다 있어 그대로 쓴다. 틀이 그림보다 납작해 'cover' 는 위아래 빈 곳만 자르고, 가로 위치는 그림과 같은 비율이다.
+   글자는 두 상체의 가운데(그림 너비의 21.7%, 78.9%) 아래에 둔다. */
+const CLOTHES_LABEL_X = ['21.7%', '78.9%']
 export function Screen05({ fire }) {
-  const pic = (src, alt, label) => (
-    <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8 }}>
-      <div style={{ width: '100%', flex: 1, minHeight: 0, borderRadius: 12, overflow: 'hidden', background: '#0e1116', border: '2px solid #d7dce2' }}>
-        <img src={src} alt={alt} style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'center', display: 'block' }} />
-      </div>
-      <div style={{ fontSize: 19, color: '#3a4250', fontWeight: 600 }}>{label}</div>
-    </div>
+  const label = (x, text) => (
+    <div style={{ position: 'absolute', left: x, top: 0, transform: 'translateX(-50%)', fontSize: 19, color: '#3a4250', fontWeight: 600, whiteSpace: 'nowrap' }}>{text}</div>
   )
   return (
     <Light>
@@ -160,10 +158,15 @@ export function Screen05({ fire }) {
         <div style={{ fontSize: 26, fontWeight: 700, textAlign: 'center', marginBottom: 12, flexShrink: 0 }}>
           가슴 압박을 할 수 있도록 외투만 벗겨 주세요
         </div>
-        <div style={{ flex: 1, minHeight: 0, display: 'flex', alignItems: 'stretch', gap: 18 }}>
-          {pic(IMG.clothes_on, '외투를 입은 환자 상체', '지금')}
-          <div style={{ alignSelf: 'center', fontSize: 40, color: C.success, fontWeight: 800, flexShrink: 0 }}>→</div>
-          {pic(IMG.clothes_off, '외투를 벗기고 얇은 옷은 그대로 둔 환자 상체', '벗긴 뒤')}
+        <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+          <div style={{ width: 900, height: 336, borderRadius: 12, overflow: 'hidden', background: '#0e1116', border: '2px solid #d7dce2', flexShrink: 0 }}>
+            <img src={IMG.clothes} alt="왼쪽은 외투를 입은 환자 상체, 오른쪽은 외투를 벗기고 얇은 옷은 그대로 둔 환자 상체"
+              style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'center', display: 'block' }} />
+          </div>
+          <div style={{ position: 'relative', width: 900, height: 26, flexShrink: 0 }}>
+            {label(CLOTHES_LABEL_X[0], '지금')}
+            {label(CLOTHES_LABEL_X[1], '벗긴 뒤')}
+          </div>
         </div>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 14, flexShrink: 0 }}>
           <Btn variant="ghost" w={160} fs={23} onPress={() => fire(EV.CANCEL)}>취소</Btn>
