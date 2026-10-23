@@ -2058,12 +2058,19 @@ ck("강성 측정: CP_ZERO 없음 → HOME 없이 ARM → SET_TARGET → START_C
 BENCH = dict((k, v) for k, v in _bench.items() if not k.startswith("_"))
 lk, ud, sr, clk, pushed = urig(BENCH)
 ud.request("compress", "enter"); ud.request("compress", "start"); uack(ud, lk); utel(ud, lk, "HOMED")
-ck("결선 벤치 설정(팀장 10/23 \"30/30\"): 압박 SET_TARGET 30 회/분, 30 mm, 힘 상한 600 N",
-   lk.sent[-1][0] == "SET_TARGET" and lk.sent[-1][1] == {"bpm": 30, "depth_mm": 30, "force_max_N": 600}, str(lk.sent[-1]))
+ck("결선 벤치 설정: 압박 SET_TARGET 은 압박 목표(110 회/분, 50 mm, 힘 상한 600 N)",
+   lk.sent[-1][0] == "SET_TARGET" and lk.sent[-1][1] == {"bpm": 110, "depth_mm": 50, "force_max_N": 600}, str(lk.sent[-1]))
 lk, ud, sr, clk, pushed = urig(BENCH)
-ud.request("stiff", "enter"); ud.request("stiff", "start")
-ck("결선 벤치 설정: 강성 측정 주기 2 s(30 회/분), 측정 끝 대기 (2+10)×2 s + 여유",
-   (ud._stf or {}).get("period") == 2.0, str(ud._stf))
+ud.request("stiff", "enter"); ud.request("stiff", "start"); p_ = (ud._stf or {}).get("period")
+uack(ud, lk); utel(ud, lk, "HOMED")
+ck("결선 벤치 설정(팀장 10/23 \"이건 강성이다\"): 강성 측정 SET_TARGET 은 전용 값(30 회/분, 30 mm, 600 N), 주기 2 s",
+   lk.sent[-1][0] == "SET_TARGET" and lk.sent[-1][1] == {"bpm": 30, "depth_mm": 30, "force_max_N": 600} and p_ == 2.0,
+   "%s %s" % (lk.sent[-1], p_))
+lk, ud, sr, clk, pushed = urig(dict(CP, target_bpm=110))
+ud.request("stiff", "enter"); ud.request("stiff", "start"); uack(ud, lk); utel(ud, lk, "HOMED")
+ck("강성 측정: 전용 값(stiff_bpm, stiff_depth_mm)이 없으면 압박 목표를 그대로 쓴다",
+   lk.sent[-1][1] == {"bpm": 110, "depth_mm": 50, "force_max_N": 600} and abs(ud._stf["period"] - 60.0 / 110) < 1e-9,
+   str(lk.sent[-1]))
 
 lk, ud, sr, clk, pushed = urig()
 ud.request("drive", "enter"); ud.request("drive", "start"); uack(ud, lk); utel(ud, lk, "IDLE")
@@ -2247,6 +2254,8 @@ ck("브리지 시연 모드: 장치 연결만으로 ARM, HOME 등 동작 명령 
 cm = bu.config_msg()
 ck("브리지 시연 모드: 설정 메시지에 mode unit_demo, 목표값", cm["mode"] == "unit_demo" and cm["target_depth_mm"] == 50
    and cm["force_max_N"] == 600 and cm["vacuum_target_kPa"] == -22.5 and cm["target_bpm"] == 110, str(cm))
+ck("브리지 설정 메시지: 강성 측정 전용 목표(stiff_bpm, stiff_depth_mm)를 싣고, 비어 있으면 null",
+   "stiff_bpm" in cm and cm["stiff_bpm"] is None and "stiff_depth_mm" in cm and cm["stiff_depth_mm"] is None, str(cm))
 ck("브리지 시연 모드: 보고 있지 않은 유닛 시작 요청은 거부 응답",
    (bu.unit_msg({"type": "unit", "unit": "compress", "action": "start"}) or {}).get("reason") == "NOT_ON_SCREEN")
 bu.unit_msg({"type": "unit", "unit": "compress", "action": "enter"})

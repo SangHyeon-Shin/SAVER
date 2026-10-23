@@ -78,6 +78,9 @@ CONFIG = {
                                   # 비어 있으면 시간은 검사하지 않고, 탐색·흡착 진입은 requires_mcu(HOMED)가 막는다(D-46)
     "model_stiffness_N_mm": None, # 강성 측정 화면의 비교선. PROJECT_STATE §2 최대 압박력 계산의 흉부 모델 강성(10 kN/m,
                                   # simulated). 표시만 하고 판단에 쓰지 않는다. 비어 있으면 비교선을 그리지 않는다
+    "stiff_bpm": None,            # 강성 측정(시연 메뉴) 전용 압박 속도(회/분). 비어 있으면 target_bpm 을 쓴다
+    "stiff_depth_mm": None,       # 강성 측정 전용 압박 깊이(mm). 비어 있으면 target_depth_mm 을 쓴다
+                                  # (결선 벤치 설정 30/30, 팀장 10/23 "이건 강성이다", D-51)
     "estop_wired": True,          # 비상정지 버튼(보조 접점)이 Teensy 에 연결돼 있는지. 참이면 S1 점검과 시연 시작 점검에서
                                   # 텔레메트리의 estop 표시를 본다. 결선 벤치 설정은 거짓(팀장 10/23, 버튼 미연결, D-54).
                                   # 거짓이어도 장치가 ESTOP 상태면 점검은 실패하고, 동작 중 비상정지 표시는 그대로 정지 사유다
@@ -136,7 +139,7 @@ def load_config(path):
 
 
 def warn_unset():
-    miss = [k for k, v in CONFIG.items() if not v and k not in ("sim_eapd_mm", "estop_wired")]
+    miss = [k for k, v in CONFIG.items() if not v and k not in ("sim_eapd_mm", "estop_wired", "stiff_bpm", "stiff_depth_mm")]
     if miss:
         print("[주의] 미확정 설정값: %s" % ", ".join(miss))
     if not CONFIG.get("estop_wired", True):
@@ -379,7 +382,8 @@ class Bridge(object):
                 "aed_pause_warn_s": CONFIG.get("aed_pause_warn_s"),
                 "target_bpm": val("target_bpm"), "target_depth_mm": val("target_depth_mm"),
                 "force_max_N": val("force_max_N"), "vacuum_target_kPa": val("vacuum_target_kPa"),
-                "model_stiffness_N_mm": val("model_stiffness_N_mm"), "stiff_cycles": STIFF_CYCLES}
+                "model_stiffness_N_mm": val("model_stiffness_N_mm"), "stiff_cycles": STIFF_CYCLES,
+                "stiff_bpm": val("stiff_bpm"), "stiff_depth_mm": val("stiff_depth_mm")}
 
     def unit_msg(self, msg):
         """UI 의 유닛 요청(결선 시연 모드). 거부하면 UI 에 보낼 응답을, 받아들이면 None 을 돌려준다."""

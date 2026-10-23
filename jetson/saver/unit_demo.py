@@ -13,7 +13,8 @@
   vacuum    IDLE: ARM → HOME(원점 완료) → VACUUM_ON → VACUUM_OK               VACUUM_OFF
   (압박, 강성 측정, 흡착) caps 에 CP_ZERO 가 없으면(리미트 없는 수동 배치 펌웨어) HOME 을 빼고 ARM 다음 단계로
   stiff     압박과 같은 순서로 시작 → 압박 주기 STIFF_SETTLE + STIFF_CYCLES 회 →     STOP_CPR
-            STOP_CPR(END) → 완료. 받은 cp_force_N, cp_depth_mm 로 유효 강성(N/mm)을 낸다
+            STOP_CPR(END) → 완료. 받은 cp_force_N, cp_depth_mm 로 유효 강성(N/mm)을 낸다.
+            목표 속도·깊이는 stiff_bpm, stiff_depth_mm 이 있으면 그것을, 없으면 압박 값을 쓴다
   drive     IDLE: ARM → 압박점 탐색(search.py, v1.1 명령)               탐색 중지(DRIVE_STOP)
             10/23 팀장: 구동이 아직 구현되지 않아 시연 메뉴에서 빼고 강성 측정(stiff)을 넣었다.
             이 절차는 남겨 두며 UI 는 개발용 바로가기(?unit=drive)로만 연다
@@ -51,6 +52,8 @@ STIFF_SETTLE = 2              # 처음 주기는 버린다(깊이가 목표에 �
 STIFF_CYCLES = 10             # 강성을 구하는 주기 수
 STIFF_MIN_DEPTH_MM = 1.0      # 깊이가 이보다 작은 주기는 나누지 않는다(수치 보호)
 STIFF_GRACE_S = 5.0           # 측정이 끝나야 할 시각을 이만큼 넘기면 멈춘다(텔레메트리가 끊긴 경우)
+# 강성 측정 전용 목표값 설정 키. 비어 있으면 압박 목표값(왼쪽 키)을 쓴다. 힘 상한은 압박과 같이 쓴다
+STIFF_KEYS = {"target_bpm": "stiff_bpm", "target_depth_mm": "stiff_depth_mm"}
 
 
 def stiffness(samples, period_s, settle=STIFF_SETTLE, cycles=STIFF_CYCLES, min_depth_mm=STIFF_MIN_DEPTH_MM):
@@ -372,13 +375,13 @@ class UnitDemo(object):
             self._fail("LINK_CHECKING")         # 펌웨어 판(GET_INFO) 확인 전. 잠시 뒤 다시
         elif self.link.proto != P.PROTO_REV:
             self._fail("FW_VERSION")            # v1.1 펌웨어가 아님. 장치로 동작 명령을 보내지 않는다
-        elif unit in CPR_UNITS and not self.cfg.get("target_depth_mm"):
+        elif unit in CPR_UNITS and not self._target("target_depth_mm"):
             self._fail("TARGET_NOT_SET")        # 미확정 목표로 움직이지 않는다(원점 복귀도 하지 않음)
-        elif unit == "stiff" and not self.cfg.get("target_bpm"):
+        elif unit == "stiff" and not self._target("target_bpm"):
             self._fail("TARGET_NOT_SET")        # 주기 길이를 정할 수 없다
         else:
             if unit == "stiff":
-                self._stf = {"period": 60.0 / float(self.cfg["target_bpm"]), "ms0": None, "samples": [],
+                self._stf = {"period": 60.0 / float(self._target("target_bpm")), "ms0": None, "samples": [],
                              "done": 0, "t_run": None, "final": None}
             self._send("GET_STATUS", {}, "status")
 
@@ -445,11 +448,20 @@ class UnitDemo(object):
         else:
             self._note("UNIT_%s_NO_HOME:CAPS" % str(self.unit).upper())
 
+    def _target(self, key):
+        """유닛의 목표값. 강성 측정은 전용 값(stiff_bpm, stiff_depth_mm)이 있으면 그것을, 없으면 압박 값을 쓴다
+        (팀장 10/23 "이건 강성이다": 결선 벤치 설정은 강성 측정만 30 mm, 30 회/분)."""
+        if self.unit == "stiff":
+            v = self.cfg.get(STIFF_KEYS.get(key, ""))
+            if v:
+                return v
+        return self.cfg.get(key)
+
     def _targets(self):
         """SET_TARGET 인자. 비어 있는 값은 보내지 않는다(브리지 S6 과 같은 규칙)."""
-        kw = {"bpm": self.cfg.get("target_bpm")}
-        if self.cfg.get("target_depth_mm"):
-            kw["depth_mm"] = self.cfg["target_depth_mm"]
+        kw = {"bpm": self._target("target_bpm")}
+        if self._target("target_depth_mm"):
+            kw["depth_mm"] = self._target("target_depth_mm")
         if self.cfg.get("force_max_N"):
             kw["force_max_N"] = self.cfg["force_max_N"]
         return kw
