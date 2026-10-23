@@ -686,6 +686,13 @@ Teensy 쪽 미구현(HOME 실제 복귀, ARM 인터록, PAUSE·STOP 압박 정�
 **펌웨어 의존**: 메인 펌웨어는 PPG 송신만 있고 HOME, 흡착, 압박 제어는 자리표시다. 시험 스케치는 JSON 이 아니다.
 흡착 없이 압박하려면 `START_CPR` 허용 상태 변경이 필요하다(합의 전). 상세 `docs/unit_demo_firmware.md`.
 
+**추가(10/23 밤, 팀장 지시: PPG·음압 모터·음압 센서만 우선 젯슨 연동 시험)**: 흡착 시작은 `GET_INFO` `caps`에
+`CP_ZERO`(v1.1 의미의 HOME)가 없으면 `HOME`을 보내지 않고 `ARM → VACUUM_ON`으로 간다(v1.1 §4.7-4 "caps 에 없는 기능의
+명령은 끈다"). 리미트가 없는 수동 배치 펌웨어(`codex/teensy-integration-20261023`)는 `HOME`을 늘 거부하고 `ARMED`의
+`VACUUM_ON`을 받는다. §5 표의 `VACUUM_ON` 허용 상태(`HOMED`)와 다르며, 받아들일지는 Teensy가 정한다. 압박·강성 측정
+절차는 바꾸지 않았다. 펌웨어 쪽 요청(PPG 상시 관측, 음압 설정값 보존, 대기압 영점)은 `docs/teensy_ppg_vacuum_test.md`.
+`implemented`, PC 모의 `tested`(Jetson 413/413), 실기 `planned`.
+
 **수준**: 젯슨, UI `implemented`(jetson 375/375 Python 3.6, ui smoke 164/164). 모의 Teensy(`--bench`), 모의 레이더, 키오스크
 빌드, 브리지를 브라우저로 끝까지 돌려 명령 순서와 화면 값을 확인했다(`simulated`). 실물 Teensy 와의 동작 `planned`.
 

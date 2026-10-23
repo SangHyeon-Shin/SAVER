@@ -32,7 +32,7 @@ Teensy 하나에는 펌웨어 하나만 올라간다. 결선에서 세 시연(�
 |---|---|---|---|
 | 환자 상태 | 없음 | MAX30102 읽기(이미 있음) | `ppg_hr_bpm`, `spo2_pct`. 손가락이 없거나 유효하지 않으면 **생략** |
 | 압박 | (IDLE) `ARM` → (ARMED) `HOME` → `SET_TARGET{bpm, depth_mm, force_max_N}` → `START_CPR`. 정지 `STOP_CPR{reason}` | `HOME` 실제 원점 복귀와 `HOMING_DONE`. **흡착 없이 `START_CPR` 허용(1번)**. 압박 제어, `STOP_CPR` 즉시 정지 | `state`, `cp_depth_mm`(직전 사이클 최대), `cp_rate_cpm`, `cp_force_N` |
-| 흡착 | (IDLE) `ARM` → (ARMED) `HOME` → `VACUUM_ON{target_kPa}`. 정지 `VACUUM_OFF` | 블로워 제어, 목표 도달 시 `VACUUM_HOLD` 와 `VACUUM_OK`, 실패 `VACUUM_FAIL`, 해제 `VACUUM_RELEASED` | `vac_kPa`(음수), `vac_leak` |
+| 흡착 | (IDLE) `ARM` → (ARMED) `HOME` → `VACUUM_ON{target_kPa}`. 정지 `VACUUM_OFF`. 10/23: `caps`에 `CP_ZERO`가 없으면 `HOME` 없이 `ARM` → `VACUUM_ON`(`docs/teensy_ppg_vacuum_test.md`) | 블로워 제어, 목표 도달 시 `VACUUM_HOLD` 와 `VACUUM_OK`, 실패 `VACUUM_FAIL`, 해제 `VACUUM_RELEASED` | `vac_kPa`(음수), `vac_leak` |
 | 구동 | (IDLE) `ARM` → 압박점 탐색(`jetson/saver/search.py`): `HOME`, `HEAD_HOLD`, `DRIVE_STEP`, `DRIVE_STOP` | 프로토콜 v1.1 명령과 `GET_INFO` caps `DRIVE`, `HEAD_HOLD`, `MOT`, `AID` | v1.1 `tel`, `mot` |
 
 목표값은 브리지 설정 파일에서만 온다. 결선 벤치 설정 `jetson/config.bench.json`(팀장 확인 뒤 사용):
