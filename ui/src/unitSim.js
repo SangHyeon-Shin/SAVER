@@ -57,24 +57,27 @@ export function useSimDevice({ on, cfg, speed = 1 }) {
       kPa.current += (goal - kPa.current) * 0.15
       const holding = s.vac && Math.abs(kPa.current - goal) < 1.5
       const cpr = s.cpr || s.stiff
+      // 강성 측정은 전용 목표(stiff_*)가 있으면 그것, 없으면 압박 목표(브리지와 같은 규칙)
+      const tBpm = (s.stiff && c.stiff_bpm) || c.target_bpm || SIM.bpm
+      const tDepth = (s.stiff && c.stiff_depth_mm) || c.target_depth_mm || SIM.depth_mm
       const m = { t: 'tel', state: cpr ? 'CPR_RUNNING' : holding ? 'VACUUM_HOLD' : 'HOMED',
                   vac_kPa: r1(kPa.current), vac_leak: false }
       if (cpr) {
-        const bpm = c.target_bpm || SIM.bpm
-        const depth = (c.target_depth_mm || SIM.depth_mm) + Math.sin(t * 1.9) * 1.4
+        const bpm = tBpm
+        const depth = tDepth + Math.sin(t * 1.9) * 1.4
         m.cp_rate_cpm = r1(bpm + Math.sin(t * 0.7) * 1.2)
         m.cp_depth_mm = r1(depth)
         m.cp_force_N = Math.round(chestPeakForce(depth, bpm) * (1 + Math.sin(t * 1.3) * 0.01))
       }
       if (s.stiff && run.current) {
         // 모의 강성 측정: speed 배로 시간을 당긴다(스모크 시험). 끝난 주기마다 (깊이, 힘) 한 점
-        const bpm = c.target_bpm || SIM.bpm
+        const bpm = tBpm
         const T = 60 / bpm
         const el = ((Date.now() - run.current.t0) / 1000) * speed
         const done = Math.max(0, Math.min(SIM_STIFF.cycles, Math.floor(el / T) - SIM_STIFF.settle))
         while (run.current.pts.length < done) {
           const tc = (SIM_STIFF.settle + run.current.pts.length + 1) * T
-          const dc = (c.target_depth_mm || SIM.depth_mm) + Math.sin(tc * 1.9) * 1.4
+          const dc = tDepth + Math.sin(tc * 1.9) * 1.4
           run.current.pts.push([r2(dc), r1(chestPeakForce(dc, bpm) * (1 + Math.sin(tc * 1.3) * 0.01))])
         }
         const res = simStiffResult(run.current.pts.slice(), done)

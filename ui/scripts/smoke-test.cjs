@@ -519,6 +519,12 @@ const check = (name, ok, detail = '') => {
     UV.unitReasonText('NOT_READY').includes('시연용 펌웨어') && UV.unitReasonText('3-CU-021') === '장치 오류 3-CU-021'
     && UV.unitReasonText('TARGET_NOT_SET').includes('목표 깊이') && UV.unitReasonText('FAULT:3-MU-002').includes('3-MU-002')
     && UV.unitReasonText('FW_VERSION').includes('v1.1'))
+  const svB = UV.stiffView(null, { target_bpm: 110, target_depth_mm: 50, stiff_bpm: 30, stiff_depth_mm: 30 })
+  const svF = UV.stiffView(null, { target_bpm: 110, target_depth_mm: 50, stiff_bpm: null, stiff_depth_mm: null })
+  const cvB = UV.compressView({}, false, { target_bpm: 110, target_depth_mm: 50, stiff_bpm: 30, stiff_depth_mm: 30 })
+  check('강성 측정 목표(팀장 10/23 "이건 강성이다"): 전용 값(stiff_*) 30/30, 없으면 압박 목표, 압박 화면은 압박 목표 그대로',
+    svB.targetBpm === 30 && svB.targetDepth === 30 && svF.targetBpm === 110 && svF.targetDepth === 50
+    && cvB.targetBpm === 110 && cvB.targetDepth === 50, JSON.stringify([svB.targetBpm, svB.targetDepth, svF.targetBpm, cvB.targetBpm]))
   check('유닛 사유 문구(팀장 10/23): 정지 거부는 파워서플라이 전원 차단 안내, 비상정지 버튼 안내 없음',
     UV.unitReasonText('STOP_REJECTED:NOT_CPR_ACTIVE').includes('파워서플라이 전원을 차단')
     && !UV.unitReasonText('STOP_REJECTED:NOT_CPR_ACTIVE').includes('비상정지'))

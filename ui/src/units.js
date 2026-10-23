@@ -166,8 +166,9 @@ export function stiffView(st, cfg) {
     sdText: k === null || !num(s.k_sd) ? NA : `± ${s.k_sd.toFixed(1)}`,
     progress: of ? `${Math.min(done, of)} / ${of}회` : NA,
     model: pos(c.model_stiffness_N_mm),
-    targetDepth: pos(c.target_depth_mm),
-    targetBpm: pos(c.target_bpm),
+    // 강성 측정 전용 목표(stiff_*)가 있으면 그것, 없으면 압박 목표(브리지 unit_demo.py 와 같은 규칙, 팀장 10/23)
+    targetDepth: pos(c.stiff_depth_mm) || pos(c.target_depth_mm),
+    targetBpm: pos(c.stiff_bpm) || pos(c.target_bpm),
     forceMax: pos(c.force_max_N),
   }
 }

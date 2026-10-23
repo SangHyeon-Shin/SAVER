@@ -18,7 +18,8 @@ import { useEffect, useRef, useState, useCallback } from 'react'
                            fw_ok: 장치 펌웨어 판(프로토콜 v1.1) 확인 결과. null=확인 전, true=v1.1, false=판 불일치
      {type:'rejected',     name, node, allowed, reason, mcu, need}
      {type:'search',       phase, reason, points[{x,F,ref,r}], tip_x, D_mm, target_x, pos_x, rule, ...}
-     {type:'config',       mode, aed_pause_warn_s, target_bpm, target_depth_mm, force_max_N, vacuum_target_kPa}
+     {type:'config',       mode, aed_pause_warn_s, target_bpm, target_depth_mm, force_max_N, vacuum_target_kPa,
+                           stiff_bpm, stiff_depth_mm (강성 측정 전용, 비면 null → 압박 목표를 씀)}
                            mode 'operate'(상태머신 흐름) | 'unit_demo'(결선 시연 모드, D-51). 없으면 operate.
                            AED 경고 기준과 목표값은 비어 있으면 null
      {type:'radar',        enabled, connected, receiving, rr_bpm, hr_bpm, distance_mm, eapd_mm, floor_set}
