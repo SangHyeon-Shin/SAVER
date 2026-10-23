@@ -6,6 +6,9 @@ S1 의 명령을 한꺼번에 보내지 않고, ACK 와 장치 상태를 보며 
 
   1. PING            → ACK ok
   2. GET_STATUS      → ACK ok, 그 뒤 텔레메트리에서 비상정지 아님, 활성 고장 없음
+                       비상정지 표시(estop)는 설정 estop_wired 가 참일 때만 본다(기본 참). 결선 벤치 설정은
+                       거짓이다(팀장 10/23 "비상정지 버튼은 연결을 안했으니까 장치상태확인(점검)에서는 빼라", D-54).
+                       장치 상태가 ESTOP 이면 설정과 상관없이 실패다(Teensy 가 비상정지 입력을 보고 있다는 뜻)
   3. 장치 상태별
        IDLE          ARM → ACK ok → HOME
        ARMED         HOME (ARM 을 다시 보내면 NOT_IDLE 로 거부되므로 생략)
@@ -91,6 +94,8 @@ class InitRunner(object):
         self._seq = None
         self._seqs = set()
         self._note("INIT_START")
+        if not self._estop_wired():
+            self._note("INIT_ESTOP_NOT_WIRED")     # 이번 점검은 estop 표시를 보지 않는다(D-54)
         self._try_begin()
 
     def cancel(self, why):
@@ -137,8 +142,8 @@ class InitRunner(object):
             self._check_status(msg)
         elif self.step == "homing":
             st = msg.get("state")
-            if msg.get("estop") or st == "ESTOP":
-                self._fail("HOMING_ESTOP")
+            if self._estop(msg):
+                self._fail("HOMING_ESTOP" if self._estop_wired() else "HOMING_LOST:ESTOP")
             elif st == "HOMED":
                 self._homed()
             elif st is not None and st not in HOMING_OK_STATES:
@@ -229,11 +234,23 @@ class InitRunner(object):
         self._seq = seq
         self._seqs.add(seq)
 
+    def _estop_wired(self):
+        """비상정지 버튼이 연결돼 있는지(설정 estop_wired, 기본 참). 거짓이면 점검에서 estop 표시를 보지 않는다(D-54)."""
+        return bool(self.cfg.get("estop_wired", True))
+
+    def _estop(self, tel):
+        """점검 실패 사유: 비상정지면 사유, 아니면 None. 연결 안 됨 설정에서 장치가 ESTOP 상태면 상태 불일치로 본다."""
+        st = tel.get("state")
+        if self._estop_wired():
+            return "ESTOP" if (tel.get("estop") or st == "ESTOP") else None
+        return "UNEXPECTED_MCU_STATE:ESTOP" if st == "ESTOP" else None
+
     def _check_status(self, tel):
         st = tel.get("state")
         faults = tel.get("faults") or []
-        if tel.get("estop") or st == "ESTOP":
-            self._fail("ESTOP")
+        why = self._estop(tel)
+        if why:
+            self._fail(why)
         elif faults:
             self._fail("FAULT:" + str(faults[0]))
         elif st == "FAULT":

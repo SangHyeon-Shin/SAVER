@@ -5,11 +5,13 @@
     "target_depth_mm": "PROJECT_STATE §2 벤치 시험 설정값 깊이 50 mm(D-30, 임상 적용값 아님). 한성윤 10/1 회신 50~60 mm",
     "force_max_N": "PROJECT_STATE §2 벤치 시험 설정값 힘 상한 600 N(D-30). 한성윤 10/1 회신 650 N 은 구조 재해석 전이라 600 N 유지",
     "vacuum_target_kPa": "PROJECT_STATE §2 VAC_TARGET_KPA -22.5 kPa(펌웨어 확정, D-23)",
-    "model_stiffness_N_mm": "PROJECT_STATE §2 최대 압박력(계산) 555.1 N 의 흉부 모델 강성 10 kN/m(W9 알고리즘 설계서, simulated). 강성 측정 화면의 비교선으로만 표시하고 판단에 쓰지 않는다(D-53)"
+    "model_stiffness_N_mm": "PROJECT_STATE §2 최대 압박력(계산) 555.1 N 의 흉부 모델 강성 10 kN/m(W9 알고리즘 설계서, simulated). 강성 측정 화면의 비교선으로만 표시하고 판단에 쓰지 않는다(D-53)",
+    "estop_wired": "팀장 10/23 \"비상정지 버튼은 연결을 안했으니까 장치상태확인(점검)에서는 빼라\"(D-54). S1 점검과 시연 시작 점검에서 텔레메트리의 estop 표시를 보지 않는다. 장치가 ESTOP 상태면 점검은 그대로 실패한다. 버튼을 연결하면 true 로 바꾼다"
   },
   "target_bpm": 110,
   "target_depth_mm": 50,
   "force_max_N": 600,
   "vacuum_target_kPa": -22.5,
-  "model_stiffness_N_mm": 10
+  "model_stiffness_N_mm": 10,
+  "estop_wired": false
 }

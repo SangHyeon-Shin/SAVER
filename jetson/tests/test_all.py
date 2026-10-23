@@ -1056,6 +1056,31 @@ ck("초기화: ARM 거부 → INIT_ERROR, HOME 안 보냄", "HOME" not in cmds(l
    and "ESTOP_ACTIVE" in rn.reason, str(rn.reason))
 lk, rn, evs, clk = irig(); until_status(rn, lk); itel(rn, "ARMED"); iack(rn, lk, ok=False, why="NOT_ARMED")
 ck("초기화: HOME 거부 → INIT_ERROR, 화면 진행(INIT_DONE) 없음", [e for e, _ in evs] == ["INIT_ERROR"], str(evs))
+
+# D-54(팀장 10/23): 비상정지 버튼 미연결 설정(estop_wired=false)이면 점검에서 estop 표시를 보지 않는다
+NW = {"estop_wired": False}
+lk, rn, evs, clk = irig(cfg=NW); until_status(rn, lk); itel(rn, "IDLE", estop=True)
+n1 = cmds(lk)[-1] == "ARM" and not evs
+lk, rn, evs, clk = irig(cfg=NW); until_status(rn, lk); itel(rn, "ESTOP", estop=True)
+n2 = bool(evs) and evs[-1][0] == "INIT_ERROR" and rn.reason == "UNEXPECTED_MCU_STATE:ESTOP" and "ARM" not in cmds(lk)
+lk, rn, evs, clk = irig(cfg=NW); until_status(rn, lk); itel(rn, "IDLE"); iack(rn, lk); iack(rn, lk)
+rn.on_tel({"t": "tel", "state": "ARMED", "estop": True}); n3 = rn.step == "homing"
+rn.on_tel({"t": "tel", "state": "ESTOP"}); n4 = rn.reason == "HOMING_LOST:ESTOP"
+lk, rn, evs, clk = irig(); until_status(rn, lk); itel(rn, "IDLE", estop=True)
+n5 = rn.reason == "ESTOP" and "ARM" not in cmds(lk)        # 설정이 없으면(기본) 지금처럼 본다
+ck("초기화(D-54): estop_wired=false 면 estop 표시를 보지 않고 ARM 을 보낸다. 장치가 ESTOP 상태면 그대로 실패, 기본은 지금처럼",
+   n1 and n2 and n3 and n4 and n5, str([n1, n2, n3, n4, n5]))
+sw = StateMachine()
+w1 = sw.fire("INIT_ERROR", {"cause": "init", "why": "HOME_REJECTED:HOME_UNAVAILABLE_NO_VERIFIED_LIMIT"})
+snap_w = sw.snapshot()
+w2 = sw.fire("RECHECK") and sw.snapshot().get("error_why") is None
+ck("상태머신(D-54): 오류 화면 스냅숏에 세부 사유(error_why), 오류를 벗어나면 비움",
+   w1 and w2 and snap_w.get("error_cause") == "init"
+   and snap_w.get("error_why") == "HOME_REJECTED:HOME_UNAVAILABLE_NO_VERIFIED_LIMIT", str(snap_w))
+_bench = json.load(open(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "config.bench.json"),
+                        encoding="utf-8"))
+ck("설정(D-54): 결선 벤치 설정은 estop_wired=false, 코드 기본값은 true(점검함)",
+   _bench.get("estop_wired") is False and B.CONFIG.get("estop_wired") is True, str(_bench.get("estop_wired")))
 lk, rn, evs, clk = irig(); rn.start(); s_ping = lk.sent[-1][1]
 own = rn.owns(s_ping) and not rn.owns(9999)
 rn.on_error({"code": "2-CM-002", "seq": s_ping, "why": "ACK_TIMEOUT:PING"})
@@ -1944,6 +1969,15 @@ for st_, est_, flt_ in (("FAULT", False, None), ("ESTOP", True, None), ("IDLE", 
     ud.request("compress", "enter"); ud.request("compress", "start"); uack(ud, lk); utel(ud, lk, st_, est_, flt_)
     f_ok.append(ud.phase == "failed" and ucmds(lk) == ["GET_STATUS"])
 ck("시작 확인: FAULT, ESTOP, 비상정지 표시, 활성 고장 → 실패, ARM 안 보냄", all(f_ok), str(f_ok))
+CPNW = dict(CP, estop_wired=False)
+lk, ud, sr, clk, pushed = urig(CPNW)
+ud.request("compress", "enter"); ud.request("compress", "start"); uack(ud, lk); utel(ud, lk, "IDLE", estop=True)
+nw1 = ucmds(lk)[-1] == "ARM" and ud.phase != "failed"
+lk, ud, sr, clk, pushed = urig(CPNW)
+ud.request("compress", "enter"); ud.request("compress", "start"); uack(ud, lk); utel(ud, lk, "ESTOP", estop=True)
+nw2 = ud.phase == "failed" and ud.reason == "STATE:ESTOP" and ucmds(lk) == ["GET_STATUS"]
+ck("시작 확인(D-54): estop_wired=false 면 비상정지 표시는 보지 않는다. 장치 ESTOP 상태는 실패(STATE:ESTOP)",
+   nw1 and nw2, str([nw1, nw2, ucmds(lk), ud.reason]))
 lk, ud, sr, clk, pushed = urig(CP); lk.connected = False
 ud.request("compress", "enter"); ud.request("compress", "start")
 lk2, ud2, _, _, _ = urig(CP, proto=None)

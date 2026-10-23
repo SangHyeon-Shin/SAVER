@@ -38,6 +38,7 @@ class StateMachine(object):
         self.node = self.spec["initial"]
         self.error_return = "S2"
         self.error_cause = None
+        self.error_why = None            # 오류 화면(S10)에 보일 세부 사유(예: INIT_ERROR 의 why). 없으면 None
         self.log = []
         self._entered_at = time.time()
 
@@ -71,6 +72,7 @@ class StateMachine(object):
             "running": bool(n.get("running")),
             "allowed": self.allowed(),
             "error_cause": self.error_cause,
+            "error_why": self.error_why,
         }
 
     # ── 전이 ────────────────────────────────────────────────
@@ -122,8 +124,10 @@ class StateMachine(object):
                 "vacuum" if event == "VACUUM_ERROR" else
                 "init" if event == "INIT_ERROR" else
                 payload.get("cause", "tubing"))
+            self.error_why = payload.get("why")
         else:
             self.error_cause = None
+            self.error_why = None
 
         self.node = target
         self._entered_at = time.time()

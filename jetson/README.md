@@ -255,6 +255,9 @@ python3 tests/test_all.py
 
 결선 벤치 시연 설정 `config.bench.json`: 110 회/분, 깊이 50 mm, 힘 상한 600 N, 음압 -22.5 kPa
 (`docs/PROJECT_STATE.md` §2, D-30, D-23. 임상 적용값 아님). 팀장 확인 뒤 결선 시연 모드에서만 씁니다(D-51).
+`estop_wired: false`(10/23 팀장, 비상정지 버튼 미연결): S1 점검과 시연 시작 점검에서 `estop` 표시를 보지 않습니다.
+장치가 `ESTOP` 상태면 점검은 그대로 실패합니다(D-54). 버튼을 연결하면 `true` 로 바꿉니다. Teensy 쪽 S1 통과 조건은
+`docs/teensy_s1_check.md`.
 
 ## UI 연동
 

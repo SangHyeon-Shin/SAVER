@@ -385,8 +385,13 @@ class UnitDemo(object):
         """GET_STATUS 뒤 텔레메트리로 보낼 순서를 정한다."""
         st = tel.get("state")
         faults = tel.get("faults") or []
-        if tel.get("estop") or st == "ESTOP":
-            return self._fail("ESTOP")
+        # 시작 점검의 비상정지 표시는 설정 estop_wired 가 참일 때만 본다(D-54, 결선 벤치 설정은 거짓).
+        # 동작 중 비상정지 표시나 ESTOP 상태는 설정과 상관없이 실패로 끝낸다(_on_tel)
+        if self.cfg.get("estop_wired", True):
+            if tel.get("estop") or st == "ESTOP":
+                return self._fail("ESTOP")
+        elif st == "ESTOP":
+            return self._fail("STATE:ESTOP")
         if st == "FAULT" or faults:
             return self._fail("FAULT:" + str(faults[0]) if faults else "FAULT")
         u = self.unit

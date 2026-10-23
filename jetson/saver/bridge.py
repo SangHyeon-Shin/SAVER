@@ -78,6 +78,9 @@ CONFIG = {
                                   # 비어 있으면 시간은 검사하지 않고, 탐색·흡착 진입은 requires_mcu(HOMED)가 막는다(D-46)
     "model_stiffness_N_mm": None, # 강성 측정 화면의 비교선. PROJECT_STATE §2 최대 압박력 계산의 흉부 모델 강성(10 kN/m,
                                   # simulated). 표시만 하고 판단에 쓰지 않는다. 비어 있으면 비교선을 그리지 않는다
+    "estop_wired": True,          # 비상정지 버튼(보조 접점)이 Teensy 에 연결돼 있는지. 참이면 S1 점검과 시연 시작 점검에서
+                                  # 텔레메트리의 estop 표시를 본다. 결선 벤치 설정은 거짓(팀장 10/23, 버튼 미연결, D-54).
+                                  # 거짓이어도 장치가 ESTOP 상태면 점검은 실패하고, 동작 중 비상정지 표시는 그대로 정지 사유다
     "radar_floor_mm": None,       # TODO 신상현(실측). 탐색 자세(바퀴 내림)에서 레이더 면의 바닥 위 높이(mm).
                                   # EAPD = radar_floor_mm − 레이더 거리(radar.py, D-50). 비어 있으면 레이더로 EAPD 를
                                   # 만들지 않아 탐색이 EAPD_MISSING 으로 시작하지 않는다(대체 상수 없음)
@@ -133,9 +136,12 @@ def load_config(path):
 
 
 def warn_unset():
-    miss = [k for k, v in CONFIG.items() if not v and k != "sim_eapd_mm"]
+    miss = [k for k, v in CONFIG.items() if not v and k not in ("sim_eapd_mm", "estop_wired")]
     if miss:
         print("[주의] 미확정 설정값: %s" % ", ".join(miss))
+    if not CONFIG.get("estop_wired", True):
+        print("[주의] estop_wired = false: 비상정지 버튼이 연결되지 않은 설정입니다. S1 점검과 시연 시작 점검에서")
+        print("       비상정지 표시를 보지 않습니다(D-54). 물리 비상정지가 없는 동안 장치 전원을 끌 수단을 가까이 두세요.")
     if "target_depth_mm" in miss:
         print("       목표 깊이가 확정되기 전까지 압박 개시(START_CPR)는 Teensy가 거부합니다. 정상입니다.")
 
