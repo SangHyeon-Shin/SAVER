@@ -21,7 +21,7 @@
  *
  * C++14: src/saver_linear 가 C++14 constexpr 을 쓴다(Teensyduino 는 gnu++14 이상). */
 #include <Arduino.h>
-#include "../../saver_teensy.ino"
+#include "../../saver_v11_reference.h"
 
 #include <cstdio>
 #include <algorithm>

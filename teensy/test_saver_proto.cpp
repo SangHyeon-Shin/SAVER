@@ -1,3 +1,4 @@
+#ifndef ARDUINO // Native tests are excluded from the Arduino firmware build.
 /* saver_proto.h · saver_v11.h 단위시험 — PC에서 실행 (teensy 폴더에서)
  *   g++ -std=c++11 -Wall -Wextra -o test test_saver_proto.cpp && ./test
  *
@@ -436,3 +437,4 @@ int main(int argc, char** argv)
               << "  (통과 " << pass << " / 실패 " << fail << ")\n\n";
     return fail == 0 ? 0 : 1;
 }
+#endif

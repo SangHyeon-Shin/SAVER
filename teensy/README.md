@@ -1,8 +1,13 @@
 # 한건민 전달 — Teensy 4.1 ↔ Jetson Nano 통신
 
+> **통합 이후 실제 시연 진입점:** `saver_teensy.ino` → `src/demo/demo_app.h`이며
+> 사용법은 [README_demo.md](README_demo.md)를 따른다. Arduino IDE에서는 `teensy.ino`를 연다.
+> 팀의 v1.1 참고 구현은 `saver_v11_reference.h`로 보존했고 `tests/host/`만 이를 포함한다.
+> 참고 구현과 실제 시연 펌웨어는 서로 다른 시험 대상이다. 자동 HOME·탐색 성공을 가정하지 않는다.
+
 ## 프로토콜 v1.1 통신 계층 (2026-10-23, 신상현(Claude Code) 작성, 한건민 검토 필요)
 
-팀장 지시("프로토콜을 v1.1로 통일, 젯슨과 틴시 모두")로 메인 펌웨어에 v1.1(`docs/protocol_v1.1_draft.md`
+팀장 지시("프로토콜을 v1.1로 통일, 젯슨과 틴시 모두")로 참고 펌웨어에 v1.1(`docs/protocol_v1.1_draft.md`
 8차 합의본, 10/4) 통신 계층을 넣었습니다. **실물에 올리기 전에 형님 검토가 필요합니다.** Teensy 툴체인
 컴파일은 하지 못했고(pjrc.com 접속 불가), 아래 PC 빌드로만 컴파일과 동작을 확인했습니다.
 
@@ -13,8 +18,8 @@
 |---|---|
 | `saver_proto.h` | 엄격한 JSON 검사, 32비트 정수(`jsonU32`), 실수 형식(§3.4), 511 byte 를 넘으면 실패하는 줄 작성기, `tel`(tn·boot_id·faults_more), `mot`, `INFO`, 완료 이벤트, `VACUUM_RELEASED`, `FAULTS_END` 생성기. 기존 함수 이름은 그대로 |
 | `saver_v11.h` (새 파일) | §2.5 기록(`act_cur`, `act_rej`, `cmd_last`, `aid_max`)과 판단 순서, 파라미터 정규화, 활성 오류 목록(심각도 3→2→1, 6개 + `faults_more`) |
-| `saver_teensy.ino` | 명령 처리 v1.1. 정지 명령은 구조 검사 뒤 버전·상태·bid·aid 보다 먼저 정지 출력, `GET_INFO`·`GET_FAULTS`, busy 와 완료 이벤트, DISARM 음압 판정과 `rearm_lock`, `VACUUM_OFF` 해제 확인과 `2-VU-008`, 송신은 `Serial.write` + LF 하나(CR 없음), 주기 tel·mot 은 송신 버퍼가 모자라면 짝째 버림 |
-| `tests/host/` (새 폴더) | `saver_teensy.ino` 를 고치지 않고 PC 에서 컴파일하는 대용 헤더와 장면 시험, 가상 포트(`--pty`) |
+| `saver_v11_reference.h` | 명령 처리 v1.1. 정지 명령은 구조 검사 뒤 버전·상태·bid·aid 보다 먼저 정지 출력, `GET_INFO`·`GET_FAULTS`, busy 와 완료 이벤트, DISARM 음압 판정과 `rearm_lock`, `VACUUM_OFF` 해제 확인과 `2-VU-008`, 송신은 `Serial.write` + LF 하나(CR 없음), 주기 tel·mot 은 송신 버퍼가 모자라면 짝째 버림 |
+| `tests/host/` (새 폴더) | `saver_v11_reference.h` 를 고치지 않고 PC 에서 컴파일하는 대용 헤더와 장면 시험, 가상 포트(`--pty`) |
 
 지금 펌웨어로 하는 일과 하지 않는 일
 
@@ -72,7 +77,7 @@ g++ -std=c++14 -Wall -Wextra -DSAVER_HOST_HOOKS -DSAVER_HW_HEAD_MOTION=1 -DSAVER
 
 - `test/linear_sensor_test/linear_sensor_test.ino`의 `build=calibration_eeprom_v3`에서 보정하면
   성공한 CAL 값을 EEPROM 4096~4135에 자동 저장합니다. `saved=1` 응답을 기다립니다.
-- 메인 `saver_teensy.ino`는 부팅 시 같은 형식/CRC/범위를 검사해 **읽기만** 합니다. EEPROM 쓰기,
+- 메인 `saver_v11_reference.h`는 부팅 시 같은 형식/CRC/범위를 검사해 **읽기만** 합니다. EEPROM 쓰기,
   새 JSON 명령/이벤트/필드, 모터 구동 기능을 추가하지 않았습니다.
 - 현재 위치는 `g_s.linear_position_mm`, 유효 여부는 `linear_position_ok`, 두 보정점 사이 여부는
   `linear_within_cal_span`에 취득합니다. 없거나 손상된 저장값/잘못된 ADC/rail이면 유효 플래그를
@@ -130,7 +135,7 @@ g++ -std=c++11 -Wall -o test test_saver_proto.cpp && ./test
 
 **2. Teensy에 골격 올리기**
 
-`saver_teensy.ino`, `saver_proto.h`, `pinmap.h`, `src/`를 같은 스케치 폴더에 두고 업로드하세요.
+`saver_v11_reference.h`, `saver_proto.h`, `pinmap.h`, `src/`를 같은 스케치 폴더에 두고 업로드하세요.
 핀에 의존하지 않는 USB 통신은 실제 모터 제어가 없어도 시험할 수 있습니다.
 
 센서 취득 코드까지 컴파일할 때는 Arduino Library Manager에서
@@ -156,7 +161,7 @@ g++ -std=c++11 -Wall -o test test_saver_proto.cpp && ./test
 
 **4. `[구현]` 채우기**
 
-`saver_teensy.ino` 안에 `[구현]` 으로 표시한 곳이 형님 영역입니다. 순서 추천:
+`saver_v11_reference.h` 안에 `[구현]` 으로 표시한 곳이 형님 영역입니다. 순서 추천:
 
 1. `controlTick()` — 센서 읽어서 `g_s` 구조체 채우기 (모터는 아직 건드리지 말고)
 2. `checkEstop()` — E-stop 핀 읽기
@@ -184,7 +189,7 @@ g++ -std=c++11 -Wall -o test test_saver_proto.cpp && ./test
 
 | 값 | 위치 | 비고 |
 |---|---|---|
-| 과전류 임계 `I_LIMIT_A` | `saver_teensy.ino` 설정부 | BL60120-2430 정격 16 A 기준 |
+| 과전류 임계 `I_LIMIT_A` | `saver_v11_reference.h` 설정부 | BL60120-2430 정격 16 A 기준 |
 | 목표 음압 `VAC_TARGET_KPA` | 동일 | 서정준과 함께 |
 | 텔레메트리 주기 20 Hz 적정 여부 | — | 부하 보고 조정 |
 
