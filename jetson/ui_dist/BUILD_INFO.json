@@ -1,8 +1,8 @@
 {
   "build": "npm run build:kiosk (VITE_KIOSK=1)",
-  "commit": "c17bea867094676c596d1127b8ed62c2d708c24e",
-  "ui_tree": "d10eb7d47c95bce14d1e388a78338e8c3e7464c7",
+  "commit": "aa172d10c45f8f78fe63baf03f39180510e4a1fe",
+  "ui_tree": "21493377b8c96d7e714bb5e38a1073c76534aada",
   "protocol_tree": "7b0cfa42508ef5000911ca4c416cd14a791c2cb7",
   "dirty": false,
-  "built_at": "2026-10-23T10:04:14.039Z"
+  "built_at": "2026-10-23T13:53:04.138Z"
 }
