@@ -15,6 +15,11 @@ $diagnosticTests = Join-Path $PSScriptRoot 'test_diagnostics.cpp'
 if ($LASTEXITCODE -ne 0) { throw 'Compile-time diagnostic tests failed.' }
 $diagnosticCount = @(Select-String -LiteralPath $diagnosticTests -Pattern '^static_assert').Count
 Write-Output "PASS: $diagnosticCount compile-time diagnostic assertions (no hardware or executable run)."
+$signalTests = Join-Path $PSScriptRoot 'test_signal.cpp'
+& $Compiler -std=c++14 -Wall -Wextra -Werror -fsyntax-only $signalTests
+if ($LASTEXITCODE -ne 0) { throw 'Compile-time pulse signal tests failed.' }
+$signalCount = @(Select-String -LiteralPath $signalTests -Pattern '^static_assert').Count
+Write-Output "PASS: $signalCount compile-time signal assertions (synthetic waveforms, not physiological validation)."
 if (-not $LogPath) { exit 0 }
 
 # Replay only observed raw summaries through the actual C++ contact/window policy.

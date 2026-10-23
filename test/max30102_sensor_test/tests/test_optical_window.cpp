@@ -9,7 +9,7 @@ using namespace saver_max_bench;
 
 constexpr bool makeEstimate(OpticalWindow& w, uint32_t& now,
                             uint32_t red = 200000, uint32_t ir = 220000) {
-  for (unsigned i = 0; i < 120; ++i, now += 40U) {
+  for (unsigned i = 0; i < WINDOW_SAMPLES + 20U; ++i, now += 40U) {
     if (w.push(red, ir, now)) {
       w.completeCalculation(80, true, 97, true); // Deliberately optimistic mock result.
       return w.hrOk() && w.spo2Ok();
@@ -50,12 +50,12 @@ constexpr bool settlingAndFreshWindow() {
     if (w.push(200000, 220000, t) || w.count() != 0 || w.hrOk()) return false;
   }
   if (w.push(200000, 220000, 500) || !w.contactReady() || w.count() != 1) return false;
-  for (uint32_t i = 1; i < 99; ++i) {
+  for (uint32_t i = 1; i < WINDOW_SAMPLES - 1U; ++i) {
     if (w.push(200000 + i, 220000 + i, 500 + i * 40) || w.hrOk()) return false;
   }
-  return w.push(200099, 220099, 4460) && w.count() == 100 && !w.hrOk();
+  return w.push(200199, 220199, 8460) && w.count() == WINDOW_SAMPLES && !w.hrOk();
 }
-static_assert(settlingAndFreshWindow(), "Settle 500 ms, then collect 100 entirely new samples");
+static_assert(settlingAndFreshWindow(), "Settle 500 ms, then collect 200 entirely new samples");
 
 constexpr bool flickeringEntry() {
   OpticalWindow w;
@@ -98,17 +98,17 @@ constexpr bool recontactIsNewData() {
   if (!makeEstimate(w, now)) return false;
   now += 40;
   w.push(1000, 1000, now);
-  for (unsigned i = 0; i < 112; ++i) {
+  for (unsigned i = 0; i < WINDOW_SAMPLES + 12U; ++i) {
     now += 40;
     if (w.push(170000, 180000, now) || w.hrOk() || w.spo2Ok()) return false;
   }
   now += 40;
   if (!w.push(170000, 180000, now)) return false;
-  for (unsigned i = 0; i < 100; ++i) {
+  for (unsigned i = 0; i < WINDOW_SAMPLES; ++i) {
     if (w.redData()[i] != 170000 || w.irData()[i] != 180000) return false;
   }
   w.completeCalculation(90, true, 96, true);
-  return w.hrOk() && w.spo2Ok() && w.hr() == 90 && w.count() == 75;
+  return w.hrOk() && w.spo2Ok() && w.hr() == 90 && w.count() == WINDOW_SAMPLES - STEP_SAMPLES;
 }
 static_assert(recontactIsNewData(), "Removal and recontact cannot reuse previous samples/results");
 
@@ -164,19 +164,20 @@ static_assert(invalidAlgorithmResults(), "Algorithm failure cannot keep previous
 constexpr bool rollingWindow() {
   OpticalWindow w;
   for (uint32_t t = 0; t < 500; t += 100) w.push(200000, 220000, t);
-  for (uint32_t i = 0; i < 100; ++i) w.push(200000 + i, 220000 + i, 500 + i * 40);
+  for (uint32_t i = 0; i < WINDOW_SAMPLES; ++i) w.push(200000 + i, 220000 + i, 500 + i * 40);
   w.completeCalculation(80, true, 97, true);
-  if (w.count() != 75 || w.redData()[0] != 200025 || w.irData()[74] != 220099) return false;
+  if (w.count() != WINDOW_SAMPLES - STEP_SAMPLES || w.redData()[0] != 200025 ||
+      w.irData()[WINDOW_SAMPLES - STEP_SAMPLES - 1] != 220199) return false;
   for (uint32_t i = 0; i < 24; ++i) {
-    if (w.push(201000 + i, 221000 + i, 4500 + i * 40)) return false;
+    if (w.push(201000 + i, 221000 + i, 8500 + i * 40)) return false;
   }
-  return w.push(201024, 221024, 5460) && w.count() == 100 && w.redData()[99] == 201024;
+  return w.push(201024, 221024, 9460) && w.count() == WINDOW_SAMPLES && w.redData()[199] == 201024;
 }
-static_assert(rollingWindow(), "Normal overlap retains 75 samples and requests calculation every 25");
+static_assert(rollingWindow(), "Normal overlap retains 175 samples and requests calculation every 25");
 
 constexpr bool skippedCalculationIsBounded() {
   OpticalWindow w;
   for (uint32_t t = 0; t < 10000; t += 40) w.push(200000, 220000, t);
-  return w.count() <= 100 && !w.hrOk() && !w.spo2Ok();
+  return w.count() <= WINDOW_SAMPLES && !w.hrOk() && !w.spo2Ok();
 }
 static_assert(skippedCalculationIsBounded(), "Missing estimator call cannot overrun buffers");

@@ -29,6 +29,55 @@ static_assert(convertPressure(0).pressurePa != convertPressure(0).pressurePa,
 static_assert(near(convertPressure(3794).sensorV / DIVIDER_GAIN, convertPressure(3794).adcV),
               "Sensor volts and ADC volts are distinct");
 
+constexpr bool relativeZero(int reference, int next) {
+  RelativePressureZero z;
+  const PressureSample original = convertPressure(next);
+  if (!z.capture(reference) || !z.active())
+    return false;
+  return near(z.relativePa(original),
+              original.pressurePa - convertPressure(reference).pressurePa) &&
+         near(convertPressure(next).pressurePa, original.pressurePa);
+}
+static_assert(!RelativePressureZero{}.active(), "No automatic zero at boot");
+static_assert(relativeZero(3575, 3575),
+              "Fresh reference displays zero without changing raw pressure");
+static_assert(relativeZero(3575, 3400), "Lower signal remains negative relative to reference");
+static_assert(relativeZero(3575, 3650), "Higher signal remains positive, never clamped");
+constexpr bool invalidZero(int raw) {
+  RelativePressureZero z;
+  z.capture(3575);
+  return !z.capture(raw) && !z.active() && z.referencePa() != z.referencePa();
+}
+static_assert(invalidZero(0) && invalidZero(1), "Low rail cannot become a reference");
+static_assert(invalidZero(4094) && invalidZero(4095), "High rail cannot become a reference");
+static_assert(invalidZero(-1) && invalidZero(4096), "Invalid ADC cannot become a reference");
+static_assert(invalidZero(300) && invalidZero(3900), "Out-of-window signal cannot be zeroed");
+constexpr bool invalidRelative(int raw) {
+  RelativePressureZero z;
+  z.capture(3575);
+  const float result = z.relativePa(convertPressure(raw));
+  return result != result;
+}
+static_assert(invalidRelative(0) && invalidRelative(4095), "Zero never masks ADC rail");
+static_assert(invalidRelative(300) && invalidRelative(3900),
+              "Zero never expands valid voltage window");
+constexpr bool clearRelative() {
+  RelativePressureZero z;
+  z.capture(3575);
+  z.clear();
+  const float result = z.relativePa(convertPressure(3575));
+  return !z.active() && result != result;
+}
+static_assert(clearRelative(), "Cleared or disconnected reference is unavailable, not fake zero");
+constexpr bool replaceRelative() {
+  RelativePressureZero z;
+  z.capture(3575);
+  z.capture(3650);
+  return near(z.referencePa(), convertPressure(3650).pressurePa) &&
+         near(z.relativePa(convertPressure(3650)), 0);
+}
+static_assert(replaceRelative(), "Each ZERO explicitly replaces the previous reference");
+
 constexpr bool initial() {
   CombinedState s;
   return !s.armed() && !s.runningMask() && s.start(1, 10, 10, true) && !s.runningMask();

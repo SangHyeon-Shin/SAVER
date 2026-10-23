@@ -8,10 +8,24 @@ constexpr uint32_t CONTROL_US = 5000;        // 200 Hz local ADC/current PID.
 constexpr uint32_t CONTROL_STALE_US = 20000; // Scheduling deadline, not medical T_comm.
 constexpr uint32_t ARM_MS = 10000;
 constexpr uint32_t STABLE_MS = 250;
-constexpr uint32_t ABSOLUTE_RUN_MS = 30000; // Existing finite bench envelope.
+constexpr uint32_t ABSOLUTE_RUN_MS = 600000; // User-selected finite 10-minute bench ceiling.
 constexpr float absValue(float v) { return v < 0.0f ? -v : v; }
 constexpr bool positive(float v) { return saver_depth::finite(v) && v > 0.0f; }
 constexpr bool levelValid(int8_t level) { return level == 0 || level == 1; }
+constexpr bool limitsReady(bool required, bool installed) { return !required || installed; }
+constexpr bool limitPolarityReady(bool installed, int8_t top, int8_t bottom) {
+  return !installed || (levelValid(top) && levelValid(bottom));
+}
+constexpr bool estopAuxReady(bool installed, bool verified, int8_t activeLevel) {
+  return !installed || (verified && levelValid(activeLevel));
+}
+constexpr bool configuredInputsReady() {
+  using namespace saver_depth_config;
+  return PHYSICAL_ESTOP_POWER_CUT_USER_CONFIRMED &&
+         limitsReady(LIMIT_SWITCHES_REQUIRED, LIMIT_SWITCHES_INSTALLED) &&
+         limitPolarityReady(LIMIT_SWITCHES_INSTALLED, TOP_ACTIVE_LEVEL, BOTTOM_ACTIVE_LEVEL) &&
+         estopAuxReady(ESTOP_AUX_INSTALLED, ESTOP_AUX_INPUT_VERIFIED, ESTOP_ACTIVE_LEVEL);
+}
 constexpr float erpmPerMmS() {
   return 60.0f * saver_depth_config::MOTOR_REVS_PER_SCREW_REV *
          saver_depth_config::MOTOR_POLE_PAIRS / saver_depth_config::SCREW_LEAD_MM;
@@ -30,13 +44,14 @@ constexpr ConfigCheck configCheck(uint8_t index, bool calibrated = false) {
   case 0:
     return {"ZERO_AND_CAL_REQUIRED", calibrated};
   case 1:
-    return {"LIMIT_SWITCHES_MISSING", LIMIT_SWITCHES_INSTALLED};
+    return {LIMIT_SWITCHES_REQUIRED ? "LIMIT_SWITCHES_MISSING" : "LIMIT_SWITCHES_OPTIONAL_BENCH",
+            limitsReady(LIMIT_SWITCHES_REQUIRED, LIMIT_SWITCHES_INSTALLED)};
   case 2:
-    return {"PHYSICAL_ESTOP_UNVERIFIED", PHYSICAL_ESTOP_AND_INPUT_VERIFIED};
+    return {"PHYSICAL_ESTOP_UNVERIFIED", PHYSICAL_ESTOP_POWER_CUT_USER_CONFIRMED};
   case 3:
-    return {"INPUT_POLARITY_UNKNOWN", levelValid(TOP_ACTIVE_LEVEL) &&
-                                          levelValid(BOTTOM_ACTIVE_LEVEL) &&
-                                          levelValid(ESTOP_ACTIVE_LEVEL)};
+    return {"INPUT_POLARITY_UNKNOWN",
+            limitPolarityReady(LIMIT_SWITCHES_INSTALLED, TOP_ACTIVE_LEVEL, BOTTOM_ACTIVE_LEVEL) &&
+                estopAuxReady(ESTOP_AUX_INSTALLED, ESTOP_AUX_INPUT_VERIFIED, ESTOP_ACTIVE_LEVEL)};
   case 4:
     return {"SENSOR_FAULT_TEST_UNVERIFIED", SENSOR_WIRING_AND_FAULT_TEST_VERIFIED};
   case 5:

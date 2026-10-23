@@ -22,21 +22,32 @@ constexpr uint32_t UART_BAUD = 115200;
 // Control calibration is now RAM-only ZERO -> CAL measured_positive_distance_mm.
 // CAPTURE remains diagnostic only. Working zero must be inside physical travel.
 constexpr bool BENCH_DRIVE_CONFIRMED = false; // <<< LAST: guarded unloaded fixture reviewed.
-constexpr bool MOTOR_DIRECTION_VERIFIED = false;
-constexpr int8_t CURRENT_SIGN_FOR_INCREASING_MM = 0; // <<< Verified +1/-1; 0 remains locked.
+// 2026-10-15 user observed PULSE +1 A = CW; requested press direction is CCW.
+// This records that user observation, NOT closed-loop tracking/installed mechanics validation.
+constexpr bool MOTOR_DIRECTION_VERIFIED = true;
+constexpr int8_t CURRENT_SIGN_FOR_INCREASING_MM = -1;
+// Viewed toward the protruding shaft end; ZERO/CAL must define press travel as positive mm.
+constexpr const char *REQUESTED_PRESS_ROTATION = "CCW";
 constexpr bool VESC_SETTINGS_AND_TIMEOUT_VERIFIED = false;
 constexpr bool SENSOR_WIRING_AND_FAULT_TEST_VERIFIED = false;
-constexpr bool LIMIT_SWITCHES_INSTALLED = false; // User reconfirmed: neither switch installed.
-// User clarified: only PSU power switch, NOT a dedicated physical E-stop/auxiliary circuit.
-constexpr bool PHYSICAL_ESTOP_AND_INPUT_VERIFIED = false;
+// 2026-10-15 user: no travel switches; independent physical power cut exists, no pin-6 auxiliary.
+// Standalone unloaded bench profile ONLY. Do not copy this omission into operating firmware.
+constexpr bool LIMIT_SWITCHES_REQUIRED = false;
+constexpr bool LIMIT_SWITCHES_INSTALLED = false;
+constexpr bool PHYSICAL_ESTOP_POWER_CUT_USER_CONFIRMED =
+    true; // User report, not a bench measurement.
+constexpr bool ESTOP_AUX_INSTALLED = false;
+constexpr bool ESTOP_AUX_INPUT_VERIFIED = false;
 constexpr int8_t TOP_ACTIVE_LEVEL = -1; // <<< 0=LOW, 1=HIGH, -1=unknown.
 constexpr int8_t BOTTOM_ACTIVE_LEVEL = -1;
 constexpr int8_t ESTOP_ACTIVE_LEVEL = -1;
 
 // Relative to EACH manual ZERO, strictly inside the real mechanical travel.
 // Leave room to decelerate: sensor endpoints and mechanical hard stops are NOT targets.
-constexpr float SOFT_MIN_MM = 0.0f;
-constexpr float SOFT_MAX_MM = 0.0f;
+constexpr float SOFT_MIN_MM = 0.0f; // Still unset: actual return-side clearance is unknown.
+// 2026-10-15 user: press-side travel boundary is 50 mm from the manual origin.
+constexpr float SOFT_MAX_MM =
+    50.0f; // Boundary, not an endpoint target or measured stopping margin.
 constexpr float START_TOLERANCE_MM = 0.0f;
 constexpr float MAX_START_VELOCITY_MM_S = 0.0f; // Measured rest band before ARM/RUN.
 constexpr float MAX_FOLLOWING_ERROR_MM = 0.0f;
@@ -44,7 +55,8 @@ constexpr float MAX_MEASURED_VELOCITY_MM_S = 0.0f;
 constexpr float SAMPLE_NOISE_ALLOWANCE_MM = 0.0f;
 constexpr float MAX_PROFILE_VELOCITY_MM_S = 0.0f;
 constexpr float MAX_PROFILE_ACCELERATION_MM_S2 = 0.0f;
-constexpr uint32_t MAX_RUN_MS = 0; // <<< Finite bench duration; 0 keeps drive locked.
+// 2026-10-15 user-selected per-RUN ceiling, NOT a validated continuous-duty rating.
+constexpr uint32_t MAX_RUN_MS = 600000; // 10 minutes; other unverified guards remain locked.
 
 // Copied from user's LM source: POSITION -> CURRENT, not the old speed PID units.
 // kp[A/mm], ki[A/(mm*s)], kd[A/(mm/s)], integral bound[mm*s], velocity LPF[s].

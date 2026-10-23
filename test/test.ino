@@ -23,6 +23,9 @@
  * STOP/STOP1/STOP2, DISARM, CLEAR_ERR/CLEAR_ERR1/CLEAR_ERR2, STATUS, READ, HELP.
  * CLEAR_ERR aliases motor 1; ERR HIGH must remain stable for 250 ms; no auto restart.
  * PLOT = Arduino Serial Plotter; TEXT = detailed DATA/events (default).
+ * ZERO = stop/disarm and capture a fresh display-only relative reference.
+ * UNZERO = stop/disarm and clear that reference. Raw pressure stays unchanged.
+ * ZERO is NOT valid pressure calibration with an out-of-spec sensor supply.
  * Open plotter BEFORE ARM/RUN. Changing USB clients stops and disarms motors.
  * Invalid pressure stops/disarms and exits PLOT; pressure_Pa is omitted, never zero.
  * See README.md for wiring, formula, graph usage and unverified assumptions.
@@ -90,7 +93,7 @@ class VacuumPressureBench {
     while (!Serial && (uint32_t)(millis() - started) < 2000U) {}
     usbReady_ = (bool)Serial;
     samplePressure();
-    emit("SAVER_VACUUM_PRESSURE_BENCH_TEST_READY,build=no_fg_pa_manual_v3_pinmap");
+    emit("SAVER_VACUUM_PRESSURE_BENCH_TEST_READY,build=no_fg_pa_manual_v4_relative_zero");
     emitf("PINS,M1_VSP=%u,M1_EN=%u,M1_ERR=%u,M1_RUN=%u,M2_VSP=%u,M2_EN=%u,M2_ERR=%u,M2_RUN=%u,A8=%u,FG=UNUSED",
           (unsigned)PIN_VAC1_VSP, (unsigned)PIN_VAC1_EN, (unsigned)PIN_VAC1_ERR, (unsigned)PIN_VAC1_RUN,
           (unsigned)PIN_VAC2_VSP, (unsigned)PIN_VAC2_EN, (unsigned)PIN_VAC2_ERR, (unsigned)PIN_VAC2_RUN,
@@ -155,21 +158,31 @@ class VacuumPressureBench {
   void samplePressure() {
     pressure_ = convertPressure(analogRead(PIN_PRESSURE));
     sampledAt_ = millis();
+    const bool clearedZero = !pressure_.ok && displayZero_.active();
+    if (clearedZero)
+      displayZero_.clear();
     if (!pressure_.ok && (control_.armed() || control_.runningMask() || plot_))
       reject(pressure_.reason);
+    if (clearedZero)
+      emit("EVENT,DISPLAY_ZERO_CLEARED,reason=PRESSURE_INVALID");
   }
   bool synchronizeUsb() {
     if (!Serial) {
       if (usbReady_ || control_.runningMask() || control_.armed()) {
         stop(3, true); ++usbDisconnects_;
       }
+      displayZero_.clear();
       usbReady_ = false; line_.reset(); plot_ = false;
       return false;
     }
     if (!usbReady_) {
       for (uint8_t i = 0; i < SERIAL_BUDGET && Serial.available(); ++i) Serial.read();
       if (Serial.available()) return false;
-      stop(3, true); line_.reset(); usbReady_ = true; plot_ = false;
+      stop(3, true);
+      displayZero_.clear();
+      line_.reset();
+      usbReady_ = true;
+      plot_ = false;
       emit("EVENT,USB_CONNECTED,motors_off=1,armed=0,send_fresh_command=1");
       help();
       return false;
@@ -180,29 +193,41 @@ class VacuumPressureBench {
     if (plot_) {
       if (!pressure_.ok) { reject(pressure_.reason); return; }
       // Fixed labeled columns: no ms/ADC/volts to spoil the Pa scale.
-      emitf("pressure_Pa:%.1f,pressure_ok:1,armed:%u,m1_commanded:%u,m2_commanded:%u,m1_fault:%u,m2_fault:%u",
-            (double)pressure_.pressurePa, control_.armed() ? 1U : 0U,
-            control_.motor(0).running() ? 1U : 0U, control_.motor(1).running() ? 1U : 0U,
-            control_.motor(0).fault() ? 1U : 0U, control_.motor(1).fault() ? 1U : 0U);
+      const bool relative = displayZero_.active();
+      emitf("%s:%.1f,pressure_ok:1,display_zero_active:%u,armed:%u,m1_commanded:%u,m2_commanded:%u,"
+            "m1_fault:%u,m2_fault:%u",
+            relative ? "pressure_relative_Pa" : "pressure_Pa",
+            (double)(relative ? displayZero_.relativePa(pressure_) : pressure_.pressurePa),
+            relative ? 1U : 0U, control_.armed() ? 1U : 0U, control_.motor(0).running() ? 1U : 0U,
+            control_.motor(1).running() ? 1U : 0U, control_.motor(0).fault() ? 1U : 0U,
+            control_.motor(1).fault() ? 1U : 0U);
       return;
     }
     char value[48] = "";
     if (pressure_.ok) snprintf(value, sizeof value, ",pressure_Pa=%.1f", (double)pressure_.pressurePa);
+    char relative[112] = "";
+    if (pressure_.ok && displayZero_.active())
+      snprintf(relative, sizeof relative, ",pressure_relative_Pa=%.1f,zero_reference_Pa=%.1f",
+               (double)displayZero_.relativePa(pressure_), (double)displayZero_.referencePa());
     if (!pressure_.adcOk) {
       emitf("DATA,ms=%lu,pressure_ok=0,reason=%s", (unsigned long)sampledAt_, pressure_.reason);
       return;
     }
     emitf("DATA,ms=%lu,adc_raw=%d,adc_V=%.4f,sensor_V=%.4f,adc_rail=%u,"
-          "pressure_ok=%u,pressure_in_nominal_range=%u,reason=%s%s,armed=%u,m1_pct=%u,m2_pct=%u",
-          (unsigned long)sampledAt_, pressure_.raw, (double)pressure_.adcV, (double)pressure_.sensorV,
-          pressure_.rail ? 1U : 0U, pressure_.ok ? 1U : 0U, pressure_.inNominalRange ? 1U : 0U,
-          pressure_.reason, value, control_.armed() ? 1U : 0U,
+          "pressure_ok=%u,pressure_in_nominal_range=%u,reason=%s%s%s,display_zero_active=%u,armed=%"
+          "u,m1_pct=%u,m2_pct=%u",
+          (unsigned long)sampledAt_, pressure_.raw, (double)pressure_.adcV,
+          (double)pressure_.sensorV, pressure_.rail ? 1U : 0U, pressure_.ok ? 1U : 0U,
+          pressure_.inNominalRange ? 1U : 0U, pressure_.reason, value, relative,
+          displayZero_.active() ? 1U : 0U, control_.armed() ? 1U : 0U,
           (unsigned)control_.motor(0).duty(), (unsigned)control_.motor(1).duty());
   }
   void printStatus() {
-    emitf("STATUS,armed=%u,mode=%s,pressure_ok=%u,usb_disconnects=%lu,dropped_logs=%lu",
+    emitf("STATUS,armed=%u,mode=%s,pressure_ok=%u,display_zero_active=%u,usb_disconnects=%lu,"
+          "dropped_logs=%lu",
           control_.armed() ? 1U : 0U, plot_ ? "PLOT" : "TEXT", pressure_.ok ? 1U : 0U,
-          (unsigned long)usbDisconnects_, (unsigned long)droppedLogs_);
+          displayZero_.active() ? 1U : 0U, (unsigned long)usbDisconnects_,
+          (unsigned long)droppedLogs_);
     for (unsigned i = 0; i < 2; ++i) {
       const ManualRunState& motor = control_.motor(i);
       emitf("MOTOR,id=%u,commanded_running=%u,pwm_pct=%u,pwm_raw=%u,run_mode=MANUAL_STOP,"
@@ -214,12 +239,15 @@ class VacuumPressureBench {
   }
   void help() {
     emit("COMMANDS,ARM|RUN/RUN1 [pct]|RUN2 [pct]|RUNBOTH pct1 pct2|SET/SET1 pct|SET2 pct");
-    emit("COMMANDS,STOP|STOP1|STOP2|DISARM|CLEAR_ERR/CLEAR_ERR1|CLEAR_ERR2|READ|STATUS|HELP|PLOT|TEXT");
+    emit("COMMANDS,STOP|STOP1|STOP2|DISARM|CLEAR_ERR/"
+         "CLEAR_ERR1|CLEAR_ERR2|READ|STATUS|HELP|PLOT|TEXT|ZERO|UNZERO");
     emitf("DEFAULTS,pwm_pct=%u,run_mode=MANUAL_STOP,PWM_HZ=10000", (unsigned)DEFAULT_DUTY_PERCENT);
     emit("LIMITS,pct=1..100,partial_command_timeout_ms=1000");
     emit("NOTE,no_run_timer,use_STOP,legacy_RUN_duration_argument_is_rejected");
     emit("PRESSURE,XGZP6847A100KPGN_5V,unit=Pa_gauge,divider=4k7_top_10k_bottom,nominal_ADC_V=3.3");
     emit("NOTE,PLOT_is_10Hz,uncheck_other_traces_for_pressure_only,TEXT_for_diagnosis");
+    emit("NOTE,ZERO_stops_and_disarms,relative_display_only,not_supply_compensation_or_pressure_"
+         "calibration");
     emit("WARNING,ERR_RUN_require_0_to_3V3,FG_and_motor_5V_output_unused,pwm_pct_is_not_current_A");
     emit("WARNING,secured_bench_only,no_vacuum_retention,no_pressure_regulation,no_hardware_stop_replacement");
   }
@@ -269,18 +297,37 @@ class VacuumPressureBench {
     if (!strcmp(cmd, "SET") || !strcmp(cmd, "SET1")) { setCommand(0, context); return; }
     if (!strcmp(cmd, "SET2")) { setCommand(1, context); return; }
     if (!noMore(context)) { reject("UNEXPECTED_ARGUMENTS"); return; }
-    if (!strcmp(cmd, "ARM")) {
+    if (!strcmp(cmd, "ZERO") || !strcmp(cmd, "UNZERO")) {
+      stop(3, true); // Display commands must never keep a motor running or arm it.
+      plot_ = false;
+      if (!strcmp(cmd, "UNZERO")) {
+        displayZero_.clear();
+        emit("OK,DISPLAY_ZERO_CLEARED,motors_off=1,armed=0,mode=TEXT");
+      } else {
+        samplePressure(); // Reference is the current ADC sample, not an old log constant.
+        if (!displayZero_.capture(pressure_.raw)) {
+          reject(pressure_.reason);
+          return;
+        }
+        emitf("OK,DISPLAY_ZEROED,zero_reference_Pa=%.1f,relative_only=1,pressure_calibrated=0,"
+              "motors_off=1,armed=0,mode=TEXT",
+              (double)displayZero_.referencePa());
+      }
+      printMeasurement();
+    } else if (!strcmp(cmd, "ARM")) {
       stop(3, true); samplePressure(); checkSafety();
       const char* error = control_.arm(pressure_.ok);
       if (error) { reject(error); return; }
       if (!plot_) emit("OK,ARMED,motors_off=1");
       printMeasurement();
-    } else if (!strcmp(cmd, "STOP") || !strcmp(cmd, "STOP1") || !strcmp(cmd, "STOP2") || !strcmp(cmd, "DISARM")) {
+    } else if (!strcmp(cmd, "STOP") || !strcmp(cmd, "STOP1") || !strcmp(cmd, "STOP2") ||
+               !strcmp(cmd, "DISARM")) {
       const uint8_t mask = !strcmp(cmd, "STOP1") ? 1 : (!strcmp(cmd, "STOP2") ? 2 : 3);
       stop(mask, !strcmp(cmd, "DISARM"));
       if (!plot_) emitf("OK,MOTOR_OFF,motor_mask=%u", (unsigned)mask);
       printMeasurement();
-    } else if (!strcmp(cmd, "CLEAR_ERR") || !strcmp(cmd, "CLEAR_ERR1") || !strcmp(cmd, "CLEAR_ERR2")) {
+    } else if (!strcmp(cmd, "CLEAR_ERR") || !strcmp(cmd, "CLEAR_ERR1") ||
+               !strcmp(cmd, "CLEAR_ERR2")) {
       checkSafety();
       const uint8_t mask = !strcmp(cmd, "CLEAR_ERR2") ? 2 : 1;
       const char* error = control_.clear(mask, millis());
@@ -292,10 +339,17 @@ class VacuumPressureBench {
       plot_ = true; printMeasurement();
     } else if (!strcmp(cmd, "TEXT")) {
       plot_ = false; emit("OK,MODE_TEXT"); printStatus();
-    } else if (!strcmp(cmd, "READ")) { samplePressure(); printMeasurement(); }
-    else if (!strcmp(cmd, "STATUS")) { plot_ = false; printStatus(); }
-    else if (!strcmp(cmd, "HELP")) { plot_ = false; help(); }
-    else reject("UNKNOWN_OR_MALFORMED_COMMAND");
+    } else if (!strcmp(cmd, "READ")) {
+      samplePressure();
+      printMeasurement();
+    } else if (!strcmp(cmd, "STATUS")) {
+      plot_ = false;
+      printStatus();
+    } else if (!strcmp(cmd, "HELP")) {
+      plot_ = false;
+      help();
+    } else
+      reject("UNKNOWN_OR_MALFORMED_COMMAND");
   }
   void pollCommands() {
     if (line_.expire(millis())) reject("COMMAND_TIMEOUT");
@@ -311,6 +365,7 @@ class VacuumPressureBench {
   CombinedState control_;
   CommandLine line_;
   PressureSample pressure_;
+  RelativePressureZero displayZero_;
   bool usbReady_ = false, plot_ = false;
   uint32_t sampledAt_ = 0, usbDisconnects_ = 0, droppedLogs_ = 0;
 };

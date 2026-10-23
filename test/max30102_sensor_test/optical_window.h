@@ -14,7 +14,7 @@ constexpr uint32_t CONTACT_OFF_RAW = 30000;
 constexpr uint32_t CONTACT_SETTLE_MS = 500;  // Continuous bright samples before entry.
 constexpr uint32_t CONTACT_MAX_GAP_MS = 200; // Drop estimates if samples stop arriving.
 constexpr uint32_t ADC_MAX = 0x3FFFF;
-constexpr uint16_t WINDOW_SAMPLES = 100;
+constexpr uint16_t WINDOW_SAMPLES = 200; // Eight seconds for repeatability checks.
 constexpr uint16_t STEP_SAMPLES = 25;
 static_assert(CONTACT_OFF_RAW < CONTACT_ON_RAW && CONTACT_ON_RAW < ADC_MAX,
               "Contact thresholds must have hysteresis and be inside ADC range");
@@ -122,7 +122,7 @@ private:
     count_ = 0;
     hrOk_ = false;
     spo2Ok_ = false;
-    // Old buffers/numbers are inaccessible as valid data; all 100 samples must
+    // Old buffers/numbers are inaccessible as valid data; all 200 samples must
     // be overwritten before another calculation. No fake numeric zero emitted.
   }
 

@@ -19,7 +19,7 @@ ERR 오류, 압력 측정 이상, USB 단절, 잘못된 명령에 따른 정지�
 배선 변경 전 USB와 24 V를 모두 끕니다. 모터 주전류는 브레드보드/Teensy를 통과시키지 않습니다.
 
 **2026-10-02 핀 변경:** 모터 2 RUN은 34→32, EN은 35→37입니다.
-`build=no_fg_pa_manual_v3_pinmap` 업로드 전에 두 선을 함께 옮기세요.
+`build=no_fg_pa_manual_v4_relative_zero` 업로드 전에 두 선을 함께 옮기세요.
 34/35는 WT901C Serial8용으로 예약되며 이 시험은 자이로를 구동하지 않습니다.
 
 | 신호 | 모터 1 | 모터 2 | 비고 |
@@ -65,7 +65,7 @@ pressure_Pa = (sensor_V − 4.5) × 25000
 0.5 V → −100,000 Pa입니다. 절대압 101,325 Pa를 더하지 않습니다.
 사용자 로그 raw=3794는 이 명목식으로 약 −139 Pa입니다. 실측 정확도 인증이 아닙니다.
 
-전원·ADC 기준은 각각 5 V/3.3 V, 저항은 4.7kΩ/10kΩ으로 가정합니다. 실측 보정은 없습니다.
+전원·ADC 기준은 각각 5 V/3.3 V, 저항은 4.7kΩ/10kΩ으로 가정합니다. 압력 교정·전원 보상은 없습니다.
 제조사 ±2% FSS에 해당하는 출력 여유 0.08 V를 포함해 0.42~4.58 V를 전기적 타당성
 검사에 사용합니다. 이 값은 의학적 압력 한계가 아닙니다.
 작은 양수/음수 오프셋을 0으로 강제 보정하지 않으며, 명목 0.5~4.5 V 밖이면
@@ -79,6 +79,62 @@ ARM/RUN을 거부하고, 운전 중 감지되면 모터를 끄고 DISARM합니�
 근거: [CFSensor 데이터시트 V2.7, 2·4·5쪽](https://cfsensor.com/wp-content/uploads/2022/11/XGZP6847A-Pressure-Sensor-V2.7.pdf).
 기존 `docs/hardware_mapping.md` 압력 절과 센서 단독 시험의 미확정 설명은 이번 범위에서
 수정하지 않았습니다. 이 통합 시험의 센서 모델은 이후 사용자가 확인한 위 모델을 따릅니다.
+
+## 현재 값을 표시용 영점으로 잡기 (`ZERO`)
+
+**2026-10-15 implemented: 사용자 요청으로 수동 상대 영점만 추가했습니다.**
+사용자 실측 센서 VDD–GND는 3.8 V로 보고되었으며, 5 V형의 허용 공급전압
+4.75~5.25 V 밖입니다. 따라서 아래 출력은 **압력 정확도가 검증되지 않은 신호 변화 표시**이며,
+정확한 게이지압·흡착력·합격 판정·안전 인터록의 근거로 사용하지 않습니다.
+근거: [제조사 V2.8, 2쪽](https://cfsensor.com/wp-content/uploads/2026/09/XGZP6847A-Pressure-Sensor-V2.8.pdf).
+
+업로드 후 같은 시리얼 연결에서 다음을 한 줄씩 보냅니다. 모터 구동 명령은 필요 없습니다.
+
+```text
+ZERO
+PLOT
+```
+
+- `ZERO`: 먼저 두 모터 정지·DISARM, TEXT 모드로 바꾼 뒤 새 ADC 표본을 기준으로 잡습니다.
+  예전 로그의 고정 오프셋이나 부팅 자동 영점을 사용하지 않습니다. 센서가 연결·고정된 상태에서
+  보내며, 실제 대기압 영점과 비교하려면 압력 포트를 대기에 개방해야 합니다.
+- `OK,DISPLAY_ZEROED,...,relative_only=1,pressure_calibrated=0` 응답 후
+  `pressure_relative_Pa = pressure_Pa - zero_reference_Pa`를 추가 표시합니다.
+  기준 순간은 0이며, 뒤의 잡음·드리프트를 0으로 강제하지 않습니다. 단위 환산도 명목식 그대로라
+  저전압에서의 실제 압력 변화량과 일치한다고 보장하지 않습니다.
+- `TEXT`/`READ`: 원래 `pressure_Pa`, `adc_raw`, 전압 추정값은 바꾸지 않고 상대값도 함께 기록합니다.
+  `PLOT`은 영점이 있으면 `pressure_relative_Pa`, 없으면 기존 `pressure_Pa`를 그립니다.
+- `UNZERO`: 두 모터 정지·DISARM 후 기준을 지우고 TEXT로 돌아갑니다.
+- 재부팅·USB 연결 해제/재연결·측정 오류 시 기준은 삭제되며 다시 `ZERO`가 필요합니다.
+  `ADC_RAIL`·전압 범위 오류·ERR 정지·ARM/RUN 조건은 그대로이고 영점으로 오류를 숨기지 않습니다.
+
+소프트웨어 검증은 `tests/check_combined.ps1`과 아래 실제 스케치 모의 실행 시험으로 수행합니다.
+실물 압력 교정·공급전압 복구·센서 손상 여부·모터 정지를 검증한 결과는 아닙니다.
+
+저장소 루트에서 실행하는 검증 명령입니다. 실행 파일은 저장소 밖 임시 폴더에 만듭니다.
+Windows에서 이번 네이티브 시험은 설치된 Zig의 `c++` 드라이버를 사용합니다.
+
+```text
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File test/tests/check_combined.ps1
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File test/vacuum_motor_stage4_fg/tests/check_stage4.ps1
+zig c++ -std=c++14 -Wall -Wextra -Werror -DARDUINO_TEENSY41 -I test/tests/stubs test/tests/test_display_zero.cpp -o <임시폴더>/test_display_zero.exe
+<임시폴더>/test_display_zero.exe
+zig c++ -std=c++11 -Wall teensy/test_saver_proto.cpp -o <임시폴더>/test_saver_proto.exe
+<임시폴더>/test_saver_proto.exe
+arduino-cli compile --fqbn teensy:avr:teensy41 --warnings all --build-property "recipe.hooks.postbuild.1.pattern=" --build-path <임시빌드폴더> test
+python tools/consistency_audit.py
+git diff --check
+```
+
+Teensy 컴파일의 Loader 후처리는 비워 업로드·포트 연결을 하지 않습니다.
+주변의 원래 코드 형식은 보존하고 수정 구간·신규 C++ 파일에 `clang-format`을 적용합니다.
+
+2026-10-15 검증 결과: 컴파일 타임 assertion 90개, 실제 스케치의 모의 ADC/GPIO/USB 실행
+35개, 기존 Stage4 assertion 35개, 프로토콜 네이티브 시험 26개가 통과했습니다.
+Teensy 4.1 빌드는 오류·경고 없이 완료했고 확정값 일관성 검사도 통과했습니다.
+이는 소프트웨어 시험이며 실물 시험 수준의 `tested` 주장이 아닙니다.
+Windows 네이티브 준비 중 Zig 내장 libunwind의 dllexport 재선언 경고가 발생했으나,
+시험 소스의 `-Werror` 검사와 실행 결과에는 실패가 없었습니다.
 
 ## 실시간 그래프: Arduino IDE 2 시리얼 플로터
 

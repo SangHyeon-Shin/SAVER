@@ -4,7 +4,8 @@
  * Ported from user's working lm/sketch_sep16a: position -> CURRENT PID.
  * bench_config.h defaults to LM's 5 mm / 10 CPM, with all unverified locks retained.
  * Currently: raw/nominal sensor display, VESC query and no-drive PREVIEW are usable.
- * Missing limits, E-stop, calibration and PID settings MUST NOT be bypassed.
+ * User bench profile omits travel switches/estop auxiliary, NOT the physical power cut.
+ * Calibration, verified current direction, travel/PID limits and remaining gates stay required.
  * Not Jetson JSON firmware, not clinical CPR, no force control or automatic homing.
  *
  * VESC COMM TX -> 28/RX7, RX <- 29/TX7, signal GND -> Teensy GND.
@@ -45,7 +46,10 @@ constexpr uint8_t PIN_LINEAR_SENSOR = A16; // Physical 40, existing linear senso
 constexpr uint8_t PIN_LIMIT_TOP = 3;       // Reserved top-limit input; user has not installed it.
 constexpr uint8_t PIN_LIMIT_BOTTOM = 4;    // Reserved lower-limit input, not a motor output.
 constexpr uint8_t PIN_ESTOP = 6; // Read-only auxiliary contact; physical cut is elsewhere.
-constexpr uint32_t QUERY_MS = 50, PROBE_MS = 1000, REPORT_MS = 50;
+constexpr uint32_t QUERY_MS = 50;
+constexpr uint32_t PROBE_MS = 1000;
+constexpr uint32_t REPORT_MS = 1000;     // Human-readable USB console; not the PID/UART cadence.
+constexpr uint32_t CHECK_REPORT_MS = 50; // Explicit CHECK stays a short, bounded diagnostic.
 constexpr uint32_t COMMAND_TIMEOUT_MS = 1000;
 static_assert(A16 == 40, "A16 is physical pin 40");
 static_assert(cfg::UART_BAUD >= 9600 && cfg::UART_BAUD <= 1000000, "UART baud range");
@@ -60,7 +64,7 @@ public:
     // Once wiring is verified, use dry/conditioned 3.3 V contacts with known bias.
     pinMode(PIN_LIMIT_TOP, cfg::LIMIT_SWITCHES_INSTALLED ? INPUT_PULLUP : INPUT);
     pinMode(PIN_LIMIT_BOTTOM, cfg::LIMIT_SWITCHES_INSTALLED ? INPUT_PULLUP : INPUT);
-    pinMode(PIN_ESTOP, cfg::PHYSICAL_ESTOP_AND_INPUT_VERIFIED ? INPUT_PULLUP : INPUT);
+    pinMode(PIN_ESTOP, cfg::ESTOP_AUX_INSTALLED ? INPUT_PULLUP : INPUT);
     Serial7.setRX(PIN_CP_UART_RX);
     Serial7.setTX(PIN_CP_UART_TX);
     Serial7.begin(cfg::UART_BAUD, SERIAL_8N1);
@@ -202,9 +206,19 @@ private:
            static_cast<uint32_t>(millis() - lastValues_) < vesc::VALUES_STALE_MS;
   }
   bool inputsKnown() const {
-    return cfg::LIMIT_SWITCHES_INSTALLED && cfg::PHYSICAL_ESTOP_AND_INPUT_VERIFIED &&
-           levelValid(cfg::TOP_ACTIVE_LEVEL) && levelValid(cfg::BOTTOM_ACTIVE_LEVEL) &&
-           levelValid(cfg::ESTOP_ACTIVE_LEVEL);
+    return configuredInputsReady(); // Configuration readiness, not observed physical protection.
+  }
+  bool estopActive() const {
+    return cfg::ESTOP_AUX_INSTALLED && cfg::ESTOP_AUX_INPUT_VERIFIED &&
+           levelValid(cfg::ESTOP_ACTIVE_LEVEL) && digitalRead(PIN_ESTOP) == cfg::ESTOP_ACTIVE_LEVEL;
+  }
+  bool topLimitActive() const {
+    return cfg::LIMIT_SWITCHES_INSTALLED && levelValid(cfg::TOP_ACTIVE_LEVEL) &&
+           digitalRead(PIN_LIMIT_TOP) == cfg::TOP_ACTIVE_LEVEL;
+  }
+  bool bottomLimitActive() const {
+    return cfg::LIMIT_SWITCHES_INSTALLED && levelValid(cfg::BOTTOM_ACTIVE_LEVEL) &&
+           digitalRead(PIN_LIMIT_BOTTOM) == cfg::BOTTOM_ACTIVE_LEVEL;
   }
   // Use the same runtime calibration check in CHECK output and drive permission.
   ConfigCheck configCheck(uint8_t index) const {
@@ -217,8 +231,7 @@ private:
     return nullptr;
   }
   const char *runtimeIssue() const {
-    if (cfg::PHYSICAL_ESTOP_AND_INPUT_VERIFIED && levelValid(cfg::ESTOP_ACTIVE_LEVEL) &&
-        digitalRead(PIN_ESTOP) == cfg::ESTOP_ACTIVE_LEVEL)
+    if (estopActive())
       return "PHYSICAL_ESTOP_ACTIVE";
     if (!usbReady_ || !Serial)
       return "USB_NOT_READY";
@@ -232,11 +245,11 @@ private:
       return "POSITION_NOT_CALIBRATED_OR_INVALID";
     if (!inputsKnown())
       return "SAFETY_INPUTS_UNKNOWN";
-    if (digitalRead(PIN_ESTOP) == cfg::ESTOP_ACTIVE_LEVEL)
+    if (estopActive())
       return "PHYSICAL_ESTOP_ACTIVE";
-    if (digitalRead(PIN_LIMIT_TOP) == cfg::TOP_ACTIVE_LEVEL)
+    if (topLimitActive())
       return "TOP_LIMIT_ACTIVE";
-    if (digitalRead(PIN_LIMIT_BOTTOM) == cfg::BOTTOM_ACTIVE_LEVEL)
+    if (bottomLimitActive())
       return "BOTTOM_LIMIT_ACTIVE";
     if (position_.mm <= cfg::SOFT_MIN_MM || position_.mm >= cfg::SOFT_MAX_MM)
       return "OUTSIDE_SOFT_TRAVEL";
@@ -425,7 +438,8 @@ private:
     lineUsed_ = 0;
     discardLine_ = false;
     usbReady_ = true;
-    emit("SAVER_COMPRESSION_LINEAR_PID_TEST_READY,build=lm_current_v3,auto_start=0");
+    emit("SAVER_COMPRESSION_LINEAR_PID_TEST_READY,build=lm_current_v3_bench_no_limits_ccw,auto_"
+         "start=0");
     help();
   }
   void badPacket(const char *why) {
@@ -537,6 +551,7 @@ private:
     emit("CONFIG,default_depth_mm=%.1f,default_cpm=%.1f,auto_start=0,stop_is_not_hold=1",
          static_cast<double>(cfg::DEFAULT_DEPTH_MM), static_cast<double>(cfg::DEFAULT_RATE_CPM));
     emit("NOTE,POSITION_PID_TO_CURRENT,PREVIEW_no_drive,read_bench_config_h");
+    emit("NOTE,BENCH_no_travel_switches,no_estop_aux_feedback,physical_power_cut_required");
     emit("NOTE,ZERO_clears_scale,CAL_requires_measured_positive_travel,return_manually,no_auto_"
          "home");
     emit("NOTE,CAPTURE_requires_motor_power_off_and_manual_position_measurement,no_auto_"
@@ -609,8 +624,8 @@ private:
       reportCaptured(nextCapture_);
       nextCapture_ = (nextCapture_ + 1) % 2;
     }
-    // One line per report interval rather than a burst that could starve controls/log buffers.
-    if (!usbReady_ || checkIndex_ > CONFIG_CHECK_COUNT || now - checkAt_ < REPORT_MS)
+    // CHECK uses its own cadence; slowing console status must not delay this one-shot report.
+    if (!usbReady_ || checkIndex_ > CONFIG_CHECK_COUNT || now - checkAt_ < CHECK_REPORT_MS)
       return;
     checkAt_ = now;
     if (checkIndex_ == CONFIG_CHECK_COUNT) {
@@ -668,13 +683,25 @@ private:
       emit("VESC,values_ok=0");
   }
   void diagnostics() {
-    emit("CHECKS,calibration=%u,limits=%u,physical_estop=%u,direction=%u,vesc_settings=%u,sensor_"
-         "fault_test=%u,bench_confirmed=%u",
+    emit("CHECKS,calibration=%u,limits=%u,physical_estop_user_confirmed=%u,direction=%u,vesc_"
+         "settings=%u,sensor_fault_test=%u,bench_confirmed=%u",
          calibration_.calibrated() ? 1U : 0U, cfg::LIMIT_SWITCHES_INSTALLED ? 1U : 0U,
-         cfg::PHYSICAL_ESTOP_AND_INPUT_VERIFIED ? 1U : 0U, cfg::MOTOR_DIRECTION_VERIFIED ? 1U : 0U,
-         cfg::VESC_SETTINGS_AND_TIMEOUT_VERIFIED ? 1U : 0U,
+         cfg::PHYSICAL_ESTOP_POWER_CUT_USER_CONFIRMED ? 1U : 0U,
+         cfg::MOTOR_DIRECTION_VERIFIED ? 1U : 0U, cfg::VESC_SETTINGS_AND_TIMEOUT_VERIFIED ? 1U : 0U,
          cfg::SENSOR_WIRING_AND_FAULT_TEST_VERIFIED ? 1U : 0U,
          cfg::BENCH_DRIVE_CONFIRMED ? 1U : 0U);
+    emit("BENCH_INPUT_CONFIG,limits_required=%u,limits_installed=%u,physical_estop_user_"
+         "confirmed=%u,estop_aux_installed=%u,estop_state_observable=%u",
+         cfg::LIMIT_SWITCHES_REQUIRED ? 1U : 0U, cfg::LIMIT_SWITCHES_INSTALLED ? 1U : 0U,
+         cfg::PHYSICAL_ESTOP_POWER_CUT_USER_CONFIRMED ? 1U : 0U, cfg::ESTOP_AUX_INSTALLED ? 1U : 0U,
+         cfg::ESTOP_AUX_INSTALLED && cfg::ESTOP_AUX_INPUT_VERIFIED &&
+                 levelValid(cfg::ESTOP_ACTIVE_LEVEL)
+             ? 1U
+             : 0U);
+    emit("DIRECTION_REQUEST,press=%s,view=shaft_end,current_sign_verified=%u,configured_sign=%d,"
+         "source=user_report",
+         cfg::REQUESTED_PRESS_ROTATION, cfg::MOTOR_DIRECTION_VERIFIED ? 1U : 0U,
+         static_cast<int>(motorSign_));
     emit("CURRENT_CONFIG,kp=%.3f,ki=%.3f,kd=%.3f,command_limit_A=%.3f,input_trip_A=%.3f,"
          "motor_sign=%d,active_return_enabled=%u,vesc_settings_written=0",
          static_cast<double>(gains_.kp), static_cast<double>(gains_.ki),
@@ -689,10 +716,14 @@ private:
          zeroPending_ ? 1U : 0U, static_cast<unsigned long>(driveQueued_),
          static_cast<unsigned long>(zeroQueued_), static_cast<unsigned long>(badPackets_),
          static_cast<unsigned long>(droppedLogs_));
-    if (inputsKnown())
-      emit("INPUTS,top_raw=%d,bottom_raw=%d,estop_raw=%d", digitalRead(PIN_LIMIT_TOP),
-           digitalRead(PIN_LIMIT_BOTTOM), digitalRead(PIN_ESTOP));
-    else
+    if (inputsKnown()) {
+      emit("INPUTS,configured_inputs_ready=1,not_a_hardware_verification=1");
+      if (cfg::LIMIT_SWITCHES_INSTALLED)
+        emit("LIMIT_INPUTS,top_raw=%d,bottom_raw=%d", digitalRead(PIN_LIMIT_TOP),
+             digitalRead(PIN_LIMIT_BOTTOM));
+      if (cfg::ESTOP_AUX_INSTALLED)
+        emit("ESTOP_INPUT,estop_raw=%d", digitalRead(PIN_ESTOP));
+    } else
       emit("INPUTS,inputs_ok=0");
   }
 
@@ -749,7 +780,7 @@ private:
     }
     if (!strcmp(cmd, "CHECK") && !a) {
       checkIndex_ = 0;
-      checkAt_ = millis() - REPORT_MS;
+      checkAt_ = millis() - CHECK_REPORT_MS;
       emit("CHECK_BEGIN,count=%u,read_only=1", static_cast<unsigned>(CONFIG_CHECK_COUNT));
       return;
     }

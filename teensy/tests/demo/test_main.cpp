@@ -11,11 +11,12 @@
 #include "../../saver_teensy.ino"
 #undef private
 uint64_t mockUs = 0;
-int mockAdc[42] = {}, mockDigital[42] = {}, mockPwm[42] = {};
+int mockAdc[42] = {}, mockDigital[42] = {}, mockPwm[42] = {}, mockPinMode[42] = {};
 bool mockVescReplies = true;
 MockSerial Serial, Serial7;
 TwoWire Wire, Wire1;
 MockMemory EEPROM;
+MockPpgAlgorithm mockPpgAlgorithm;
 unsigned checks = 0;
 #define CHECK(x)                                                                                   \
   do {                                                                                             \
@@ -42,6 +43,550 @@ static void json(unsigned seq, const char *cmd, unsigned aid = 0, const char *pa
            "{\"v\":1,\"t\":\"cmd\",\"seq\":%u,\"cmd\":\"%s\",\"bid\":%u,\"aid\":%u%s}", seq, cmd,
            saver_demo::instance().session_.boot, aid, params);
   command(b);
+}
+static int stopTestTests() {
+  Serial.connected = true;
+  Serial.space = Serial7.space = 4096;
+  Serial.input.clear();
+  mockVescReplies = true;
+  Serial7.uart = true;
+  Serial7.inputDeciV = 240;
+  Serial7.fetDeciC = 300;
+  Serial7.motorCentiA = 100;
+  Serial7.inputCentiA = 50;
+  Serial7.erpm = Serial7.fault = 0;
+  // Missing pressure/load-cell hardware must not prevent an UNCOUPLED motor
+  // transport test. It must still prevent normal position/force operation.
+  mockAdc[A8] = 4095;
+  mockAdc[A16] = 1000;
+  mockDigital[27] = mockDigital[36] = LOW;
+  Wire1.fail = true;
+  saver_demo::App app;
+  app.begin();
+  auto advance = [&](unsigned n) {
+    while (n--) {
+      mockUs += 5000;
+      app.tick();
+    }
+  };
+  auto cmd = [&](const char *s) {
+    Serial.feed(std::string(s) + "\n");
+    advance(4);
+  };
+  auto startPulse = [&]() {
+    cmd("CP STOPTEST ARM");
+    cmd("CP STOPTEST PULSE");
+    advance(5);
+    return app.cp_.active();
+  };
+  auto recover = [&]() {
+    mockAdc[A16] = 1000;
+    mockVescReplies = true;
+    Serial7.space = 4096;
+    Serial7.inputDeciV = 240;
+    Serial7.fault = 0;
+    Serial7.erpm = 0;
+    Serial7.inputCentiA = 50;
+    Serial7.motorCentiA = 100;
+    Serial7.fetDeciC = 300;
+    advance(300);
+    cmd("CP STOPTEST CLEAR");
+    return !app.cp_.fault() && !app.faulted();
+  };
+  advance(300);
+  CHECK(!app.cp_.active() && !app.cp_.stopTestEnabled() && off());
+  cmd("CP STOPTEST PULSE");
+  CHECK(!app.cp_.active() && !app.cp_.armed());
+  cmd("CP STOPTEST UNCOUPLED");
+  CHECK(app.cp_.stopTestEnabled());
+  CHECK(mockPinMode[A16] == INPUT_PULLDOWN);
+  CHECK(!app.cp_.calibration_.calibrated());
+  CHECK(!app.cp_.forceCal_.confirmed);
+  advance(60);
+  const auto first = Serial7.currents.size();
+  CHECK(startPulse());
+  advance(210);
+  CHECK(!app.cp_.active() && !app.cp_.armed());
+  CHECK(!app.cp_.fault() && !app.faulted());
+  CHECK(Serial7.currents.back() == 0);
+  bool nonzero = false;
+  for (size_t i = first; i < Serial7.currents.size(); ++i) {
+    CHECK(Serial7.currents[i] == 0 || Serial7.currents[i] == 1000);
+    nonzero = nonzero || Serial7.currents[i] == 1000;
+  }
+  CHECK(nonzero);
+  advance(300);
+  CHECK(!app.cp_.active());
+  cmd("CP STOPTEST PULSE"); // One-shot ARM was consumed.
+  CHECK(!app.cp_.active());
+  CHECK(startPulse());
+  cmd("STOP");
+  CHECK(!app.cp_.active() && Serial7.currents.back() == 0);
+  CHECK(!strcmp(app.state_, "IDLE"));
+  CHECK(startPulse());
+  cmd("CP STOPTEST PULSE"); // Duplicate must stop, never extend/repeat.
+  CHECK(!app.cp_.active() && Serial7.currents.back() == 0);
+  CHECK(recover());
+  CHECK(startPulse());
+  mockAdc[A16] = 0;
+  advance(1);
+  CHECK(!app.cp_.active() && app.cp_.fault());
+  CHECK(!strcmp(app.faultWhy_, "LINEAR_ADC_RAIL_OR_INVALID"));
+  CHECK(Serial7.currents.back() == 0);
+  cmd("CP STOPTEST CLEAR");
+  CHECK(app.cp_.fault());
+  CHECK(recover());
+  CHECK(startPulse());
+  mockAdc[A16] = 4095;
+  advance(1);
+  CHECK(!app.cp_.active() && Serial7.currents.back() == 0);
+  CHECK(recover());
+  CHECK(startPulse());
+  mockVescReplies = false;
+  advance(70);
+  CHECK(!app.cp_.active());
+  CHECK(!strcmp(app.faultWhy_, "VESC_VALUES_STALE_OR_FW_UNSUPPORTED"));
+  CHECK(Serial7.currents.back() == 0);
+  CHECK(recover());
+  CHECK(startPulse());
+  Serial7.space = 0;
+  advance(5);
+  CHECK(!app.cp_.active() && app.cp_.stopPending());
+  CHECK(!strcmp(app.faultWhy_, "UART_TX_FULL"));
+  cmd("CP STOPTEST CLEAR");
+  CHECK(app.cp_.fault() && !app.cp_.active());
+  CHECK(recover());
+  CHECK(Serial7.currents.back() == 0);
+  CHECK(startPulse());
+  Serial7.feed(std::string(1, char(0x7F)));
+  advance(1);
+  CHECK(!app.cp_.active());
+  CHECK(!strcmp(app.faultWhy_, "VESC_BAD_OR_EXPIRED_PACKET"));
+  CHECK(Serial7.currents.back() == 0);
+  CHECK(recover());
+  CHECK(startPulse());
+  mockUs += 40000;
+  app.tick();
+  CHECK(!app.cp_.active() && Serial7.currents.back() == 0);
+  CHECK(!strcmp(app.faultWhy_, "CONTROL_DEADLINE_MISSED"));
+  CHECK(recover());
+  CHECK(startPulse());
+  Serial7.inputDeciV = 20; // Models loss of motor power, not an aux E-stop input.
+  advance(30);
+  CHECK(!app.cp_.active() && !strcmp(app.faultWhy_, "INPUT_VOLTAGE_LIMIT"));
+  CHECK(Serial7.currents.back() == 0);
+  CHECK(recover());
+  CHECK(startPulse());
+  Serial7.fault = 2;
+  advance(30);
+  CHECK(!app.cp_.active() && !strcmp(app.faultWhy_, "VESC_REPORTED_FAULT"));
+  CHECK(recover());
+  CHECK(startPulse());
+  Serial7.inputCentiA = 500;
+  advance(30);
+  CHECK(!app.cp_.active() && !strcmp(app.faultWhy_, "INPUT_CURRENT_LIMIT"));
+  CHECK(recover());
+  CHECK(startPulse());
+  Serial7.motorCentiA = 2000;
+  advance(30);
+  CHECK(!app.cp_.active() && !strcmp(app.faultWhy_, "MOTOR_CURRENT_LIMIT"));
+  CHECK(recover());
+  CHECK(startPulse());
+  Serial7.fetDeciC = 900;
+  advance(30);
+  CHECK(!app.cp_.active() && !strcmp(app.faultWhy_, "FET_TEMPERATURE_LIMIT"));
+  CHECK(recover());
+  CHECK(startPulse());
+  Serial.space = 0; // Logging congestion cannot prolong the 1-second stimulus.
+  advance(220);
+  CHECK(!app.cp_.active() && Serial7.currents.back() == 0);
+  Serial.space = 4096;
+  advance(200);
+  cmd("CP STOPTEST ARM");
+  advance(2010);
+  CHECK(!app.cp_.armed());
+  cmd("CP STOPTEST PULSE");
+  CHECK(!app.cp_.active());
+  CHECK(startPulse());
+  cmd("CONTROL REMOTE");
+  CHECK(!app.cp_.active() && app.owner_ == saver_demo::App::Owner::Local);
+  CHECK(app.cp_.stopTestEnabled());
+  CHECK(Serial7.currents.back() == 0);
+  cmd("CP PREPARE");
+  CHECK(!app.prepared_ && !app.cp_.active());
+  cmd("CP RUN 1");
+  CHECK(!app.cp_.active());
+  cmd("BOTH RUN 1");
+  CHECK(!app.combinedPending_ && !app.cp_.active() && off());
+  cmd("VAC RUNBOTH 22 22");
+  CHECK(!app.cp_.active() && off());
+  cmd("CP STOPTEST PULSE 3");
+  CHECK(!app.cp_.active());
+  cmd("CP STOPTEST a b c d e f g h i"); // Never access a ninth token.
+  CHECK(!app.cp_.active());
+  Serial7.erpm = 1000;
+  advance(30);
+  cmd("CP STOPTEST ARM");
+  CHECK(!app.cp_.armed());
+  Serial7.erpm = 0;
+  advance(100);
+  CHECK(startPulse());
+  Serial.connected = false; // MCU remains powered in this mock only.
+  app.tick();
+  CHECK(!app.cp_.active() && !app.cp_.stopTestEnabled());
+  CHECK(mockPinMode[A16] == INPUT_DISABLE);
+  CHECK(Serial7.currents.back() == 0);
+  Serial.feed("CP STOPTEST UNCOUPLED\nCP STOPTEST ARM\nCP STOPTEST PULSE\n");
+  Serial.connected = true;
+  advance(10);
+  CHECK(!app.cp_.active() && !app.cp_.stopTestEnabled());
+  CHECK(!Serial.available());
+  cmd("CP STOPTEST UNCOUPLED");
+  advance(100);
+  CHECK(startPulse());
+  cmd("CP STOPTEST OFF");
+  CHECK(!app.cp_.active() && !app.cp_.stopTestEnabled());
+  CHECK(Serial7.currents.back() == 0);
+  CHECK(mockPinMode[A16] == INPUT_DISABLE);
+  CHECK(app.cp_.readyIssue() != nullptr);
+#ifndef SAVER_DEMO_TEST_FIXTURE
+  CHECK(!saver_depth_config::BENCH_DRIVE_CONFIRMED);
+  CHECK(saver_depth_config::SENSOR_WIRING_AND_FAULT_TEST_VERIFIED);
+  CHECK(!saver_depth_config::VESC_SETTINGS_AND_TIMEOUT_VERIFIED);
+  CHECK(saver_depth_config::SOFT_MIN_MM == -7);
+  CHECK(saver_depth_config::SOFT_MAX_MM == 60);
+  CHECK(saver_depth_config::REQUEST_MAX_RATE_CPM == 120);
+  CHECK(saver_depth_config::START_TOLERANCE_MM == 0);
+  CHECK(saver_depth_config::MAX_MEASURED_VELOCITY_MM_S == 0);
+  CHECK(saver_depth_config::SAMPLE_NOISE_ALLOWANCE_MM == 0);
+  CHECK(saver_depth_config::MAX_PROFILE_VELOCITY_MM_S > 314 &&
+        saver_depth_config::MAX_PROFILE_VELOCITY_MM_S < 315);
+  CHECK(saver_depth_config::MAX_PROFILE_ACCELERATION_MM_S2 > 3947 &&
+        saver_depth_config::MAX_PROFILE_ACCELERATION_MM_S2 < 3949);
+#endif
+  Wire1.fail = false;
+  mockDigital[27] = mockDigital[36] = HIGH;
+  mockAdc[A8] = 3800;
+  for (unsigned i = 0; i < 1000; ++i)
+    app.log_.flush();
+  return 0;
+}
+static int ppgDisplayTests() {
+  mockPpgAlgorithm = {};
+  mockPpgAlgorithm.hr = 75;
+  mockPpgAlgorithm.spo2 = 98;
+  mockPpgAlgorithm.hrValid = mockPpgAlgorithm.spo2Valid = 1;
+  selectable::PpgDiagnostic diagnostic;
+  diagnostic.enable(true);
+  int32_t value = 0;
+  for (unsigned i = 0; i < 99; ++i)
+    diagnostic.push(12000, 18000, i * 40);
+  CHECK(!mockPpgAlgorithm.calls);
+  CHECK(!diagnostic.heartRate(3920, value));
+  diagnostic.push(12000, 18000, 3960);
+  CHECK(mockPpgAlgorithm.calls == 1);
+  CHECK(diagnostic.heartRate(3960, value) && value == 75);
+  CHECK(diagnostic.saturation(3960, value) && value == 98);
+  CHECK(diagnostic.samples() == 75);
+  diagnostic.push(0, 18000, 4000);
+  CHECK(!diagnostic.heartRate(4000, value));
+  CHECK(diagnostic.samples() == 0);
+  for (unsigned i = 0; i < 100; ++i)
+    diagnostic.push(12000, 18000, 4040 + i * 40);
+  CHECK(diagnostic.heartRate(8000, value));
+  CHECK(!diagnostic.heartRate(8200, value));
+  diagnostic.expire(8200);
+  CHECK(diagnostic.samples() == 0);
+  mockPpgAlgorithm.hr = -999;
+  mockPpgAlgorithm.spo2 = 101;
+  for (unsigned i = 0; i < 100; ++i)
+    diagnostic.push(12000, 18000, 8240 + i * 40);
+  CHECK(!diagnostic.heartRate(12200, value));
+  CHECK(!diagnostic.saturation(12200, value));
+  mockPpgAlgorithm.hr = 75;
+  mockPpgAlgorithm.spo2 = 98;
+  mockPpgAlgorithm.hrValid = mockPpgAlgorithm.spo2Valid = 0;
+  for (unsigned i = 0; i < 25; ++i)
+    diagnostic.push(12000, 18000, 12240 + i * 40);
+  CHECK(!diagnostic.heartRate(13200, value));
+  CHECK(!diagnostic.saturation(13200, value));
+  diagnostic.enable(false);
+  CHECK(!diagnostic.enabled() && !diagnostic.samples());
+  mockPpgAlgorithm = {};
+  mockPpgAlgorithm.hr = 75;
+  mockPpgAlgorithm.spo2 = 98;
+  mockPpgAlgorithm.hrValid = mockPpgAlgorithm.spo2Valid = 1;
+  mockAdc[A8] = 3800;
+  mockAdc[A16] = 1000;
+  mockDigital[27] = mockDigital[36] = HIGH;
+  Wire.regs[255] = 0x15;
+  Wire.ppgSamples = true;
+  saver_demo::App app;
+  app.begin();
+  auto advance = [&](unsigned count) {
+    while (count--) {
+      mockUs += 5000;
+      app.tick();
+    }
+  };
+  auto cmd = [&](const char *s) {
+    Serial.feed(std::string(s) + "\n");
+    advance(4);
+  };
+  auto flush = [&]() {
+    for (unsigned i = 0; i < 1000; ++i)
+      app.log_.flush();
+  };
+  cmd("STREAM OFF");
+  cmd("PPG ON");
+  CHECK(app.ppgOn_ && app.ppgShow_);
+  CHECK(!app.ppg_.diagnostic_.enabled());
+  advance(850);
+  CHECK(!mockPpgAlgorithm.calls); // Low raw light still cannot pass NORMAL contact gating.
+  CHECK(!app.ppg_.window_.count());
+  CHECK(off() && !app.cp_.active());
+  cmd("PPG DIAG ON");
+  CHECK(app.ppg_.diagnostic_.enabled());
+  advance(850);
+  CHECK(mockPpgAlgorithm.calls);
+  CHECK(app.ppg_.diagnostic_.heartRate(millis(), value) && value == 75);
+  float physical = 0;
+  CHECK(!app.ppg_.heartRate(physical) && !app.ppg_.saturation(physical));
+  flush();
+  CHECK(Serial.output.find("candidate_hr_bpm=75") != std::string::npos);
+  CHECK(Serial.output.find("candidate_spo2_pct=98") != std::string::npos);
+  CHECK(Serial.output.find("clinical_validated=0") != std::string::npos);
+  const size_t at = Serial.output.size();
+  app.telemetry();
+  flush();
+  const auto telemetry = Serial.output.substr(at);
+  CHECK(telemetry.find("ppg_hr_bpm") == std::string::npos);
+  CHECK(telemetry.find("spo2_pct") == std::string::npos);
+  CHECK(telemetry.find("candidate_") == std::string::npos);
+  cmd("PPG SHOW OFF");
+  CHECK(!app.ppgShow_ && app.ppgOn_);
+  const unsigned before = mockPpgAlgorithm.calls;
+  advance(250);
+  CHECK(mockPpgAlgorithm.calls > before); // Output off does not stop acquisition/calculation.
+  cmd("PPG SHOW ON");
+  CHECK(app.ppgShow_);
+  cmd("STREAM OFF");
+  CHECK(!app.ppgShow_ && app.ppgOn_);
+  cmd("PPG SHOW ON");
+  cmd("CONTROL REMOTE");
+  CHECK(!app.ppgShow_ && !app.ppg_.diagnostic_.enabled());
+  advance(420);
+  cmd("CONTROL LOCAL");
+  cmd("PPG DIAG ON");
+  advance(850);
+  CHECK(app.ppg_.diagnostic_.heartRate(millis(), value));
+  Serial.connected = false;
+  advance(1);
+  CHECK(!app.ppgShow_ && !app.ppg_.diagnostic_.enabled());
+  Serial.connected = true;
+  advance(3);
+  CHECK(!app.ppgShow_);
+  cmd("PPG DIAG ON");
+  advance(850);
+  CHECK(app.ppg_.diagnostic_.heartRate(millis(), value));
+  Wire.ppgSamples = false;
+  advance(45);
+  CHECK(!app.ppg_.diagnostic_.heartRate(millis(), value));
+  flush();
+  const size_t invalidAt = Serial.output.size();
+  app.ppg_.reportLive();
+  flush();
+  CHECK(Serial.output.substr(invalidAt).find("candidate_hr_bpm") == std::string::npos);
+  CHECK(Serial.output.substr(invalidAt).find("candidate_spo2_pct") == std::string::npos);
+  advance(170);
+  CHECK(!app.ppg_.acquiring());
+  cmd("PPG OFF");
+  CHECK(!app.ppgOn_ && !app.ppgShow_);
+  CHECK(!app.ppg_.diagnostic_.enabled());
+  Wire.regs[255] = 0;
+  cmd("PPG DIAG ON");
+  CHECK(!app.ppg_.acquiring());
+  CHECK(!app.ppg_.diagnostic_.heartRate(millis(), value));
+  CHECK(!strcmp(app.ppg_.reason_, "PPG_NOT_FOUND"));
+  CHECK(off() && !app.cp_.active());
+  cmd("PPG OFF");
+  Wire.regs[255] = 0x15;
+  mockPpgAlgorithm = {};
+  flush();
+  return 0;
+}
+static int sensorlessTests() {
+  Serial.connected = true;
+  mockVescReplies = true;
+  mockAdc[A8] = 0; // Unplugged OUT with the board's lower divider resistor still fitted.
+  mockAdc[A16] = 1000;
+  mockDigital[27] = mockDigital[36] = HIGH;
+  saver_demo::App app;
+  app.begin();
+  auto advance = [&](unsigned n) {
+    while (n--) {
+      mockUs += 5000;
+      app.tick();
+    }
+  };
+  auto cmd = [&](const char *s) {
+    Serial.feed(std::string(s) + "\n");
+    advance(4);
+  };
+  auto flush = [&]() {
+    for (unsigned i = 0; i < 300; ++i)
+      app.log_.flush();
+  };
+  advance(60);
+  cmd("STREAM OFF");
+  CHECK(off() && !app.vac_.sensorless());
+  cmd("VAC ARM");
+  CHECK(!app.vac_.state_.armed() && off());
+  cmd("VAC SENSORLESS ON");
+  CHECK(app.vac_.sensorless() && off());
+  cmd("VAC ARM");
+  CHECK(!app.vac_.state_.armed()); // No timer configuration is still a rejection.
+  cmd("VAC CONFIG 22 300000 2000 1.5 3000");
+  CHECK(app.vac_.maxOnMs_ == 300000);
+  advance(60);
+  cmd("VAC CLEAR_ERR");
+  CHECK(!app.vac_.fault());
+  cmd("VAC ARM");
+  CHECK(app.vac_.state_.armed());
+  cmd("VAC RUNBOTH 22 22");
+  CHECK(app.vac_.active() && !app.cp_.active());
+  CHECK(mockPwm[24] == saver_vacuum_bench::dutyToPwm(22));
+  CHECK(mockPwm[33] == saver_vacuum_bench::dutyToPwm(22));
+  const auto boot = app.session_.boot;
+  mockAdc[A8] = 4095;
+  advance(1700); // Past the reported ~8-second reboot interval, simulated time only.
+  CHECK(app.session_.boot == boot && app.vac_.active());
+  float value = 123;
+  CHECK(!app.vac_.pressure(value) && value == 123);
+  CHECK(app.vac_.pressure_.raw == -1 && !app.vac_.pressure_.ok);
+  CHECK(!app.vac_.holding() && !app.vac_.released());
+  CHECK(!strcmp(app.vac_.startAuto(-22.5f), "SENSORLESS_MANUAL_MOTORS_ONLY"));
+  CHECK(!strcmp(app.start(1), "SENSORLESS_MANUAL_MOTORS_ONLY"));
+  CHECK(!strcmp(app.combinedIssue(1), "SENSORLESS_MANUAL_MOTORS_ONLY"));
+  flush();
+  const auto statusAt = Serial.output.size();
+  cmd("STATUS");
+  flush();
+  CHECK(Serial.output.substr(statusAt).find("vac_kPa") == std::string::npos);
+  CHECK(Serial.output.substr(statusAt).find("sensorless=1") != std::string::npos);
+  cmd("STOP");
+  CHECK(off() && !app.vac_.state_.armed());
+  cmd("VAC RUNBOTH 22 22");
+  CHECK(off()); // STOP does not leave a reusable arm latch.
+  cmd("VAC ARM");
+  cmd("VAC RUN1 22");
+  CHECK(mockDigital[26] && !mockDigital[37]);
+  cmd("DISARM");
+  CHECK(off());
+  cmd("VAC ARM");
+  cmd("VAC RUN2 22");
+  CHECK(!mockDigital[26] && mockDigital[37]);
+  cmd("VAC OFF");
+  CHECK(off() && !app.vac_.released());
+  CHECK(!strcmp(app.state_, "IDLE") && !app.localRelease_);
+  cmd("CP PREPARE");
+  cmd("CP ARM");
+  cmd("CP RUN 1");
+  cmd("BOTH RUN 1");
+  CHECK(!app.cp_.active() && !app.prepared_ && !app.combinedPending_ && off());
+  cmd("VAC ON");
+  CHECK(!app.vac_.requested() && off());
+  cmd("VAC ARM");
+  cmd("VAC RUNBOTH 22 22");
+  Serial.connected = false;
+  advance(2);
+  CHECK(off() && app.vac_.sensorless() && !app.vac_.state_.armed());
+  Serial.connected = true;
+  advance(4);
+  CHECK(off());
+  cmd("VAC RUNBOTH 22 22");
+  CHECK(off());
+  cmd("VAC ARM");
+  cmd("VAC RUNBOTH 22 22");
+  CHECK(!off());
+  cmd("CONTROL REMOTE");
+  CHECK(off() && app.vac_.sensorless());
+  CHECK(app.owner_ != saver_demo::App::Owner::Remote);
+  cmd("VAC ARM");
+  cmd("VAC RUNBOTH 22 22");
+  cmd("BAD_COMMAND");
+  CHECK(off());
+  cmd("VAC ARM");
+  cmd("VAC RUNBOTH 22 22");
+  Serial.feed("PARTIAL");
+  advance(220);
+  CHECK(off());
+  Serial.feed("\n");
+  advance(4);
+  cmd("VAC ARM");
+  cmd("VAC RUNBOTH 22 22");
+  cmd("VAC SENSORLESS OFF");
+  CHECK(off() && app.vac_.sensorless()); // Mode-change attempt stops, but needs a fresh OFF.
+  mockDigital[27] = LOW;
+  advance(2);
+  cmd("VAC CLEAR_ERR");
+  CHECK(app.vac_.fault());
+  mockDigital[27] = HIGH;
+  advance(60);
+  cmd("VAC CLEAR_ERR");
+  cmd("CLEAR_FAULT");
+  CHECK(!app.vac_.fault() && !app.faulted());
+  cmd("VAC ARM");
+  cmd("VAC RUNBOTH 22 22");
+  mockDigital[36] = LOW;
+  advance(2);
+  CHECK(off() && app.vac_.fault() && app.faulted());
+  mockDigital[36] = HIGH;
+  advance(60);
+  cmd("VAC CLEAR_ERR");
+  cmd("CLEAR_FAULT");
+  CHECK(!app.vac_.fault() && off());
+  cmd("VAC CONFIG 22 200 50 1.5 50");
+  cmd("VAC ARM");
+  cmd("VAC RUNBOTH 22 22");
+  advance(45);
+  CHECK(off() && app.vac_.fault());
+  CHECK(!strcmp(app.vac_.faultReason(), "BLOWER_ON_TIME_LIMIT"));
+  cmd("VAC CLEAR_ERR");
+  cmd("CLEAR_FAULT");
+  mockAdc[A8] = 0;
+  cmd("VAC SENSORLESS OFF");
+  CHECK(!app.vac_.sensorless() && off());
+  cmd("VAC ARM");
+  CHECK(off() && !app.vac_.state_.armed());
+  mockAdc[A8] = 3800;
+  advance(20);
+  CHECK(app.vac_.pressure(value));
+  CHECK(app.vac_.released());
+  cmd("VAC SENSORLESS MAYBE");
+  CHECK(!app.vac_.sensorless() && off());
+  flush();
+  saver_demo::ResetDiagnostic diagnostic;
+  diagnostic.capture();
+  CHECK(!diagnostic.registerAvailable_ && !diagnostic.crashAvailable_);
+  diagnostic.append('"');
+  diagnostic.append('\\');
+  diagnostic.append('\n');
+  for (unsigned i = 0; i < 2200; ++i)
+    diagnostic.append('X');
+  CHECK(diagnostic.truncated_ && diagnostic.size_ == sizeof(diagnostic.text_));
+  const auto size = diagnostic.size_;
+  const auto diagAt = Serial.output.size();
+  diagnostic.report(app.log_);
+  flush();
+  CHECK(diagnostic.size_ == size); // BOOT INFO can replay without consuming the capture.
+  CHECK(Serial.output.substr(diagAt).find("CRASH_REPORT") != std::string::npos);
+  CHECK(Serial.output.substr(diagAt).find("truncated=1") != std::string::npos);
+  const auto queryAt = Serial.output.size();
+  cmd("BOOT INFO");
+  flush();
+  CHECK(Serial.output.substr(queryAt).find("BOOT_DIAG") != std::string::npos);
+  return 0;
 }
 static int combinedTests() {
   saver_demo::CombinedPower power;
@@ -350,6 +895,22 @@ int main(int argc, char **argv) {
   CHECK(!Wire.begins);
   CHECK(Wire1.begins == 1);
   CHECK(!strcmp(app.state_, "IDLE"));
+  const auto beforePlanCurrents = Serial7.currents.size();
+  command("CP PLAN 50 120");
+  for (unsigned i = 0; i < 100; ++i)
+    app.log_.flush();
+  CHECK(Serial.output.find("peak_velocity_mm_s=314.159") != std::string::npos);
+  CHECK(Serial.output.find("peak_acceleration_mm_s2=3947.842") != std::string::npos);
+  CHECK(Serial.output.find("peak_motor_rpm=2827.43") != std::string::npos);
+  CHECK(!app.cp_.active() && !app.cp_.armed());
+  CHECK(app.cp_.depth_ == 0 && app.cp_.rate_ == 0);
+  CHECK(Serial7.currents.size() >= beforePlanCurrents);
+  for (size_t i = beforePlanCurrents; i < Serial7.currents.size(); ++i)
+    CHECK(Serial7.currents[i] == 0);
+  command("CP PLAN 50 NaN");
+  command("CP PLAN 50 0");
+  command("CP PLAN 50 120 extra");
+  CHECK(!app.cp_.active() && !app.cp_.armed());
   command("HELP");
   CHECK(off());
   json(1, "GET_INFO");
@@ -591,6 +1152,9 @@ int main(int argc, char **argv) {
   for (unsigned i = 0; i < 1000; ++i)
     app.log_.flush();
   CHECK(!combinedTests());
+  CHECK(!ppgDisplayTests());
+  CHECK(!sensorlessTests());
+  CHECK(!stopTestTests());
   // Real vacuum module: no immediate hold/release success, hysteresis,
   // attained-pressure fallback, timeout, ERR latch and invalid ADC handling.
   selectable::Log vacuumLog;

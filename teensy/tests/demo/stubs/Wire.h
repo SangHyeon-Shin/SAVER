@@ -5,6 +5,8 @@ struct TwoWire {
   bool fail = false;
   uint8_t address = 0, pointer = 0, regs[256] = {};
   int32_t nauRaw = 100000;
+  bool ppgSamples = false;
+  uint32_t ppgRed = 12000, ppgIr = 18000, ppgAt = 0;
   std::vector<uint8_t> tx;
   std::deque<uint8_t> rx;
   void setSDA(int) {}
@@ -30,6 +32,8 @@ struct TwoWire {
       regs[pointer] = tx[1];
       if (address == 0x57 && pointer == 9 && tx[1] == 0x40)
         regs[9] = 0;
+      if (address == 0x57 && pointer == 9 && tx[1] == 3)
+        ppgAt = millis();
       if (address == 0x2A && pointer == 2 && tx[1] == 0x74)
         regs[2] = 0x70;
     }
@@ -47,8 +51,18 @@ struct TwoWire {
         v = 0x2E;
       if (a == 0x2A && r >= 0x12 && r <= 0x14)
         v = uint8_t(uint32_t(nauRaw) >> ((0x14 - r) * 8));
+      if (a == 0x57 && pointer == 4 && i == 0 && ppgSamples) {
+        const uint32_t due = uint32_t(millis() - ppgAt) / 40;
+        v = uint8_t(due < 31 ? due : 31);
+      }
+      if (a == 0x57 && pointer == 7 && ppgSamples) {
+        const unsigned k = i % 6;
+        v = uint8_t((k < 3 ? ppgRed : ppgIr) >> ((2 - (k % 3)) * 8));
+      }
       rx.push_back(v);
     }
+    if (a == 0x57 && pointer == 7 && ppgSamples)
+      ppgAt += uint32_t(n / 6) * 40;
     return n;
   }
   int available() const { return int(rx.size()); }

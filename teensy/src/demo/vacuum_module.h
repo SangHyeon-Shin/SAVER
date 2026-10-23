@@ -31,16 +31,30 @@ public:
   bool active() const { return state_.runningMask() != 0; }
   bool holding() const { return automatic_ && hold_; }
   bool requested() const { return automatic_; }
+  bool sensorless() const { return sensorless_; }
+  const char *setSensorless(bool on) {
+    if (active() || automatic_)
+      return "SENSORLESS_CHANGE_REQUIRES_OUTPUTS_OFF";
+    stop();
+    sensorless_ = on;
+    stable_ = releaseStable_ = released_ = false;
+    sample();
+    return nullptr;
+  }
   bool released() const { return released_; }
   bool fault() const { return fault_; }
   const char *faultReason() const { return reason_; }
   bool pressure(float &kPa) const {
+    if (sensorless_)
+      return false;
     kPa = pressure_.pressurePa / 1000.0f;
     return pressure_.ok && uint32_t(millis() - sampleAt_) < 100;
   }
   bool configured() const { return maxOnMs_ && stableMs_ && releaseMs_ && releaseBand_ > 0; }
   uint32_t acquisitionLimitMs() const { return maxOnMs_; }
   const char *startAuto(float target) {
+    if (sensorless_)
+      return "SENSORLESS_MANUAL_MOTORS_ONLY";
     if (!configured())
       return "VAC_CONFIG_REQUIRED";
     if (target != -22.5f)
@@ -70,7 +84,7 @@ public:
       sample();
     float kPa = 0;
     const bool valid = pressure(kPa);
-    if (!valid && (active() || automatic_))
+    if (!sensorless_ && !valid && (active() || automatic_))
       trip("PRESSURE_UNAVAILABLE");
     if (active() && maxOnMs_ && uint32_t(millis() - onAt_) >= maxOnMs_) {
       // D-27 fallback: stop at attained pressure only if the reviewed lower
@@ -150,7 +164,7 @@ public:
       else {
         sample();
         observe();
-        why = state_.arm(pressure_.ok);
+        why = state_.arm(sensorless_ || pressure_.ok);
       }
     } else if (c.is("OFF", 1))
       stop();
@@ -161,7 +175,7 @@ public:
         sample();
         observe();
         why = state_.clear(3, millis());
-        if (!why && pressure_.ok) {
+        if (!why && (sensorless_ || pressure_.ok)) {
           fault_ = false;
           reason_ = "NONE";
         } else if (!why)
@@ -179,7 +193,7 @@ public:
                                                  c.count > 2 ? c.tokens[2] : nullptr,
                                                  c.count > 3 ? c.tokens[3] : nullptr, duty_, a, b);
         if (!why)
-          why = state_.start(mask, a, b, pressure_.ok);
+          why = state_.start(mask, a, b, sensorless_ || pressure_.ok);
         if (!why) {
           onAt_ = millis();
           released_ = false;
@@ -197,9 +211,9 @@ public:
   }
   void report() {
     log_.emit("VACUUM,configured=%u,auto=%u,holding=%u,released=%u,fault=%u,m1_pct=%u,m2_pct=%u,"
-              "adc=%d,reason=%s",
+              "adc=%d,sensorless=%u,pressure_feedback_enabled=%u,reason=%s",
               configured(), automatic_, hold_, released_, fault_, state_.motor(0).duty(),
-              state_.motor(1).duty(), pressure_.raw, reason_);
+              state_.motor(1).duty(), pressure_.raw, sensorless_, !sensorless_, reason_);
   }
 
 private:
@@ -216,6 +230,12 @@ private:
     }
   }
   void sample() {
+    if (sensorless_) {
+      pressure_ = saver_pressure_bench::PressureSample{};
+      pressure_.reason = "SENSORLESS_DIAGNOSTIC";
+      sampleAt_ = millis();
+      return;
+    }
     pressure_ = saver_pressure_bench::convertPressure(analogRead(A8));
     sampleAt_ = millis();
   }
@@ -238,6 +258,7 @@ private:
   saver_pressure_bench::PressureSample pressure_;
   uint8_t duty_ = 6;
   bool automatic_ = false, hold_ = false, fault_ = false, released_ = false;
+  bool sensorless_ = false; // Explicit local bench mode; never a valid pressure measurement.
   bool stable_ = false, releaseStable_ = false;
   float releaseBand_ = 0, offAtTarget_ = -22.5f;
   uint32_t maxOnMs_ = 0, stableMs_ = 0, releaseMs_ = 0;

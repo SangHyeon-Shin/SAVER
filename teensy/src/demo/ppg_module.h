@@ -3,6 +3,7 @@
 #include "bench_io.h"
 #include "src/optical_window.h"
 #include "src/ppg_signal.h"
+#include "ppg_diagnostic.h"
 #include <spo2_algorithm.h>
 
 namespace selectable {
@@ -12,15 +13,16 @@ public:
   explicit Ppg(Log &log) : log_(log), bus_(Wire, 0x57) {}
   bool heartRate(float &v) const {
     v = window_.hr();
-    return window_.hrOk();
+    return !diagnostic_.enabled() && window_.hrOk();
   }
   bool saturation(float &v) const {
     v = window_.spo2();
-    return window_.spo2Ok();
+    return !diagnostic_.enabled() && window_.spo2Ok();
   }
   bool stop() {
     window_.reset();
     confirmation_.reset();
+    diagnostic_.enable(false);
     state_ = State::Off;
     if (!touched_)
       return true;
@@ -34,9 +36,20 @@ public:
     return shutdownOk_;
   }
   bool quiet() const { return !touched_ && shutdownOk_; }
+  bool acquiring() const {
+    return state_ == State::Reset || state_ == State::Configure || state_ == State::Running;
+  }
+  void diagnostic(bool on) {
+    window_.reset();
+    confirmation_.reset();
+    diagnostic_.enable(on);
+    if (state_ == State::Running)
+      reason_ = "WARMUP";
+  }
   void enter() {
     window_.reset();
     confirmation_.reset();
+    diagnostic_.enable(false);
     reason_ = "INITIALIZING";
     Wire.setSDA(18);
     Wire.setSCL(19);
@@ -61,6 +74,7 @@ public:
   }
   void tick() {
     window_.expire(millis());
+    diagnostic_.expire(millis());
     if (!window_.contactReady())
       confirmation_.reset();
     if (state_ == State::Reset) {
@@ -137,16 +151,20 @@ public:
       const uint8_t *p = bytes + i * 6;
       red_ = ((uint32_t(p[0]) << 16) | (uint32_t(p[1]) << 8) | p[2]) & optical::ADC_MAX;
       ir_ = ((uint32_t(p[3]) << 16) | (uint32_t(p[4]) << 8) | p[5]) & optical::ADC_MAX;
-      if (window_.push(red_, ir_, millis()))
+      if (diagnostic_.enabled())
+        diagnostic_.push(red_, ir_, millis());
+      else if (window_.push(red_, ir_, millis()))
         calculate();
       if (!window_.contactReady())
         confirmation_.reset();
     }
   }
   void report() {
-    log_.emit("PPG,acquiring=%u,contact=%s,window_samples=%u,hr_valid=%u,spo2_valid=%u,reason=%s",
-              state_ == State::Running, window_.contactName(), window_.count(), window_.hrOk(),
-              window_.spo2Ok(), reason_);
+    log_.emit("PPG,acquiring=%u,diagnostic=%u,contact=%s,window_samples=%u,hr_valid=%u,spo2_valid=%"
+              "u,reason=%s",
+              state_ == State::Running, diagnostic_.enabled(), window_.contactName(),
+              window_.count(), window_.hrOk(), window_.spo2Ok(),
+              diagnostic_.enabled() && state_ == State::Running ? diagnostic_.reason() : reason_);
     if (state_ == State::Running && uint32_t(millis() - sampleAt_) < 200)
       log_.emit("OPTICAL,red_raw=%lu,ir_raw=%lu", static_cast<unsigned long>(red_),
                 static_cast<unsigned long>(ir_));
@@ -155,6 +173,28 @@ public:
                 static_cast<long>(window_.hr()));
     if (window_.spo2Ok())
       log_.emit("ESTIMATE,spo2_pct=%ld,clinical_validated=0", static_cast<long>(window_.spo2()));
+    if (diagnostic_.enabled())
+      reportLive();
+  }
+  void reportLive() {
+    const bool diag = diagnostic_.enabled();
+    int32_t hr = 0, spo2 = 0;
+    const bool hrOk = diag ? diagnostic_.heartRate(millis(), hr) : window_.hrOk();
+    const bool spo2Ok = diag ? diagnostic_.saturation(millis(), spo2) : window_.spo2Ok();
+    if (!diag) {
+      hr = window_.hr();
+      spo2 = window_.spo2();
+    }
+    char h[56] = {}, s[48] = {};
+    if (hrOk)
+      snprintf(h, sizeof(h), ",%s=%ld", diag ? "candidate_hr_bpm" : "heart_rate_bpm", long(hr));
+    if (spo2Ok)
+      snprintf(s, sizeof(s), ",%s=%ld", diag ? "candidate_spo2_pct" : "spo2_pct", long(spo2));
+    const char *reason = diag && state_ == State::Running ? diagnostic_.reason() : reason_;
+    log_.emit("%s,ms=%lu,diagnostic=%u,clinical_validated=0,hr_valid=%u,spo2_valid=%u,"
+              "window_samples=%u,reason=%s%s%s",
+              diag ? "PPG_DIAG" : "PPG_LIVE", (unsigned long)millis(), diag, hrOk, spo2Ok,
+              diag ? diagnostic_.samples() : window_.count(), reason, h, s);
   }
 
 private:
@@ -185,6 +225,7 @@ private:
   RegisterBus<TwoWire> bus_;
   optical::OpticalWindow window_;
   optical::PulseConfirmation confirmation_;
+  PpgDiagnostic diagnostic_;
   State state_ = State::Off;
   bool touched_ = false, shutdownOk_ = true;
   uint8_t step_ = 0;

@@ -10,21 +10,23 @@
 #define INPUT 0
 #define OUTPUT 1
 #define INPUT_PULLUP 2
-#define INPUT_DISABLE 3
+#define INPUT_PULLDOWN 3
+#define INPUT_DISABLE 4
 #define SERIAL_8N1 0
 #define A8 22
 #define A16 40
 #define A0 14
 #define A9 23
 #define A17 41
+template <typename T> constexpr T min(T a, T b) { return a < b ? a : b; }
 extern uint64_t mockUs;
-extern int mockAdc[42], mockDigital[42], mockPwm[42];
+extern int mockAdc[42], mockDigital[42], mockPwm[42], mockPinMode[42];
 extern bool mockVescReplies;
 inline uint32_t millis() { return uint32_t(mockUs / 1000); }
 inline uint32_t micros() { return uint32_t(mockUs); }
 inline void digitalWriteFast(uint8_t p, int v) { mockDigital[p] = v; }
 inline int digitalRead(uint8_t p) { return mockDigital[p]; }
-inline void pinMode(uint8_t, int) {}
+inline void pinMode(uint8_t pin, int mode) { mockPinMode[pin] = mode; }
 inline void analogWriteResolution(int) {}
 inline void analogWriteFrequency(uint8_t, int) {}
 inline void analogWrite(uint8_t p, int v) { mockPwm[p] = v; }
@@ -41,6 +43,9 @@ struct MockSerial {
   std::vector<int32_t> currents;
   unsigned queries = 0;
   int32_t motorCentiA = 100, inputCentiA = 50;
+  int32_t erpm = 0;
+  uint16_t inputDeciV = 240, fetDeciC = 300;
+  uint8_t fault = 0;
   void begin(unsigned, int = 0) {}
   void setRX(int) {}
   void setTX(int) {}
@@ -99,14 +104,16 @@ struct MockSerial {
       if (mockVescReplies && p[2] == 4) {
         uint8_t v[54] = {};
         v[0] = 4;
-        v[1] = 1;
-        v[2] = 44; // 30 C
+        v[1] = uint8_t(fetDeciC >> 8);
+        v[2] = uint8_t(fetDeciC);
         for (unsigned i = 0; i < 4; ++i) {
           v[5 + i] = uint8_t(uint32_t(motorCentiA) >> ((3 - i) * 8));
           v[9 + i] = uint8_t(uint32_t(inputCentiA) >> ((3 - i) * 8));
+          v[23 + i] = uint8_t(uint32_t(erpm) >> ((3 - i) * 8));
         }
-        v[27] = 0;
-        v[28] = 240; // 24 V
+        v[27] = uint8_t(inputDeciV >> 8);
+        v[28] = uint8_t(inputDeciV);
+        v[53] = fault;
         reply(v, 54);
       }
     }

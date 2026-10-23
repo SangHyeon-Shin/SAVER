@@ -3,12 +3,11 @@
 #include <limits>
 
 namespace saver_pressure_bench {
-constexpr int ADC_MAX = 4095; // analogReadResolution(12).
-constexpr float ADC_REFERENCE_V = 3.3f; // Nominal; actual reference has not been measured.
-constexpr float DIVIDER_R_TOP_OHM = 4700.0f; // Sensor OUT -> A8.
+constexpr int ADC_MAX = 4095;                    // analogReadResolution(12).
+constexpr float ADC_REFERENCE_V = 3.3f;          // Nominal; actual reference has not been measured.
+constexpr float DIVIDER_R_TOP_OHM = 4700.0f;     // Sensor OUT -> A8.
 constexpr float DIVIDER_R_BOTTOM_OHM = 10000.0f; // A8 -> GND.
-constexpr float DIVIDER_GAIN =
-    (DIVIDER_R_TOP_OHM + DIVIDER_R_BOTTOM_OHM) / DIVIDER_R_BOTTOM_OHM;
+constexpr float DIVIDER_GAIN = (DIVIDER_R_TOP_OHM + DIVIDER_R_BOTTOM_OHM) / DIVIDER_R_BOTTOM_OHM;
 
 // User-identified XGZP6847A100KPGN, 5 V (NOT ...33 or KPGPN).
 // CFSensor V2.7 pp. 2, 4, 5: -100..0 kPa, 0.5..4.5 V, K=0.04 V/kPa.
@@ -27,20 +26,27 @@ struct PressureSample {
   int raw = -1;
   bool adcOk = false, rail = false, ok = false, inNominalRange = false;
   float adcV = INVALID, sensorV = INVALID, pressurePa = INVALID;
-  const char* reason = "NOT_SAMPLED";
+  const char *reason = "NOT_SAMPLED";
 };
 constexpr PressureSample convertPressure(int raw) {
   PressureSample r;
   r.raw = raw;
-  if (raw < 0 || raw > ADC_MAX) { r.reason = "ADC_READ_INVALID"; return r; }
+  if (raw < 0 || raw > ADC_MAX) {
+    r.reason = "ADC_READ_INVALID";
+    return r;
+  }
   r.adcOk = true;
   r.adcV = (float)raw * ADC_REFERENCE_V / (float)ADC_MAX;
   r.sensorV = r.adcV * DIVIDER_GAIN;
   r.rail = raw <= 1 || raw >= ADC_MAX - 1;
-  if (r.rail) { r.reason = "ADC_RAIL"; return r; }
+  if (r.rail) {
+    r.reason = "ADC_RAIL";
+    return r;
+  }
   if (r.sensorV < SENSOR_MIN_V - OUTPUT_ALLOWANCE_V ||
       r.sensorV > SENSOR_ZERO_V + OUTPUT_ALLOWANCE_V) {
-    r.reason = "SENSOR_V_OUT_OF_RANGE"; return r;
+    r.reason = "SENSOR_V_OUT_OF_RANGE";
+    return r;
   }
   r.ok = true;
   r.inNominalRange = r.sensorV >= SENSOR_MIN_V && r.sensorV <= SENSOR_ZERO_V;
@@ -50,5 +56,34 @@ constexpr PressureSample convertPressure(int raw) {
 }
 static_assert(DIVIDER_R_TOP_OHM > 0 && DIVIDER_R_BOTTOM_OHM > 0, "Positive resistors required");
 static_assert(SENSOR_ZERO_V / DIVIDER_GAIN < ADC_REFERENCE_V, "Nominal voltage exceeds ADC range");
+
+// Display-only reference, NOT a supply correction or gauge-pressure calibration.
+// The original conversion and electrical checks above are deliberately unchanged.
+class RelativePressureZero {
+public:
+  constexpr bool active() const { return active_; }
+  constexpr float referencePa() const { return referencePa_; }
+  constexpr void clear() {
+    active_ = false;
+    referencePa_ = INVALID;
+  }
+  constexpr bool capture(int raw) {
+    clear();
+    const PressureSample sample = convertPressure(raw);
+    if (!sample.ok)
+      return false;
+    referencePa_ = sample.pressurePa;
+    active_ = true;
+    return true;
+  }
+  constexpr float relativePa(const PressureSample &sample) const {
+    return active_ && sample.ok && sample.adcOk && !sample.rail ? sample.pressurePa - referencePa_
+                                                                : INVALID;
+  }
+
+private:
+  bool active_ = false;
+  float referencePa_ = INVALID;
+};
 } // namespace saver_pressure_bench
 #endif

@@ -86,7 +86,7 @@ constexpr bool contactConfig() {
     return false;
   if (window.onRaw() != CONTACT_ON_RAW || !window.configureContact(200, 100))
     return false;
-  for (uint32_t n = 0; n < 120; ++n) {
+  for (uint32_t n = 0; n < WINDOW_SAMPLES + 20U; ++n) {
     if (window.push(1000, 1200, n * 40))
       window.completeCalculation(80, true, 97, true);
   }

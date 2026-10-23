@@ -8,6 +8,7 @@
 #include "vacuum_module.h"
 #include "ppg_module.h"
 #include "combined_trial.h"
+#include "reset_diagnostic.h"
 namespace saver_demo {
 class App {
 public:
@@ -27,6 +28,7 @@ public:
     vac_.begin();
     cp_.begin();
     cp_.enter();
+    resetDiagnostic_.capture();
     cp_.loadCalibration(EEPROM);
     session_.boot = nextBoot(EEPROM);
     connected_ = bool(Serial);
@@ -37,9 +39,14 @@ public:
   void tick() {
     if (bool(Serial) != connected_) {
       cp_.stop();
+      cp_.cancelStopTest();
+      if (vac_.sensorless())
+        vac_.stop(); // Sensorless motor diagnostics never retain outputs across USB loss.
       cancelCombined();
       combinedPower_.invalidate();
       prepared_ = pausePending_ = false;
+      ppgShow_ = false;
+      ppg_.diagnostic(false);
       owner_ = Owner::None;
       connected_ = bool(Serial);
       len_ = 0;
@@ -60,6 +67,10 @@ public:
       }
     } else if (connected_)
       poll();
+    if (connected_ && bootDiagnosticPending_) {
+      resetDiagnostic_.report(log_);
+      bootDiagnosticPending_ = false;
+    }
     cp_.tick();
     const bool hadVacuum = vac_.requested() || vac_.active();
     vac_.tick();
@@ -135,7 +146,14 @@ public:
       telemetry();
     }
     cp_.serviceCheck();
+    if (cp_.stopTestEnabled() && !cp_.active() && !cp_.armed() && !faulted())
+      state_ = "IDLE";
     cp_.serviceStop();
+    if (connected_ && owner_ == Owner::Local && ppgOn_ && ppgShow_ &&
+        uint32_t(millis() - ppgShowAt_) >= 1000) {
+      ppgShowAt_ = millis();
+      ppg_.reportLive();
+    }
     log_.flush();
   }
 
@@ -207,6 +225,10 @@ private:
     return cp_.command(c) && !log_.failed();
   }
   const char *start(uint32_t cycles) {
+    if (cp_.stopTestEnabled())
+      return "STOPTEST_OFF_BEFORE_POSITION_CONTROL";
+    if (vac_.sensorless())
+      return "SENSORLESS_MANUAL_MOTORS_ONLY";
     if (!session_.boot)
       return "BOOT_JOURNAL_UNAVAILABLE";
     if (cp_.active())
@@ -237,6 +259,10 @@ private:
   }
   void cancelCombined() { combinedPending_ = combinedRunning_ = false; }
   const char *combinedIssue(uint32_t cycles) const {
+    if (cp_.stopTestEnabled())
+      return "STOPTEST_OFF_BEFORE_POSITION_CONTROL";
+    if (vac_.sensorless())
+      return "SENSORLESS_MANUAL_MOTORS_ONLY";
     if (!session_.boot)
       return "BOOT_JOURNAL_UNAVAILABLE";
     if (faulted())
@@ -335,6 +361,10 @@ private:
     }
     if (owner_ == Owner::Local)
       return "LOCAL_CONTROL_ACTIVE";
+    if (cp_.stopTestEnabled())
+      return "STOPTEST_LOCAL_ONLY";
+    if (vac_.sensorless())
+      return "SENSORLESS_LOCAL_DIAGNOSTIC_ONLY";
     if (!session_.boot)
       return "BOOT_JOURNAL_UNAVAILABLE";
     if (!strcmp(cmd, "SET_TEL_RATE")) {
@@ -528,7 +558,7 @@ private:
       char b[384];
       snprintf(b, sizeof(b),
                "{\"v\":1,\"t\":\"evt\",\"evt\":\"INFO\",\"seq\":%lu,\"fw\":\"manual-bench-"
-               "20261023\",\"proto\":\"%s\",\"caps\":[%s],\"boot_id\":%u,"
+               "20261023-motion-plan\",\"proto\":\"%s\",\"caps\":[%s],\"boot_id\":%u,"
                "\"last_seq\":%u,\"last_aid\":%lu}",
                (unsigned long)seq, legacy_ ? "1.0" : "1.1", legacy_ ? "" : "\"AID\",\"MOT\"",
                session_.boot, session_.lastSeq, (unsigned long)session_.maxAid);
@@ -622,6 +652,14 @@ private:
     if (c.is("STOP", 1) || c.is("DISARM", 1)) {
       cp_.stop();
       cancelCombined();
+      if (vac_.sensorless()) {
+        vac_.stop();
+        prepared_ = pausePending_ = false;
+        if (!faulted())
+          state_ = "IDLE";
+        log_.emit("OK,SENSORLESS_OUTPUTS_OFF,compression_zero_requested=1,standstill_verified=0");
+        return;
+      }
       stopState(c.is("STOP", 1) ? "STOP_CPR" : "DISARM");
       log_.emit("OK,CP_STOP_REQUESTED,standstill_verified=0");
       return;
@@ -650,18 +688,45 @@ private:
       reportCombined();
       return;
     }
+    if (c.count >= 2 && !strcmp(c.tokens[0], "CP") && !strcmp(c.tokens[1], "PLAN")) {
+      float depth = 0, rate = 0;
+      if (c.count != 4 || !selectable::control::parseNumber(c.tokens[2], depth) ||
+          !selectable::control::parseNumber(c.tokens[3], rate) ||
+          !selectable::control::positive(depth) || !selectable::control::positive(rate) ||
+          !saver_depth::finite(saver_depth::peakAcceleration(depth, rate))) {
+        invalid("BAD_CP_PLAN");
+        return;
+      }
+      cp_.reportPlan(depth, rate); // Read-only, also available while STOPTEST is enabled.
+      return;
+    }
+    if (c.is("BOOT", 2) && !strcmp(c.tokens[1], "INFO")) {
+      resetDiagnostic_.report(log_);
+      return;
+    }
     if (c.is("HELP", 1)) {
       log_.emit("COMMANDS,CP ZERO|CAL mm|TARE|FORCE_CAL kg|TARGET mm cpm|FORCELIMIT N|ILIMIT "
                 "A|INLIMIT A|CHECK|CLEAR|PREPARE|RUN cycles");
+      log_.emit("COMMANDS,CP STOPTEST UNCOUPLED|ARM|PULSE|STATUS|CLEAR|OFF; "
+                "physically_uncoupled_motor_only=1,fixed_pulse=+1A_for_1000ms");
+      log_.emit("COMMANDS,CP PLAN depth_mm cpm=read_only_trajectory_requirements_no_motion");
       log_.emit("COMMANDS,VAC CONFIG pct max_on_ms stable_ms release_band_kPa release_ms|ARM|RUN1 "
                 "pct|RUN2 pct|RUNBOTH pct pct|ON|OFF|CLEAR_ERR");
-      log_.emit("COMMANDS,PPG ON|OFF; STREAM ON|OFF; STOP=CP_only; DISARM=retain_vacuum; CONTROL "
+      log_.emit(
+          "COMMANDS,VAC SENSORLESS ON|OFF=local_manual_motors_only; BOOT INFO=reset_diagnostic");
+      log_.emit("COMMANDS,PPG ON|OFF|DIAG ON|DIAG OFF|SHOW ON|SHOW OFF; STREAM ON|OFF; "
+                "STOP=CP_only; DISARM=retain_vacuum; CONTROL "
                 "LOCAL|REMOTE|REMOTE_V1");
       log_.emit("COMMANDS,BOTH POWER blower1_max_A blower2_max_A other_max_A|CHECK|STATUS|RUN "
                 "cycles|STOP; STOP_retains_vacuum=1");
       return;
     }
     if (c.is("CLEAR_FAULT", 1)) {
+      if (cp_.stopTestEnabled()) {
+        cp_.stop();
+        log_.emit("ERROR,STOPTEST_USE_CP_STOPTEST_CLEAR");
+        return;
+      }
       if (const char *why = resetFault())
         log_.emit("ERROR,%s", why);
       else
@@ -669,14 +734,28 @@ private:
       return;
     }
     if (c.is("CONTROL", 2)) {
+      if (cp_.stopTestEnabled() && strcmp(c.tokens[1], "LOCAL")) {
+        cp_.stop();
+        log_.emit("ERROR,STOPTEST_OFF_BEFORE_CONTROL_TRANSFER");
+        return;
+      }
       if (cp_.active() || pausePending_ || combinedPending_) {
         log_.emit("ERROR,STOP_BEFORE_CONTROL_TRANSFER");
         return;
       }
       if (!strcmp(c.tokens[1], "REMOTE") || !strcmp(c.tokens[1], "REMOTE_V1")) {
+        if (vac_.sensorless()) {
+          vac_.stop();
+          if (!faulted())
+            state_ = "IDLE";
+          log_.emit("ERROR,SENSORLESS_OFF_AND_RECONNECT_SENSOR_BEFORE_REMOTE");
+          return;
+        }
         legacy_ = !strcmp(c.tokens[1], "REMOTE_V1");
         owner_ = Owner::Remote;
         quiet_ = false;
+        ppgShow_ = false;
+        ppg_.diagnostic(false); // Remote mode never inherits a local diagnostic bypass.
         lastJson_ = millis();
         log_.emit("OK,REMOTE_CONTROL,proto=%s", legacy_ ? "1.0" : "1.1");
       } else if (!strcmp(c.tokens[1], "LOCAL") &&
@@ -693,9 +772,10 @@ private:
     }
     owner_ = Owner::Local;
     if (c.is("STREAM", 2)) {
-      if (!strcmp(c.tokens[1], "OFF"))
+      if (!strcmp(c.tokens[1], "OFF")) {
         quiet_ = true;
-      else if (!strcmp(c.tokens[1], "ON"))
+        ppgShow_ = false;
+      } else if (!strcmp(c.tokens[1], "ON"))
         quiet_ = false;
       else {
         log_.emit("ERROR,BAD_STREAM_COMMAND");
@@ -704,11 +784,69 @@ private:
       log_.emit("OK,STREAM_%s,sensors_and_interlocks_unchanged=1", c.tokens[1]);
       return;
     }
+    if (c.is("PPG", 3) && !strcmp(c.tokens[1], "SHOW")) {
+      if (!strcmp(c.tokens[2], "ON") && ppgOn_) {
+        ppgShow_ = true;
+        ppgShowAt_ = millis() - 1000;
+      } else if (!strcmp(c.tokens[2], "OFF"))
+        ppgShow_ = false;
+      else {
+        log_.emit("ERROR,PPG_SHOW_REQUIRES_ON_OR_BAD_COMMAND");
+        return;
+      }
+      log_.emit("OK,PPG_SHOW_%s,acquisition_unchanged=1", c.tokens[2]);
+      return;
+    }
     // A pending combined request must not survive configuration/calibration or
     // control transfer and unexpectedly start later. Read-only queries and the
     // stop commands above remain available; STREAM only changes output.
     if (combinedPending_ || combinedRunning_) {
       invalid("BOTH_ACTIVE_USE_STOP_BEFORE_CONFIG");
+      return;
+    }
+    if (c.count >= 2 && !strcmp(c.tokens[0], "CP") && !strcmp(c.tokens[1], "STOPTEST")) {
+      if (c.count != 3) {
+        invalid("BAD_STOPTEST_COMMAND");
+        return;
+      }
+      const bool query = c.count == 3 && !strcmp(c.tokens[2], "STATUS");
+      const bool off = c.count == 3 && !strcmp(c.tokens[2], "OFF");
+      const bool clear = c.count == 3 && !strcmp(c.tokens[2], "CLEAR");
+      if (!query && !off) {
+        if (vac_.sensorless() || vac_.active() || vac_.requested() || ppgOn_ || pausePending_ ||
+            !session_.boot) {
+          cp_.stop();
+          log_.emit("ERROR,STOPTEST_REQUIRES_VAC_AND_PPG_OFF_AND_VALID_BOOT");
+          return;
+        }
+        if ((!clear && faulted()) || (clear && !strcmp(state_, "ESTOP"))) {
+          cp_.stop();
+          log_.emit("ERROR,STOPTEST_FAULT_OR_ESTOP_LATCHED");
+          return;
+        }
+      }
+      if (clear && !cp_.stopTestEnabled()) {
+        log_.emit("ERROR,STOPTEST_DECLARE_UNCOUPLED_FIRST");
+        return;
+      }
+      char b[128] = {};
+      if (!join(c, b, sizeof(b))) {
+        invalid("BAD_STOPTEST_COMMAND");
+        return;
+      }
+      if (!query)
+        prepared_ = false;
+      const bool accepted = cpCommand(b);
+      if (accepted && clear) {
+        fault_[0] = faultWhy_[0] = 0;
+        state_ = "IDLE";
+      } else if (accepted && !faulted()) {
+        state_ = cp_.armed() ? "ARMED" : "IDLE";
+      }
+      return;
+    }
+    if (cp_.stopTestEnabled()) {
+      invalid("STOPTEST_OFF_BEFORE_OTHER_COMMANDS");
       return;
     }
     if (c.count && !strcmp(c.tokens[0], "BOTH")) {
@@ -739,6 +877,24 @@ private:
         invalid("BAD_BOTH_COMMAND");
       return;
     }
+    if (c.is("PPG", 3) && !strcmp(c.tokens[1], "DIAG")) {
+      if (cp_.active() || pausePending_) {
+        log_.emit("ERROR,PPG_CONFIG_REQUIRES_CP_STOP");
+        return;
+      }
+      const bool on = !strcmp(c.tokens[2], "ON");
+      if (!on && strcmp(c.tokens[2], "OFF")) {
+        log_.emit("ERROR,BAD_PPG_DIAG_COMMAND");
+        return;
+      }
+      if (!ppgOn_ || !ppg_.acquiring())
+        ppg_.enter();
+      ppg_.diagnostic(on);
+      ppgOn_ = ppgShow_ = true;
+      ppgShowAt_ = millis() - 1000;
+      log_.emit("OK,PPG_DIAG_%s,normal_telemetry_uses_diagnostic=0", c.tokens[2]);
+      return;
+    }
     if (c.count == 2 && !strcmp(c.tokens[0], "PPG")) {
       if (cp_.active()) {
         log_.emit("ERROR,PPG_CONFIG_REQUIRES_CP_STOP");
@@ -746,15 +902,21 @@ private:
       }
       if (!strcmp(c.tokens[1], "ON")) {
         ppg_.enter();
-        ppgOn_ = true;
+        ppgOn_ = ppgShow_ = true;
+        ppgShowAt_ = millis() - 1000;
       } else if (!strcmp(c.tokens[1], "OFF")) {
         ppg_.stop();
-        ppgOn_ = false;
+        ppgOn_ = ppgShow_ = false;
       } else
         log_.emit("ERROR,BAD_PPG_COMMAND");
       return;
     }
     if (c.count >= 2 && c.count <= 8 && !strcmp(c.tokens[0], "CP")) {
+      if (vac_.sensorless() && (!strcmp(c.tokens[1], "PREPARE") || !strcmp(c.tokens[1], "ARM") ||
+                                !strcmp(c.tokens[1], "RUN"))) {
+        log_.emit("ERROR,SENSORLESS_MANUAL_MOTORS_ONLY");
+        return;
+      }
       if (c.count == 2 && !strcmp(c.tokens[1], "PREPARE")) {
         if (cp_.active() || pausePending_) {
           log_.emit("ERROR,PREPARE_REQUIRES_STOP");
@@ -800,6 +962,30 @@ private:
       }
       return;
     }
+    if (c.is("VAC", 3) && !strcmp(c.tokens[1], "SENSORLESS")) {
+      if (cp_.active() || pausePending_ || vac_.active() || vac_.requested()) {
+        invalid("SENSORLESS_CHANGE_REQUIRES_OUTPUTS_OFF");
+        return;
+      }
+      const bool on = !strcmp(c.tokens[2], "ON");
+      if (!on && strcmp(c.tokens[2], "OFF")) {
+        invalid("BAD_SENSORLESS_COMMAND");
+        return;
+      }
+      if (const char *why = vac_.setSensorless(on)) {
+        log_.emit("ERROR,%s", why);
+        return;
+      }
+      prepared_ = false;
+      combinedPower_.invalidate();
+      localRelease_ = false;
+      if (!faulted())
+        state_ = "IDLE";
+      log_.emit(
+          "OK,VAC_SENSORLESS_%s,pressure_feedback_enabled=%u,automatic_and_compression_blocked=%u",
+          c.tokens[2], !on, on);
+      return;
+    }
     if (c.count >= 2 && c.count <= 7 && !strcmp(c.tokens[0], "VAC")) {
       if (cp_.active() || pausePending_) {
         log_.emit("ERROR,STOP_CP_BEFORE_VAC_CONFIG_OR_RELEASE");
@@ -839,9 +1025,9 @@ private:
       else if (!log_.failed() && !strcmp(c.tokens[1], "ARM"))
         state_ = "ARMED";
       else if (!log_.failed() && !strcmp(c.tokens[1], "OFF")) {
-        localRelease_ = true;
+        localRelease_ = !vac_.sensorless();
         if (!faulted())
-          state_ = "VACUUM_HOLD";
+          state_ = vac_.sensorless() ? "IDLE" : "VACUUM_HOLD";
       }
       return;
     }
@@ -885,6 +1071,11 @@ private:
     const bool operating = cp_.active() || combinedPending_ || combinedRunning_ ||
                            !strcmp(state_, "CPR_READY") || !strcmp(state_, "CPR_PAUSED");
     cp_.stop();
+    if (vac_.sensorless()) {
+      vac_.stop();
+      if (!faulted())
+        state_ = "IDLE";
+    }
     cancelCombined();
     prepared_ = pausePending_ = false;
     if (operating)
@@ -944,6 +1135,8 @@ private:
   Session session_;
   LegacyReceipts legacyReceipts_;
   CombinedPower combinedPower_;
+  ResetDiagnostic resetDiagnostic_;
+  bool bootDiagnosticPending_ = true;
   const char *state_ = "IDLE";
   char fault_[16] = {}, faultWhy_[96] = {}, line_[512] = {};
   size_t len_ = 0;
@@ -953,6 +1146,8 @@ private:
   bool legacy_ = false;
   bool localRelease_ = false;
   bool quiet_ = false;
+  bool ppgShow_ = false;
+  uint32_t ppgShowAt_ = 0;
   bool pausePending_ = false, restSeen_ = false, rearmLock_ = false;
   bool combinedPending_ = false, combinedRunning_ = false;
   uint32_t combinedAt_ = 0, combinedCycles_ = 0;

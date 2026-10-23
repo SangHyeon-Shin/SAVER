@@ -78,3 +78,44 @@ PC용 `g++/clang++/cl`은 PATH에서 확인되지 않았습니다. `python`은 �
   반력–변위 동기 측정, Jetson 프로토콜 연동, 모터/안전 입력 동작은 검증하지 않았습니다.
 
 추후 실기 순서는 `README.md`의 **나중에 해야 할 실물 시험**을 따릅니다.
+
+## 로드셀 단독 테스트 재확인 — 2026-10-11
+
+사용자 요청에 따라 기존 스케치를 재사용하고 `README.md`에 SD카드 없는 빠른 테스트,
+사용자 제공 그림의 EX/SG 선 색, Wire1 배선과 보정 순서를 추가했습니다.
+스케치와 세 보조 헤더, 메인 펌웨어, 운용 프로토콜은 변경하지 않았습니다.
+
+검증 수준은 `tested`(소프트웨어 검사)입니다. 아래 결과는 로드셀 실물·힘 정확도 검증이 아닙니다.
+
+| 검사 | 결과 |
+|---|---|
+| `tests/check_logger.ps1` | static_assert 58개, 실제 드라이버 모의 I2C, 센서 전용·SD 소스 검사 통과 |
+| `tools/check_recording.ps1 -SelfTest` | 합성 CSV fixture 8개 통과 |
+| `teensy/tests/check_pinmap.ps1` | 핀 assertion 19개와 Wire1/메인 소스 일치 검사 통과 |
+| Teensy 4.1 스케치 컴파일·링크 | 오류 0, 경고 0 |
+| `teensy/test_saver_proto.cpp` | PC에서 실행, 통과 26 / 실패 0 |
+| `tools/consistency_audit.py`, `git diff --check` | 통과. 기존 다른 작업 파일의 줄바꿈 안내는 보존 |
+
+실행 명령(저장소 루트):
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File test/reaction_force_logger/tests/check_logger.ps1
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File test/reaction_force_logger/tools/check_recording.ps1 -SelfTest
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File teensy/tests/check_pinmap.ps1
+& 'C:/Program Files/Arduino IDE/resources/app/lib/backend/resources/arduino-cli.exe' compile --fqbn teensy:avr:teensy41 --warnings all --build-property 'recipe.hooks.postbuild.1.pattern=' --build-path "$env:TEMP/saver-loadcell-test-20261011" test/reaction_force_logger
+$taskDir = Join-Path $env:TEMP 'saver-v24-review-zig-0.13.0'
+$env:ZIG_GLOBAL_CACHE_DIR = Join-Path $taskDir 'global-cache'
+$env:ZIG_LOCAL_CACHE_DIR = Join-Path $taskDir 'local-cache'
+& "$taskDir/zig-windows-x86_64-0.13.0/zig.exe" c++ -std=c++11 -Wall -Wextra -Werror teensy/test_saver_proto.cpp -o "$taskDir/test_saver_proto.exe"
+& "$taskDir/test_saver_proto.exe"
+& 'C:/Users/Administrator/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/python.exe' tools/consistency_audit.py
+git diff --check
+```
+
+Arduino CLI는 제한 환경에서 설치된 패키지 symlink 접근이 거부되어 실패했고,
+허용된 환경에서 같은 컴파일 명령을 다시 실행해 통과했습니다. Teensy Loader 후처리는
+비워 두었으며 **펌웨어 업로드·시리얼 포트 열기·장치 구동은 하지 않았습니다.**
+
+기존 내부 LDO 3.0 V와 CH1 배선 가정은 유지합니다. 사용자의 실제 NAU7802 모듈의
+AVDD/REFP/E+ 회로, 여기전압 적합성, 하중 전달 방향, 풀업·배선 품질은 실물 확인 대상입니다.
+ADC 응답만으로 로드셀 단선이나 기계적 설치 이상을 모두 검출하지 못합니다.

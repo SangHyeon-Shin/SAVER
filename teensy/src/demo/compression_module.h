@@ -50,7 +50,10 @@ public:
               cfg::LIMIT_SWITCHES_INSTALLED, cfg::ESTOP_AUX_INSTALLED);
   }
   void stop() {
+    const bool testWasRunning = stopTest_ && gate_.running();
+    const uint32_t testElapsedMs = uint32_t(micros() - started_) / 1000;
     gate_.stop();
+    stopTestDone_ = false;
     commandA_ = 0;
     pid_.reset(position_);
     zeroPending_ = true;
@@ -59,6 +62,9 @@ public:
       forceCal_.reset();
     }
     serviceStop();
+    if (testWasRunning)
+      log_.emit("EVENT,STOPTEST_ZERO,elapsed_ms=%lu,zero_frame_queued=%u,standstill_verified=0",
+                (unsigned long)testElapsedMs, !zeroPending_);
   }
   // The router calls this in EVERY mode; only a zero-current frame is permitted.
   void serviceStop() {
@@ -70,6 +76,17 @@ public:
   bool stopPending() const { return zeroPending_; }
   bool active() const { return gate_.running(); }
   bool armed() const { return gate_.armed(); }
+  bool stopTestEnabled() const { return stopTest_; }
+  // USB session loss cancels the fixture declaration, not just the pulse.
+  void cancelStopTest() {
+    if (!stopTest_)
+      return;
+    stop();
+    stopTest_ = false;
+    pinMode(A16, INPUT_DISABLE);
+    calibration_.reset();
+    positionValid_ = healthy_ = resting_ = false;
+  }
   float targetRate() const { return rate_; }
   float commandCurrentLimit() const { return currentLimit_; }
   float inputCurrentLimit() const { return inputLimit_; }
@@ -107,6 +124,8 @@ public:
     return metricsKnown_ && gate_.running();
   }
   const char *readyIssue() const {
+    if (stopTest_)
+      return "STOPTEST_OFF_BEFORE_POSITION_CONTROL";
     if (gate_.fault())
       return "CP_FAULT_USE_CLEAR";
     if (forceLimit_ <= 0)
@@ -118,6 +137,10 @@ public:
     pollVesc();
     if (const char *why = controlTick())
       trip(why);
+    if (stopTestDone_) {
+      stop(); // Same zero-current transport as normal STOP, BEFORE logging.
+      log_.emit("EVENT,STOPTEST_PULSE_DONE,zero_current_requested=1,standstill_verified=0");
+    }
     if (profileDone_) {
       profileDone_ = false;
       stop();
@@ -146,12 +169,19 @@ public:
       forceCal_.reset();
       log_.emit("ERROR,FORCE_CAL_TIMEOUT");
     }
-    gate_.expire(millis());
+    if (gate_.expire(millis()) && stopTest_)
+      log_.emit("EVENT,STOPTEST_ARM_EXPIRED");
     serviceTx();
   }
   bool command(const Command &c) {
     float a = 0, b = 0, d = 0;
     uint32_t cycles = 1;
+    if (c.count && !strcmp(c.tokens[0], "STOPTEST"))
+      return stopTestCommand(c);
+    if (stopTest_) {
+      reject("STOPTEST_OFF_BEFORE_OTHER_CP_COMMANDS");
+      return true;
+    }
     if (c.is("CHECK", 1)) {
       checkIndex_ = 0;
       return true;
@@ -300,7 +330,22 @@ public:
     }
     return false;
   }
+  // Read-only engineering calculation. Never changes TARGET, ARM or a limit.
+  void reportPlan(float depth, float cpm) const {
+    const double velocity = saver_depth::peakVelocity(depth, cpm);
+    const double acceleration = saver_depth::peakAcceleration(depth, cpm);
+    const double motorRpm = velocity * 60.0 * cfg::MOTOR_REVS_PER_SCREW_REV / cfg::SCREW_LEAD_MM;
+    log_.emit("CP_PLAN,depth_mm=%.2f,cpm=%.2f,period_ms=%.2f,peak_velocity_mm_s=%.3f,"
+              "peak_acceleration_mm_s2=%.3f",
+              double(depth), double(cpm), 60000.0 / cpm, velocity, acceleration);
+    log_.emit("CP_PLAN_DRIVE,peak_motor_rpm=%.2f,peak_erpm=%.2f,nominal_step_at_5ms_mm=%.3f,"
+              "target_syntax_valid=%u,outputs_changed=0,hardware_capability_verified=0",
+              motorRpm, motorRpm * cfg::MOTOR_POLE_PAIRS,
+              velocity * control::CONTROL_US / 1000000.0, control::validTarget(depth, cpm));
+  }
   void report() {
+    if (stopTest_)
+      reportStopTest();
     log_.emit(
         "COMPRESSION,armed=%u,running=%u,fault=%u,adc_raw=%d,position_ok=%u,"
         "vesc_fresh=%u,force_ok=%u,force_calibrated=%u,stop_pending=%u,depth_mm=%.2f,cpm=%.2f",
@@ -336,6 +381,101 @@ public:
   }
 
 private:
+  // Fixture stimulus, NOT an operating current limit or installed-axis mode.
+  // +1 A / 1000 ms matches the user's previous current-only direction test.
+  static constexpr float STOP_TEST_CURRENT_A = 1.0f;
+  static constexpr uint32_t STOP_TEST_MS = 1000;
+  const char *stopTestIssue(bool checkFault = true) const {
+    if (!stopTest_)
+      return "STOPTEST_DECLARE_UNCOUPLED_FIRST";
+    if (checkFault && gate_.fault())
+      return "STOPTEST_FAULT_USE_CLEAR";
+    if (const char *why = runtimeIssue())
+      return why;
+    if (currentLimit_ < STOP_TEST_CURRENT_A ||
+        cfg::MAX_ALLOWED_COMMAND_CURRENT_A < STOP_TEST_CURRENT_A)
+      return "STOPTEST_CURRENT_CAP_BELOW_1A";
+    if (zeroPending_)
+      return "STOP_TX_PENDING";
+    if (!healthy_ || uint32_t(millis() - healthyAt_) < control::STABLE_MS || !resting_ ||
+        uint32_t(millis() - restAt_) < control::STABLE_MS || values_.erpm != 0)
+      return "STOPTEST_WAIT_FOR_FRESH_RESTING_INPUTS";
+    return nullptr;
+  }
+  void reportStopTest() {
+    log_.emit("STOPTEST,enabled=%u,armed=%u,running=%u,fault=%u,adc_raw=%d,linear_raw_ok=%u,"
+              "command_A=%.2f,pulse_ms=%lu,stop_pending=%u,standstill_verified=0",
+              stopTest_, gate_.armed(), gate_.running(), gate_.fault(), raw_,
+              saver_current::Calibration::usableRaw(raw_), double(commandA_),
+              (unsigned long)STOP_TEST_MS, zeroPending_);
+    if (valuesFresh())
+      log_.emit("STOPTEST_VESC,input_V=%.2f,input_A=%.2f,motor_A=%.2f,motor_erpm=%ld,fault=%u",
+                values_.inputDeciV / 10.0, values_.inputCentiA / 100.0, values_.motorCentiA / 100.0,
+                (long)values_.erpm, values_.fault);
+  }
+  bool stopTestCommand(const Command &c) {
+    if (c.is("STOPTEST", 2) && !strcmp(c.tokens[1], "STATUS")) {
+      reportStopTest();
+      return true;
+    }
+    if (c.is("STOPTEST", 2) && !strcmp(c.tokens[1], "OFF")) {
+      stop();
+      cancelStopTest();
+      log_.emit("OK,STOPTEST_OFF,LINEAR_ZERO_AND_CAL_REQUIRED=1,normal_drive_not_unlocked=1");
+      return true;
+    }
+    if (c.is("STOPTEST", 2) && !strcmp(c.tokens[1], "UNCOUPLED")) {
+      if (gate_.running() || gate_.fault() || capture_) {
+        reject("STOPTEST_ENTRY_REQUIRES_STOP_AND_NO_CP_FAULT_OR_CAPTURE");
+        return true;
+      }
+      stop();
+      stopTest_ = true;
+      // Test-only bias: an open A16 signal tends to the ADC low rail. It loads
+      // the potentiometer, so normal position calibration cannot be reused.
+      pinMode(A16, INPUT_PULLDOWN);
+      calibration_.reset();
+      positionValid_ = healthy_ = resting_ = false;
+      sampleAt_ = micros();
+      log_.emit("OK,STOPTEST_UNCOUPLED_DECLARED,pulse_A=1.00,pulse_ms=1000,"
+                "linear_pulldown=1,no_CPR=1,hardware_test_passed=0");
+      return true;
+    }
+    if (c.is("STOPTEST", 2) && !strcmp(c.tokens[1], "CLEAR")) {
+      const bool wasRunning = gate_.running();
+      const char *why = stopTestIssue(false);
+      if (!gate_.clear(!why && !wasRunning)) {
+        stop();
+        log_.emit("ERROR,%s", why ? why : "STOPTEST_CLEAR_REQUIRES_STOP");
+      } else {
+        faultWhy_ = "NONE";
+        log_.emit("OK,STOPTEST_FAULT_CLEARED,armed=0,normal_drive_not_unlocked=1");
+      }
+      return true;
+    }
+    if (c.is("STOPTEST", 2) && !strcmp(c.tokens[1], "ARM")) {
+      const char *why = stopTestIssue();
+      if (!gate_.arm(!why, millis()))
+        reject(why ? why : "STOPTEST_ARM_REQUIRES_STOP");
+      else
+        log_.emit("OK,STOPTEST_ARMED,valid_ms=10000,one_pulse_only=1");
+      return true;
+    }
+    if (c.is("STOPTEST", 2) && !strcmp(c.tokens[1], "PULSE")) {
+      const char *why = stopTestIssue();
+      if (why || !gate_.armed() || !gate_.start(!why, millis())) {
+        reject(why ? why : "STOPTEST_ARM_REQUIRED_OR_EXPIRED");
+        return true;
+      }
+      started_ = controlAt_ = micros();
+      currentAt_ = millis();
+      commandA_ = STOP_TEST_CURRENT_A;
+      log_.emit("OK,STOPTEST_PULSE,pulse_A=1.00,pulse_ms=1000,automatic_repeat=0");
+      return true;
+    }
+    reject("BAD_STOPTEST_COMMAND");
+    return true;
+  }
   void reject(const char *why) {
     stop();
     log_.emit("ERROR,%s", why);
@@ -381,6 +521,16 @@ private:
       return "INPUT_CURRENT_LIMIT";
     if (values_.fetDeciC / 10.0f > cfg::MAX_FET_TEMP_C)
       return "FET_TEMPERATURE_LIMIT";
+    if (stopTest_) {
+      if (!saver_current::Calibration::usableRaw(raw_) ||
+          uint32_t(micros() - sampleAt_) >= control::CONTROL_STALE_US)
+        return "LINEAR_ADC_RAIL_OR_INVALID";
+      // No axis is coupled and no position controller is running. Only this
+      // explicitly declared fixture pulse omits position/force calibration.
+      // Common electrical/link/input guards above and ADC/deadline guards
+      // still use the normal UART and zero-current stop implementation.
+      return nullptr;
+    }
     if (!positionValid_ || uint32_t(micros() - sampleAt_) >= control::CONTROL_STALE_US)
       return "LINEAR_INVALID_OR_STALE";
     if (position_ <= cfg::SOFT_MIN_MM || position_ >= cfg::SOFT_MAX_MM)
@@ -393,6 +543,8 @@ private:
     return nullptr;
   }
   const char *runIssue() const {
+    if (stopTest_)
+      return "STOPTEST_OFF_BEFORE_POSITION_CONTROL";
     if (!control::validTarget(depth_, rate_))
       return "TARGET_NOT_SET";
     if (forceLimit_ <= 0)
@@ -424,6 +576,22 @@ private:
     const bool deadline = elapsed >= control::CONTROL_STALE_US;
     sampleAt_ = now;
     raw_ = analogRead(A16);
+    if (stopTest_) {
+      positionValid_ = false;
+      if (gate_.running() && deadline)
+        return "CONTROL_DEADLINE_MISSED";
+      if (!gate_.running())
+        return nullptr;
+      if (const char *why = runtimeIssue())
+        return why;
+      if (uint32_t(now - started_) / 1000 >= STOP_TEST_MS) {
+        stopTestDone_ = true;
+        return nullptr;
+      }
+      commandA_ = STOP_TEST_CURRENT_A;
+      controlAt_ = now;
+      return nullptr;
+    }
     const bool hadPosition = positionValid_;
     const float previous = rawPosition_;
     positionValid_ = calibration_.position(raw_, rawPosition_);
@@ -493,7 +661,7 @@ private:
         healthy_ = true;
         healthyAt_ = millis();
       }
-      if (fabsf(velocity_) <= cfg::MAX_START_VELOCITY_MM_S) {
+      if (stopTest_ ? values_.erpm == 0 : fabsf(velocity_) <= cfg::MAX_START_VELOCITY_MM_S) {
         if (!resting_) {
           resting_ = true;
           restAt_ = millis();
@@ -622,6 +790,7 @@ private:
   bool zeroPending_ = true, fwKnown_ = false, valuesKnown_ = false;
   bool fwPending_ = false, valuesPending_ = false, positionValid_ = false;
   bool forceSeen_ = false, healthy_ = false, resting_ = false, profileDone_ = false;
+  bool stopTest_ = false, stopTestDone_ = false; // RAM-only, not a test-pass declaration.
   uint32_t sampleAt_ = 0, controlAt_ = 0, started_ = 0, currentAt_ = 0, zeroAt_ = 0;
   uint32_t valuesAt_ = 0, valuesRequested_ = 0, queryAt_ = 0, probeAt_ = 0;
   uint32_t forceAt_ = 0, captureAt_ = 0, healthyAt_ = 0, restAt_ = 0, cycles_ = 1;

@@ -9,10 +9,12 @@
  * INT/RD/IRD are unused. Photo alone does not establish the exact chip model.
  *
  * Library: SparkFun MAX3010x Pulse and Proximity Sensor Library, tested 1.1.2.
- * We use its Maxim SpO2 algorithm but check I2C transaction lengths ourselves
+ * We use its Maxim SpO2 algorithm, plus a separate repeatability-gated HR estimate,
+ * and check I2C transaction lengths ourselves
  * so a failed FIFO read cannot be converted into plausible sensor numbers.
  * Settings follow SparkFun Example8: 100 Hz / averaging 4 = 25 FIFO samples/s,
- * 411 us, ADC range 4096 nA, red + IR. 100 samples = approximately 4 seconds.
+ * 411 us, ADC range 4096 nA, red + IR. Pulse window: 200 samples / eight seconds.
+ * Maxim SpO2 still uses the latest 100 samples / four seconds, only after gating.
  *
  * USB Serial 115200, newline: HELP shows diagnostic/calibration commands.
  * START/STOP control this optical sensor, NOT motors. Acquisition auto-starts.
@@ -37,6 +39,7 @@
 #include "pinmap.h"
 #include "optical_window.h"
 #include "ppg_diagnostics.h"
+#include "ppg_signal.h"
 
 namespace {
 constexpr uint8_t SENSOR_ADDRESS = 0x57;
@@ -51,7 +54,7 @@ constexpr uint16_t WINDOW_SAMPLES = saver_max_bench::WINDOW_SAMPLES;
 constexpr uint32_t ADC_MAX = saver_max_bench::ADC_MAX;
 constexpr uint8_t FIFO_CONFIG = 0x4F; // Average 4, no rollover, almost-full at 17.
 constexpr uint8_t SPO2_CONFIG = 0x27; // 4096 nA, 100 Hz, 411 us (18 bits).
-static_assert(FreqS == 25 && BUFFER_SIZE == WINDOW_SAMPLES,
+static_assert(FreqS == 25 && BUFFER_SIZE == WINDOW_SAMPLES / 2,
               "Algorithm and sensor sample rates must match");
 static_assert(LED_AMPLITUDE > 0, "Use STOP to turn off acquisition/LEDs");
 static_assert(PRINT_PERIOD_MS >= 50, "Limit bench summaries to at most 20 Hz");
@@ -76,7 +79,7 @@ public:
     Wire.begin();
     Wire.setClock(I2C_CLOCK_HZ);
     lastAttemptMs_ = millis() - RETRY_PERIOD_MS;
-    emit("SAVER_MAX30102_SENSOR_TEST_READY,build=optical_diagnostics_v2");
+    emit("SAVER_MAX30102_SENSOR_TEST_READY,build=pulse_quality_v3");
     emit("PINS,SDA=18,SCL=19,INT=unused,I2C_HZ=100000,ADDRESS=0x57");
     emit("WARNING,DISCONNECT_ALL_MOTOR_POWER,NO_MOTOR_RUN_COMMAND");
     emit("WARNING,I2C_PULLUPS_TO_3V3_ONLY,HR_SPO2_NOT_MEDICALLY_VALIDATED");
@@ -88,6 +91,7 @@ public:
              (unsigned long)saver_max_bench::CONTACT_SETTLE_MS,
              (unsigned long)saver_max_bench::CONTACT_MAX_GAP_MS);
     emit(contactConfig);
+    emit("PULSE_CONFIG,window_samples=200,step_samples=25,confirm_windows=2,bench_heuristics=1");
     help();
   }
 
@@ -113,6 +117,8 @@ public:
     }
     reportCaptureEvent(calibration_.expire(millis()));
     optical_.expire(millis());
+    if (!optical_.contactReady())
+      resetPulseQuality();
     flushDiagnostics();
     pollCommands();
     if (enabled_ && outputMode_ != OutputMode::Plot &&
@@ -166,6 +172,20 @@ private:
     rawCount_ = 0;
     metricsPending_ = false;
     plotInitialized_ = false;
+    resetPulseQuality();
+  }
+
+  void resetPulseQuality() {
+    pulseQuality_ = {};
+    confirmation_.reset();
+    pulseConfirmed_ = false;
+    spo2Reason_ = "WAITING_WINDOW";
+  }
+
+  const char *pulseReason() const {
+    if (pulseQuality_.accepted && !pulseConfirmed_)
+      return "CONFIRMING";
+    return saver_max_bench::signalReasonName(pulseQuality_.reason);
   }
 
   void fail(const char *reason) {
@@ -294,25 +314,50 @@ private:
       reportCaptureEvent(calibration_.push(latestRed_, latestIr_, lastSampleMs_));
       // Calibration captures raw light, not physiological estimates.
       optical_.reset();
+      resetPulseQuality();
       return;
     }
     // Both low light and ADC rails invalidate the window on the first sample.
-    // Re-entry requires stable contact and a completely new 100-sample window.
-    if (!optical_.push(latestRed_, latestIr_, lastSampleMs_))
+    // Re-entry requires stable contact and a completely new 200-sample window.
+    if (!optical_.push(latestRed_, latestIr_, lastSampleMs_)) {
+      if (!optical_.contactReady())
+        resetPulseQuality();
       return;
-    int8_t hrValid = 0;
+    }
+    const uint32_t calculationStartedUs = micros();
+    int8_t legacyHrValid = 0;
     int8_t spo2Valid = 0;
-    int32_t hr = 0;
+    int32_t legacyHr = 0;
     int32_t spo2 = 0;
     metrics_ =
         saver_max_bench::measureWindow(optical_.redData(), optical_.irData(), WINDOW_SAMPLES);
     metricsSeq_ = samples_;
     metricsPending_ = true;
-    maxim_heart_rate_and_oxygen_saturation(optical_.irData(), WINDOW_SAMPLES, optical_.redData(),
-                                           &spo2, &spo2Valid, &hr, &hrValid);
-    // A perfectly flat channel cannot contain a pulse. Non-flat is NOT proof of quality.
-    const bool varying = metrics_.redPp != 0 && metrics_.irPp != 0;
-    optical_.completeCalculation(hr, hrValid != 0 && varying, spo2, spo2Valid != 0 && varying);
+    pulseQuality_ = saver_max_bench::inspectPulse(optical_.redData(), optical_.irData(),
+                                                WINDOW_SAMPLES);
+    pulseConfirmed_ = confirmation_.accept(pulseQuality_);
+    bool spo2Accepted = false;
+    spo2Reason_ = pulseQuality_.accepted ? "CONFIRMING" : "SIGNAL_REJECTED";
+    if (pulseConfirmed_) {
+      uint32_t legacyRed[BUFFER_SIZE] = {}, legacyIr[BUFFER_SIZE] = {};
+      const unsigned shift = saver_max_bench::prepareLegacyWindow(
+          optical_.redData(), optical_.irData(), legacyRed, legacyIr, BUFFER_SIZE);
+      if (shift < 32) {
+        maxim_heart_rate_and_oxygen_saturation(legacyIr, BUFFER_SIZE, legacyRed, &spo2,
+                                             &spo2Valid, &legacyHr, &legacyHrValid);
+        const bool periodMatches = legacyHrValid &&
+            saver_max_bench::legacyPeriodAgrees(legacyHr, pulseQuality_);
+        spo2Accepted = periodMatches && spo2Valid && spo2 >= 0 && spo2 <= 100;
+        spo2Reason_ = !periodMatches ? "LEGACY_PERIOD_MISMATCH"
+                                    : spo2Accepted ? "ALGORITHM_ONLY" : "ALGORITHM_REJECTED";
+      } else {
+        spo2Reason_ = "ARITHMETIC_REJECTED";
+      }
+    }
+    // No old-value fallback, HR clamp, or calibration offset. Both are unvalidated
+    // bench estimates. Rejecting one window immediately revokes its old numbers.
+    optical_.completeCalculation(pulseQuality_.hrBpm, pulseConfirmed_, spo2, spo2Accepted);
+    lastCalculationUs_ = uint32_t(micros() - calculationStartedUs);
     lastEstimateMs_ = lastSampleMs_;
   }
 
@@ -336,7 +381,7 @@ private:
       }
       captureEvent_ = CaptureEvent::None;
     }
-    char line[320];
+    char line[512];
     for (uint8_t n = 0; n < rawCount_; ++n) {
       const RawSample &r = raw_[n];
       if (outputMode_ == OutputMode::Raw) {
@@ -367,14 +412,28 @@ private:
       return;
     const auto &m = metrics_;
     int n = snprintf(line, sizeof line,
-                     "WINDOW,seq_end=%lu,samples=100,red_dc=%.1f,ir_dc=%.1f,red_pp=%lu,ir_pp=%lu,"
+                     "WINDOW,seq_end=%lu,samples=%u,red_dc=%.1f,ir_dc=%.1f,red_pp=%lu,ir_pp=%lu,"
                      "red_ac_rms=%.2f,ir_ac_rms=%.2f,corr_ok=%u,quality_verified=0",
-                     (unsigned long)metricsSeq_, m.redMean, m.irMean, (unsigned long)m.redPp,
+                     (unsigned long)metricsSeq_, unsigned(WINDOW_SAMPLES), m.redMean, m.irMean,
+                     (unsigned long)m.redPp,
                      (unsigned long)m.irPp, sqrt(m.redVariance), sqrt(m.irVariance),
                      m.correlationOk ? 1U : 0U);
     if (m.correlationOk && n > 0 && size_t(n) < sizeof line)
       snprintf(line + n, sizeof line - size_t(n), ",red_ir_corr=%.4f",
                m.covariance / sqrt(m.redVariance * m.irVariance));
+    emit(line);
+    n = snprintf(line, sizeof line,
+                 "PULSE,seq_end=%lu,signal_ok=%u,reason=%s,confirmation=%u,calc_us=%lu,"
+                 "quality_verified=0,spo2_reason=%s",
+                 (unsigned long)metricsSeq_, pulseConfirmed_ ? 1U : 0U, pulseReason(),
+                 confirmation_.count(), (unsigned long)lastCalculationUs_, spo2Reason_);
+    if (pulseQuality_.ir.found && pulseQuality_.red.found)
+      n += snprintf(line + n, sizeof line - size_t(n),
+                    ",ir_period_samples=%.2f,red_period_samples=%.2f,ir_period_corr2=%.3f",
+                    pulseQuality_.ir.samples, pulseQuality_.red.samples, pulseQuality_.ir.corr2);
+    if (pulseQuality_.channels.available)
+      snprintf(line + n, sizeof line - size_t(n), ",channel_corr2_signed=%.3f",
+               pulseQuality_.channels.squaredSigned);
     emit(line);
   }
 
@@ -427,14 +486,17 @@ private:
 
   void printData() {
     optical_.expire(millis());
+    if (!optical_.contactReady())
+      resetPulseQuality();
     const bool fresh = connected_ && haveSample_ && (uint32_t)(millis() - lastSampleMs_) < STALE_MS;
-    char line[400];
+    char line[512];
     int n = snprintf(line, sizeof line,
                      "DATA,ms=%lu,sensor_ok=%u,raw_ok=%u,contact=%s,hr_ok=%u,spo2_ok=%u,window_"
-                     "samples=%u,quality_verified=0",
+                     "samples=%u,quality_verified=0,signal_ok=%u,signal_reason=%s,spo2_reason=%s",
                      (unsigned long)millis(), connected_ ? 1U : 0U, fresh ? 1U : 0U,
                      optical_.contactName(), fresh && optical_.hrOk() ? 1U : 0U,
-                     fresh && optical_.spo2Ok() ? 1U : 0U, (unsigned)optical_.count());
+                     fresh && optical_.spo2Ok() ? 1U : 0U, (unsigned)optical_.count(),
+                     fresh && optical_.hrOk() ? 1U : 0U, pulseReason(), spo2Reason_);
     if (fresh)
       n += snprintf(line + n, sizeof line - n, ",red_raw=%lu,ir_raw=%lu,adc_rail=%u",
                     (unsigned long)latestRed_, (unsigned long)latestIr_, rail_ ? 1U : 0U);
@@ -466,7 +528,8 @@ private:
     emit("COMMANDS,CAL OPEN|CAL FINGER|CAL_SHOW|CAL_APPLY|CAL_RESET");
     emit("NOTE,CAL_captures_250_new_samples_about_10s_each,RAM_only,not_medical_calibration");
     emit("NOTE,READ_reports_latest_sample,START_STOP_control_optical_sensor_only");
-    emit("NOTE,contact_settling_then_100_new_samples_about_4s,invalid_values_omitted");
+    emit("NOTE,contact_settling_then_200_new_samples_about_8s_plus_confirmation,invalid_values_omitted");
+    emit("NOTE,signal_ok_is_bench_repeatability_ONLY,quality_verified_and_accuracy_verified_remain_0");
     emit("NOTE,contact_CANDIDATE_is_optical_only_NOT_verified_skin_or_valid_pulse");
   }
 
@@ -616,9 +679,13 @@ private:
   saver_max_bench::CommandLine commandLine_;
   saver_max_bench::CaptureEvent captureEvent_ = saver_max_bench::CaptureEvent::None;
   saver_max_bench::WindowMetrics metrics_;
+  saver_max_bench::PulseQuality pulseQuality_;
+  saver_max_bench::PulseConfirmation confirmation_;
+  bool pulseConfirmed_ = false;
+  const char *spo2Reason_ = "WAITING_WINDOW";
   bool metricsPending_ = false, plotInitialized_ = false;
   double plotRed_ = 0, plotIr_ = 0;
-  uint32_t metricsSeq_ = 0, lastEstimateMs_ = 0;
+  uint32_t metricsSeq_ = 0, lastEstimateMs_ = 0, lastCalculationUs_ = 0;
   enum class OutputMode : uint8_t { Data, Raw, Plot };
   OutputMode outputMode_ = OutputMode::Data;
   struct RawSample {
