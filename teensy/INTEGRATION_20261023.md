@@ -2,7 +2,8 @@
 
 ## 보존 범위
 
-- 기준: `origin/claude/saver-project-onboarding-xpmdhw`의 `8be3a82`.
+- 기준: `origin/claude/saver-project-onboarding-xpmdhw`의 `f5762f1`.
+  첫 rebase 이후 추가된 S1 점검/오류 안내 변경도 다시 rebase해 포함했다.
 - 결과 브랜치: `codex/teensy-integration-20261023`.
 - rebase 이전 변경은 `codex/teensy-v24-review-20261011`의 `cd31beb`에 보존했다.
 - 기존 공유 브랜치를 강제 push하지 않는다. `main`과 팀 claude 브랜치는 수정하지 않는다.
@@ -15,7 +16,8 @@
 - 팀 프로토콜 단위시험 전체를 보존하고 Arduino 빌드에서만 제외하도록 감쌌다.
   JSONL fixture 비교는 Windows checkout의 CRLF를 텍스트 모드로 읽는다.
 - 문서 충돌은 양쪽 기록을 유지했다. 기존 전원 결정 D-33과 충돌하던 로컬 벤치 이동
-  기록은 D-54로 번호를 바꿨다. 모터 선 색 정정과 고장 엔코더 분리 주의도 유지했다.
+  기록은 D-55로 번호를 바꿨다. 원격의 S1 점검 결정 D-54, 모터 선 색 정정과
+  고장 엔코더 분리 주의도 유지했다.
 
 ## 재검증 범위
 
@@ -32,7 +34,7 @@
 
 결과(`tested`, PC 모의/컴파일에 한정): 시연 펌웨어 기본 476개·합성 fixture 575개,
 프로토콜 118개, PPG 실제 라이브러리 합성 재생 14개, 참고 구현 호스트 기본 7장면·
-가짜 훅 9장면, UI 스모크 170개가 통과했다. 실제 Teensy 4.1 compile/link도 통과했다.
+가짜 훅 9장면, 최신 팀 UI 스모크 172개가 통과했다. 실제 Teensy 4.1 compile/link도 통과했다.
 UI의 소프트웨어 모의 수치는 실제 시제품 측정 결과가 아니다.
 
 ## 이 PC의 검증 제약
