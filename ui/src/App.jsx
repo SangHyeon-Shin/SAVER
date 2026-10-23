@@ -47,9 +47,12 @@ function useStageScale() {
    브리지에 연결되면 쓰지 않는다. 체험판·스모크 시험용.
    ?start=노드 는 시연 메뉴를 건너뛰고 전체 UI 의 그 화면으로, ?unit=compress 는 그 유닛 화면으로 바로 간다 */
 const QS = new URLSearchParams(typeof location === 'undefined' ? ''
-  : (location.search || location.hash.replace(/^#/, '')))      // 체험판은 #start=... 로도 받는다
+  : (location.search || location.hash.replace(/^#/, '')         // 체험판은 #start=... 로도 받는다
+     || (typeof window !== 'undefined' && window.__SAVER_QS) || ''))   // 한 파일 체험판(srcdoc)은 감싼 페이지가 넣어 준다
 // 체험판 빌드(VITE_DEMO=1)에서만: 감싼 페이지와 상태·이벤트를 주고받는다. 실기 빌드에는 들어가지 않는다
 const DEMO_BUILD = import.meta.env.VITE_DEMO === '1'
+// 체험판에서 ?menu=1 이나 ?unit= 으로 열면 결선 시연 메뉴(유닛 화면)를 보인다. 그 밖의 체험판은 전체 UI 흐름만
+const DEMO_MENU = DEMO_BUILD && (QS.has('menu') || UNIT_IDS.includes(QS.get('unit')))
 // 실기 키오스크 빌드(VITE_KIOSK=1, npm run build:kiosk): 브리지에 연결되기 전이나 연결이 끊긴 동안
 // 화면이 스스로 넘어가지 않고 연결 대기 화면을 보인다(D-44). 로컬 전이는 오프라인 시연 전용이다
 const KIOSK = import.meta.env.VITE_KIOSK === '1'
@@ -77,7 +80,7 @@ export default function App() {
   const demoRef = useRef(demo); demoRef.current = demo
   /* 화면 묶음 (결선 시연 메뉴, D-51): 'menu' | 'full'(S1~S13 흐름) | 유닛 4개.
      운용 브리지(상태머신 흐름)에 연결되면 메뉴 없이 'full'. 체험판(감싼 페이지)도 'full' */
-  const [view, setView] = useState(() => (QS.get('start') || DEMO_BUILD) ? 'full'
+  const [view, setView] = useState(() => (QS.get('start') || (DEMO_BUILD && !DEMO_MENU)) ? 'full'
     : UNIT_IDS.includes(QS.get('unit')) ? QS.get('unit') : 'menu')
   const [devOpen, setDevOpen] = useState(() => new URLSearchParams(location.search).has('dev'))
   const scale = useStageScale()
@@ -208,10 +211,10 @@ export default function App() {
   useEffect(() => {
     if (!DEMO_BUILD || window.parent === window) return
     const n = NODES[ctx.node]
-    window.parent.postMessage({ type: 'saver-state', node: ctx.node, screen: n.screen, name: n.name,
-      allowed: Object.keys(n.on || {}), errorCause: ctx.errorCause,
+    window.parent.postMessage({ type: 'saver-state', node: ctx.node, screen: n.screen, name: n.name, view,
+      allowed: view === 'full' ? Object.keys(n.on || {}) : [], errorCause: ctx.errorCause,
       demo: { ...demo }, search: search ? { phase: search.phase, reason: search.reason } : null }, '*')
-  }, [ctx.node, ctx.errorCause, demo, search && search.phase])
+  }, [ctx.node, ctx.errorCause, demo, search && search.phase, view])
 
   const vitals = useVitals(!!node.running && view === 'full', live ? bridge.telemetry : null, live ? bridge.stale : false)
 
@@ -284,7 +287,7 @@ export default function App() {
     else if (unitLiveRef.current && bridge.connected) bridge.sendUnit(null, 'leave')
     unitLiveRef.current = unitLive
   }, [view, unitLive])
-  const canMenu = !live && !DEMO_BUILD
+  const canMenu = !live && (!DEMO_BUILD || DEMO_MENU)
   const goMenu = () => {
     voice.stop()
     sdemo.stop('LEFT_NODE')
