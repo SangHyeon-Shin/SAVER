@@ -1812,9 +1812,10 @@ from saver.unit_demo import UnitDemo, STEP_TIMEOUT_S, STATUS_TEL_S
 
 
 class _UL(object):
-    """유닛 시연 시험용 링크. 명령을 기록하고 seq 를 돌려준다. 장치 응답은 시험이 넣는다."""
+    """유닛 시연 시험용 링크. 명령을 기록하고 seq 를 돌려준다. 장치 응답은 시험이 넣는다.
+    caps 기본값은 v1.1 의미의 HOME(CP_ZERO)을 알리는 펌웨어. 주행 기능(DRIVE, HEAD_HOLD)은 시험이 넣는다."""
     def __init__(self, proto="1.1"):
-        self.connected, self.proto, self.caps, self.mcu_state = True, proto, set(), None
+        self.connected, self.proto, self.caps, self.mcu_state = True, proto, set(["CP_ZERO", "MOT", "AID"]), None
         self.sent, self.n = [], 500
     def send(self, cmd, **kw):
         self.n += 1
@@ -1990,7 +1991,6 @@ ck("장치 미연결 → NOT_CONNECTED, 펌웨어 판 확인 전 → LINK_CHECKI
 
 VC = {"vacuum_target_kPa": -22.5}
 lk, ud, sr, clk, pushed = urig(VC)
-lk.caps = set(["CP_ZERO", "MOT", "AID"])            # v1.1 의미의 HOME 을 알리는 펌웨어
 ud.request("vacuum", "enter"); ud.request("vacuum", "start"); uack(ud, lk); utel(ud, lk, "IDLE")
 uack(ud, lk); uack(ud, lk); ud.on_event({"evt": "HOMING_DONE", "result": "OK"})
 v1 = ucmds(lk) == ["GET_STATUS", "ARM", "HOME", "VACUUM_ON"] and lk.sent[-1][1] == {"target_kPa": -22.5}
@@ -2025,12 +2025,36 @@ utel(ud, lk, "VACUUM_HOLD")
 ck("흡착: caps 에 CP_ZERO 가 없으면 HOME 없이 ARM → VACUUM_ON, VACUUM_HOLD 뒤 running (v1.1 §4.7-4)",
    n1 and n2 and ud.phase == "running", str(ucmds(lk)))
 lk, ud, sr, clk, pushed = urig(VC)
+lk.caps = set(["MOT", "AID"])
 ud.request("vacuum", "enter"); ud.request("vacuum", "start"); uack(ud, lk); utel(ud, lk, "ARMED")
 ck("흡착: CP_ZERO 없음, 장치 ARMED → 바로 VACUUM_ON", ucmds(lk) == ["GET_STATUS", "VACUUM_ON"], str(ucmds(lk)))
 lk, ud, sr, clk, pushed = urig(VC)
 ud.request("vacuum", "enter"); ud.request("vacuum", "start"); uack(ud, lk); utel(ud, lk, "CPR_READY")
 ck("흡착: 시작할 수 없는 장치 상태 → 실패(STATE:<상태>), 명령 없음",
    ud.phase == "failed" and ud.reason == "STATE:CPR_READY" and ucmds(lk) == ["GET_STATUS"], str(ud.reason))
+NOHOME = set(["MOT", "AID"])                        # 10/23 수동 배치 펌웨어: CP_ZERO 없음(리미트 없음, HOME 거부)
+lk, ud, sr, clk, pushed = urig(CP)
+lk.caps = NOHOME
+ud.request("compress", "enter"); ud.request("compress", "start"); uack(ud, lk); utel(ud, lk, "IDLE")
+uack(ud, lk); uack(ud, lk)                          # ARM, SET_TARGET
+h1 = ucmds(lk) == ["GET_STATUS", "ARM", "SET_TARGET", "START_CPR"] and \
+    lk.sent[2][1] == {"bpm": 110, "depth_mm": 50, "force_max_N": 600}
+uack(ud, lk); utel(ud, lk, "CPR_RUNNING")
+ck("압박: caps 에 CP_ZERO 가 없으면 HOME 없이 ARM → SET_TARGET → START_CPR, CPR_RUNNING 뒤 running",
+   h1 and ud.phase == "running", str(ucmds(lk)))
+lk, ud, sr, clk, pushed = urig(CP)
+lk.caps = NOHOME
+ud.request("compress", "enter"); ud.request("compress", "start"); uack(ud, lk); utel(ud, lk, "ARMED")
+uack(ud, lk); uack(ud, lk, ok=False, why="WRONG_CPR_STATE")
+ck("압박: CP_ZERO 없음, ARMED → SET_TARGET 부터. 장치가 START_CPR 을 거부하면 그 사유로 실패",
+   ucmds(lk) == ["GET_STATUS", "SET_TARGET", "START_CPR"] and ud.phase == "failed" and ud.reason == "WRONG_CPR_STATE",
+   "%s %s" % (ucmds(lk), ud.reason))
+lk, ud, sr, clk, pushed = urig(dict(CP, target_bpm=110))
+lk.caps = NOHOME
+ud.request("stiff", "enter"); ud.request("stiff", "start"); uack(ud, lk); utel(ud, lk, "IDLE")
+ck("강성 측정: CP_ZERO 없음 → HOME 없이 ARM → SET_TARGET → START_CPR",
+   ucmds(lk) == ["GET_STATUS", "ARM"] and (uack(ud, lk), uack(ud, lk), ucmds(lk))[2] == ["GET_STATUS", "ARM", "SET_TARGET", "START_CPR"],
+   str(ucmds(lk)))
 
 lk, ud, sr, clk, pushed = urig()
 ud.request("drive", "enter"); ud.request("drive", "start"); uack(ud, lk); utel(ud, lk, "IDLE")
