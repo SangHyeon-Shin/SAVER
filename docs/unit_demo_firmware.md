@@ -39,7 +39,7 @@ Teensy 하나에는 펌웨어 하나만 올라간다. 결선에서 세 시연(�
 > 젯슨 UI 터치). 지금 펌웨어(3e710c8)에 필요한 것은 `docs/teensy_ppg_vacuum_test.md`.
 
 목표값은 브리지 설정 파일에서만 온다. 결선 벤치 설정 `jetson/config.bench.json`(팀장 확인 뒤 사용):
-`target_bpm` 110, `target_depth_mm` 50, `force_max_N` 600, `vacuum_target_kPa` -22.5
+`target_bpm` 30, `target_depth_mm` 30(팀장 10/23 시연 지시, 설계값 110 회/분·벤치 시험 설정 50 mm 와 별개), `force_max_N` 600, `vacuum_target_kPa` -22.5
 (`docs/PROJECT_STATE.md` §2, D-30, D-23. 임상 적용값 아님). 목표 깊이가 비어 있으면 젯슨은 아무 명령도 보내지 않는다.
 
 ## 1. 흡착 없는 압박 허용 (합의 필요)

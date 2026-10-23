@@ -2055,6 +2055,15 @@ ud.request("stiff", "enter"); ud.request("stiff", "start"); uack(ud, lk); utel(u
 ck("강성 측정: CP_ZERO 없음 → HOME 없이 ARM → SET_TARGET → START_CPR",
    ucmds(lk) == ["GET_STATUS", "ARM"] and (uack(ud, lk), uack(ud, lk), ucmds(lk))[2] == ["GET_STATUS", "ARM", "SET_TARGET", "START_CPR"],
    str(ucmds(lk)))
+BENCH = dict((k, v) for k, v in _bench.items() if not k.startswith("_"))
+lk, ud, sr, clk, pushed = urig(BENCH)
+ud.request("compress", "enter"); ud.request("compress", "start"); uack(ud, lk); utel(ud, lk, "HOMED")
+ck("결선 벤치 설정(팀장 10/23 \"30/30\"): 압박 SET_TARGET 30 회/분, 30 mm, 힘 상한 600 N",
+   lk.sent[-1][0] == "SET_TARGET" and lk.sent[-1][1] == {"bpm": 30, "depth_mm": 30, "force_max_N": 600}, str(lk.sent[-1]))
+lk, ud, sr, clk, pushed = urig(BENCH)
+ud.request("stiff", "enter"); ud.request("stiff", "start")
+ck("결선 벤치 설정: 강성 측정 주기 2 s(30 회/분), 측정 끝 대기 (2+10)×2 s + 여유",
+   (ud._stf or {}).get("period") == 2.0, str(ud._stf))
 
 lk, ud, sr, clk, pushed = urig()
 ud.request("drive", "enter"); ud.request("drive", "start"); uack(ud, lk); utel(ud, lk, "IDLE")

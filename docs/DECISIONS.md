@@ -680,7 +680,7 @@ Teensy 쪽 미구현(HOME 실제 복귀, ARM 인터록, PAUSE·STOP 압박 정�
   보내지 않는다. 운용 모드(기본)는 그대로 메뉴 없이 상태머신 흐름이다.
 - 브리지 미연결이면 유닛 화면은 모의값이고 "모의 데이터"로 표시한다. 개발 패널에서 연결 중에도 모의값을 강제할 수 있다
   (장치 명령 안 보냄).
-- 결선 벤치 설정 `jetson/config.bench.json`: 110 회/분, 깊이 50 mm, 힘 상한 600 N, 음압 -22.5 kPa(PROJECT_STATE §2,
+- 결선 벤치 설정 `jetson/config.bench.json`: 110 회/분, 깊이 50 mm(10/23 밤 30 회/분, 30 mm 로 바꿈, 아래 추가), 힘 상한 600 N, 음압 -22.5 kPa(PROJECT_STATE §2,
   D-30, D-23, 임상 적용값 아님). 팀장 확인 뒤 `setup_jetson.sh --unit-demo --config jetson/config.bench.json` 으로 쓴다.
 
 **펌웨어 의존**: 메인 펌웨어는 PPG 송신만 있고 HOME, 흡착, 압박 제어는 자리표시다. 시험 스케치는 JSON 이 아니다.
@@ -698,6 +698,12 @@ teensy한테 명령하는거임". 같은 규칙(`caps`에 `CP_ZERO`가 없으면
 직접 명령 `CP PREPARE`로만 만들고 압박 설정 잠금(`BENCH_DRIVE_CONFIRMED` 등)이 걸려 있어, 원격 시작 경로(같은 검사로
 준비와 시작)를 한건민에게 요청했다. 잠금은 한건민의 검증 절차로만 푼다. `implemented`, PC 모의 `tested`(Jetson 416/416),
 실기 `planned`.
+
+**추가(10/23 밤, 팀장 지시)**: "젯슨에서 압박부 명령 30/30으로 바꿔줘 지금 너무 빨라". 결선 벤치 시연 설정의 압박 목표를
+**깊이 30 mm, 속도 30 회/분**으로 바꿨다(`config.bench.json` `target_depth_mm`, `target_bpm`). 압박과 강성 측정이 같이 쓴다
+(강성 측정은 주기 2 s, 버리는 2주기와 측정 10주기로 약 24 s). 시연 전용값이다. 설계값 BPM 110 고정과 벤치 시험 설정값 50 mm
+(PROJECT_STATE §2, D-30)는 바꾸지 않았고 임상 적용값이 아니다. 사인 궤적 최고 속도는 π·f·D 로 약 47 mm/s(110 회/분·50 mm 의
+약 288 mm/s 대비, 계산값). 펌웨어 3e710c8 의 목표 범위 검사(깊이 50 mm 이하, 120 회/분 이하) 안이다(코드 대조).
 
 **수준**: 젯슨, UI `implemented`(jetson 375/375 Python 3.6, ui smoke 164/164). 모의 Teensy(`--bench`), 모의 레이더, 키오스크
 빌드, 브리지를 브라우저로 끝까지 돌려 명령 순서와 화면 값을 확인했다(`simulated`). 실물 Teensy 와의 동작 `planned`.
