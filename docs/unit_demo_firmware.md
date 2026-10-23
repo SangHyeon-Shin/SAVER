@@ -17,6 +17,8 @@
 | 시험 스케치(`test/compression_linear_pid_test` 등) | 문자 명령(`TARGET`, `ARM`, `RUN`, `STOP`)이라 JSON 이 아니다. 젯슨 UI 가 값을 받을 수 없다 |
 | 젯슨 시험 | 모의 Teensy(`jetson/simulators/fake_teensy.py --bench`)와 모의 레이더로 메뉴 → 유닛 → 장치 명령 → 화면 값을 끝까지 확인(`simulated`) |
 
+> 10/23: 구동은 구현되지 않아 시연 메뉴에서 빠지고 강성 측정이 들어갔다(D-53). 강성 측정은 새 명령 없이 압박 명령(`START_CPR`, `STOP_CPR`)과 텔레메트리(`cp_force_N`, `cp_depth_mm`)만 쓴다.
+
 Teensy 하나에는 펌웨어 하나만 올라간다. 결선에서 세 시연(압박, 구동, 엣지 컴퓨팅+HMI+환자 모니터링)을 UI 와 함께 하려면
 **한 펌웨어**가 아래를 모두 지원해야 한다. 지원하지 않는 유닛은 UI 개발 패널의 "유닛 화면: 모의값으로 시연"으로
 화면만 보일 수 있고, 그때 화면에 "모의 데이터"가 표시된다.
