@@ -260,7 +260,9 @@ export default function App() {
     : QS.get('paused') !== '0'
   // MR60BHA2 레이더: 브리지가 보낸 값만 쓴다. 오프라인 시연에는 없다(화면에 칸을 만들지 않는다)
   const radar = live ? bridge.radar : null
-  const props = { fire, ctx, demo, vitals, waves, search, searchCtl, setPatient, aedWarnS, paused, radar }
+  // S1 화면의 장치 연결 안내(운용 흐름에서만). 오프라인 시연, 결선 시연 모드의 전체 UI 는 모형이라 null
+  const link = live ? bridge.linkUp : null
+  const props = { fire, ctx, demo, vitals, waves, search, searchCtl, setPatient, aedWarnS, paused, radar, link }
 
   /* ---------- 결선 시연 메뉴와 유닛 화면 (D-51) ----------
      결선 시연 모드 브리지에 연결되면 유닛 화면은 장치 값만 그리고 시작·정지 요청만 보낸다.

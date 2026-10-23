@@ -6,8 +6,20 @@ import { AedMark } from './Aed'
 
 import { IMG } from '../images'
 
-/* ================= 01 · 부팅 / 시스템 점검 · S1 · UI-01 ================= */
-export function Screen01() {
+/* ================= 01 · 부팅 / 시스템 점검 · S1 · UI-01 =================
+   운용 모드에서 S1 은 브리지가 Teensy 응답(PING, 상태, ARM, HOME)을 받아야 넘어가고, 장치가 응답하지 않으면
+   시간 제한 없이 여기서 기다린다(init_seq.py). 8초가 지나도 그대로면 장치 연결 상태를 문구로 알린다(10/23).
+   link: 브리지가 알린 Teensy 직렬 연결(true/false). 오프라인 시연과 결선 시연 모드의 전체 UI 는 null 이라 문구가 그대로다 */
+const S1_HINT_MS = 8000
+export function Screen01({ link = null }) {
+  const [slow, setSlow] = React.useState(false)
+  React.useEffect(() => {
+    const t = setTimeout(() => setSlow(true), S1_HINT_MS)
+    return () => clearTimeout(t)
+  }, [])
+  const hint = !slow || link === null ? null
+    : link ? '장치 응답을 기다리고 있습니다 · Teensy 전원과 펌웨어를 확인하세요'
+      : '장치(Teensy)가 연결되지 않았습니다 · USB 케이블을 확인하세요'
   return (
     <Light style={{ alignItems: 'center', justifyContent: 'center' }}>
       <div style={{ width: 400, height: 250, display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 20 }}>
@@ -18,6 +30,7 @@ export function Screen01() {
       <div style={{ fontSize: 22, marginTop: 8 }}>Smart Auto-positioning Vacuum Emergency Resuscitator</div>
       <div style={{ marginTop: 38 }}><Progress w={300} color={C.success} dur="1.8s" /></div>
       <div style={{ fontSize: 20, color: '#8a929c', marginTop: 20 }}>시스템 점검 중 · 잠시 기다리세요. 곧 시작됩니다.</div>
+      {hint && <div data-s1-hint style={{ fontSize: 20, fontWeight: 600, color: '#9a7000', marginTop: 10 }}>{hint}</div>}
     </Light>
   )
 }
