@@ -257,8 +257,8 @@ python3 tests/test_all.py
 `config.sim.json`은 **시뮬레이션 전용**이며 의학적 근거가 없습니다. 불러오면 경고가 출력됩니다.
 확정값이 나오면 `config.json`을 따로 만들어 쓰고, 실기에는 절대 `config.sim.json`을 쓰지 마세요.
 
-결선 벤치 시연 설정 `config.bench.json`: 압박 110 회/분, 깊이 50 mm, 강성 측정 전용 30 회/분, 30 mm(`stiff_bpm`, `stiff_depth_mm`,
-팀장 10/23, D-51. 비우면 압박 값을 씀), 힘 상한 600 N, 음압 -22.5 kPa
+결선 벤치 시연 설정 `config.bench.json`: 압박 30 회/분, 깊이 30 mm, 강성 측정 30 회/분, 30 mm(`stiff_bpm`, `stiff_depth_mm`.
+비우면 압박 값을 씀)(팀장 10/23 시연 지시, D-51), 힘 상한 600 N, 음압 -22.5 kPa
 (`docs/PROJECT_STATE.md` §2, D-30, D-23. 임상 적용값 아님). 팀장 확인 뒤 결선 시연 모드에서만 씁니다(D-51).
 `estop_wired: false`(10/23 팀장, 비상정지 버튼 미연결): S1 점검과 시연 시작 점검에서 `estop` 표시를 보지 않습니다.
 장치가 `ESTOP` 상태면 점검은 그대로 실패합니다(D-54). 버튼을 연결하면 `true` 로 바꿉니다. Teensy 쪽 S1 통과 조건은

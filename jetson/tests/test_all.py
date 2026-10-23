@@ -2058,14 +2058,22 @@ ck("강성 측정: CP_ZERO 없음 → HOME 없이 ARM → SET_TARGET → START_C
 BENCH = dict((k, v) for k, v in _bench.items() if not k.startswith("_"))
 lk, ud, sr, clk, pushed = urig(BENCH)
 ud.request("compress", "enter"); ud.request("compress", "start"); uack(ud, lk); utel(ud, lk, "HOMED")
-ck("결선 벤치 설정: 압박 SET_TARGET 은 압박 목표(110 회/분, 50 mm, 힘 상한 600 N)",
-   lk.sent[-1][0] == "SET_TARGET" and lk.sent[-1][1] == {"bpm": 110, "depth_mm": 50, "force_max_N": 600}, str(lk.sent[-1]))
+ck("결선 벤치 설정(팀장 10/23 \"압박 원래값으로 돌리지말고\"): 압박 SET_TARGET 30 회/분, 30 mm, 힘 상한 600 N",
+   lk.sent[-1][0] == "SET_TARGET" and lk.sent[-1][1] == {"bpm": 30, "depth_mm": 30, "force_max_N": 600}, str(lk.sent[-1]))
 lk, ud, sr, clk, pushed = urig(BENCH)
 ud.request("stiff", "enter"); ud.request("stiff", "start"); p_ = (ud._stf or {}).get("period")
 uack(ud, lk); utel(ud, lk, "HOMED")
-ck("결선 벤치 설정(팀장 10/23 \"이건 강성이다\"): 강성 측정 SET_TARGET 은 전용 값(30 회/분, 30 mm, 600 N), 주기 2 s",
+ck("결선 벤치 설정(팀장 10/23 \"강성측정시에 속도 깊이를 30/30\"): 강성 측정 SET_TARGET 30 회/분, 30 mm, 600 N, 주기 2 s",
    lk.sent[-1][0] == "SET_TARGET" and lk.sent[-1][1] == {"bpm": 30, "depth_mm": 30, "force_max_N": 600} and p_ == 2.0,
    "%s %s" % (lk.sent[-1], p_))
+lk, ud, sr, clk, pushed = urig(dict(CP, target_bpm=110, stiff_bpm=30, stiff_depth_mm=30))
+ud.request("stiff", "enter"); ud.request("stiff", "start"); uack(ud, lk); utel(ud, lk, "HOMED")
+s_kw = lk.sent[-1][1]
+lk, ud2, sr, clk, pushed = urig(dict(CP, target_bpm=110, stiff_bpm=30, stiff_depth_mm=30))
+ud2.request("compress", "enter"); ud2.request("compress", "start"); uack(ud2, lk); utel(ud2, lk, "HOMED")
+ck("강성 측정 전용 값과 압박 목표가 다르면 각자 자기 값을 보낸다(강성 30/30, 압박 110/50)",
+   s_kw == {"bpm": 30, "depth_mm": 30, "force_max_N": 600} and lk.sent[-1][1] == {"bpm": 110, "depth_mm": 50, "force_max_N": 600},
+   "%s %s" % (s_kw, lk.sent[-1][1]))
 lk, ud, sr, clk, pushed = urig(dict(CP, target_bpm=110))
 ud.request("stiff", "enter"); ud.request("stiff", "start"); uack(ud, lk); utel(ud, lk, "HOMED")
 ck("강성 측정: 전용 값(stiff_bpm, stiff_depth_mm)이 없으면 압박 목표를 그대로 쓴다",
