@@ -11,6 +11,7 @@
   compress  IDLE: ARM → HOME(원점 완료) → SET_TARGET → START_CPR            STOP_CPR
             ARMED: HOME 부터. HOMED·VACUUM_HOLD·CPR_READY: SET_TARGET 부터
   vacuum    IDLE: ARM → HOME(원점 완료) → VACUUM_ON → VACUUM_OK               VACUUM_OFF
+            caps 에 CP_ZERO 가 없으면(리미트 없는 수동 배치 펌웨어) HOME 없이 ARM → VACUUM_ON
   stiff     압박과 같은 순서로 시작 → 압박 주기 STIFF_SETTLE + STIFF_CYCLES 회 →     STOP_CPR
             STOP_CPR(END) → 완료. 받은 cp_force_N, cp_depth_mm 로 유효 강성(N/mm)을 낸다
   drive     IDLE: ARM → 압박점 탐색(search.py, v1.1 명령)               탐색 중지(DRIVE_STOP)
@@ -420,12 +421,18 @@ class UnitDemo(object):
         elif u == "vacuum":
             if st == "VACUUM_HOLD":
                 return self._running()
+            if st not in ("IDLE", "ARMED", "HOMED"):
+                return self._fail("STATE:" + str(st))
             if st == "IDLE":
                 plan.append(("ARM", {}, "ack"))
             if st in ("IDLE", "ARMED"):
-                plan.append(("HOME", {}, "homed"))
-            elif st != "HOMED":
-                return self._fail("STATE:" + str(st))
+                # caps 에 CP_ZERO(v1.1 의미의 HOME)가 없으면 HOME 을 보내지 않는다(v1.1 §4.7-4).
+                # 리미트가 없는 수동 배치 펌웨어(10/23)가 이 경우다. 흡착은 압박 헤드를 쓰지 않으므로
+                # ARMED 에서 VACUUM_ON 을 요청하고, 받아들일지는 Teensy 가 정한다(§5 표는 HOMED)
+                if "CP_ZERO" in (self.link.caps or ()):
+                    plan.append(("HOME", {}, "homed"))
+                else:
+                    self._note("UNIT_VACUUM_NO_HOME:CAPS")
             kw = {}
             if self.cfg.get("vacuum_target_kPa"):
                 kw["target_kPa"] = self.cfg["vacuum_target_kPa"]

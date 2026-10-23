@@ -1990,6 +1990,7 @@ ck("장치 미연결 → NOT_CONNECTED, 펌웨어 판 확인 전 → LINK_CHECKI
 
 VC = {"vacuum_target_kPa": -22.5}
 lk, ud, sr, clk, pushed = urig(VC)
+lk.caps = set(["CP_ZERO", "MOT", "AID"])            # v1.1 의미의 HOME 을 알리는 펌웨어
 ud.request("vacuum", "enter"); ud.request("vacuum", "start"); uack(ud, lk); utel(ud, lk, "IDLE")
 uack(ud, lk); uack(ud, lk); ud.on_event({"evt": "HOMING_DONE", "result": "OK"})
 v1 = ucmds(lk) == ["GET_STATUS", "ARM", "HOME", "VACUUM_ON"] and lk.sent[-1][1] == {"target_kPa": -22.5}
@@ -2014,6 +2015,22 @@ lk, ud, sr, clk, pushed = urig()
 ud.request("vacuum", "enter"); ud.request("vacuum", "start"); uack(ud, lk); utel(ud, lk, "VACUUM_HOLD")
 ud.request("vacuum", "stop"); uack(ud, lk)
 ck("흡착: 이미 고정 중이면 바로 running, 해제는 VACUUM_OFF", ucmds(lk) == ["GET_STATUS", "VACUUM_OFF"] and ud.phase == "stopped")
+lk, ud, sr, clk, pushed = urig(VC)
+lk.caps = set(["MOT", "AID"])                       # 10/23 수동 배치 펌웨어: CP_ZERO 없음(리미트 없음, HOME 거부)
+ud.request("vacuum", "enter"); ud.request("vacuum", "start"); uack(ud, lk); utel(ud, lk, "IDLE")
+uack(ud, lk)                                        # ARM
+n1 = ucmds(lk) == ["GET_STATUS", "ARM", "VACUUM_ON"] and lk.sent[-1][1] == {"target_kPa": -22.5}
+uack(ud, lk); n2 = ud.phase == "starting"
+utel(ud, lk, "VACUUM_HOLD")
+ck("흡착: caps 에 CP_ZERO 가 없으면 HOME 없이 ARM → VACUUM_ON, VACUUM_HOLD 뒤 running (v1.1 §4.7-4)",
+   n1 and n2 and ud.phase == "running", str(ucmds(lk)))
+lk, ud, sr, clk, pushed = urig(VC)
+ud.request("vacuum", "enter"); ud.request("vacuum", "start"); uack(ud, lk); utel(ud, lk, "ARMED")
+ck("흡착: CP_ZERO 없음, 장치 ARMED → 바로 VACUUM_ON", ucmds(lk) == ["GET_STATUS", "VACUUM_ON"], str(ucmds(lk)))
+lk, ud, sr, clk, pushed = urig(VC)
+ud.request("vacuum", "enter"); ud.request("vacuum", "start"); uack(ud, lk); utel(ud, lk, "CPR_READY")
+ck("흡착: 시작할 수 없는 장치 상태 → 실패(STATE:<상태>), 명령 없음",
+   ud.phase == "failed" and ud.reason == "STATE:CPR_READY" and ucmds(lk) == ["GET_STATUS"], str(ud.reason))
 
 lk, ud, sr, clk, pushed = urig()
 ud.request("drive", "enter"); ud.request("drive", "start"); uack(ud, lk); utel(ud, lk, "IDLE")
