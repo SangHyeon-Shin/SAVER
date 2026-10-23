@@ -14,7 +14,8 @@ import { useEffect, useRef, useState, useCallback } from 'react'
      {type:'telemetry',    cp_depth_mm, cp_rate_cpm, cp_force_N, vac_kPa, stale}
      {type:'error',        code, sev, why, desc, latched}
      {type:'device_event', evt}
-     {type:'link',         connected, port}
+     {type:'link',         connected, port, proto, fw_ok, fw}
+                           fw_ok: 장치 펌웨어 판(프로토콜 v1.1) 확인 결과. null=확인 전, true=v1.1, false=판 불일치
      {type:'rejected',     name, node, allowed, reason, mcu, need}
      {type:'search',       phase, reason, points[{x,F,ref,r}], tip_x, D_mm, target_x, pos_x, rule, ...}
      {type:'config',       mode, aed_pause_warn_s, target_bpm, target_depth_mm, force_max_N, vacuum_target_kPa}
@@ -41,6 +42,7 @@ export function useBridge({ onState, onRejected } = {}) {
   const [telemetry, setTelemetry] = useState(null)
   const [stale, setStale] = useState(false)
   const [linkUp, setLinkUp] = useState(false)     // 젯슨↔Teensy 링크
+  const [fwOk, setFwOk] = useState(null)          // 펌웨어 판: null 확인 전, true v1.1, false 판 불일치
   const [lastError, setLastError] = useState(null)
   const [rejected, setRejected] = useState(null)
   const [search, setSearch] = useState(null)       // 브리지가 보낸 마지막 탐색 진행
@@ -84,6 +86,7 @@ export function useBridge({ onState, onRejected } = {}) {
             setLastError(m); break
           case 'link':
             setLinkUp(!!m.connected)
+            setFwOk(m.connected && typeof m.fw_ok === 'boolean' ? m.fw_ok : null)
             if (!m.connected) setStale(true)        // 링크가 끊기면 브리지가 stale 을 따로 보내지 않는다
             break
           case 'search':
@@ -142,6 +145,6 @@ export function useBridge({ onState, onRejected } = {}) {
     return true
   }, [])
 
-  return { connected, linkUp, telemetry, stale, lastError, rejected, search, config, radar, unit,
+  return { connected, linkUp, fwOk, telemetry, stale, lastError, rejected, search, config, radar, unit,
            sendIntent, sendForce, sendSearch, clearSearch, sendUnit, url: DISABLED ? '(연결 안 함)' : WS_URL }
 }

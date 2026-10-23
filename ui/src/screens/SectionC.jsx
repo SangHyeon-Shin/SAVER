@@ -66,10 +66,14 @@ const CAUSES = {
   search:   [{ t: '압박 위치 찾기가 중단되었습니다', s: '→ 환자 몸 위치를 확인한 뒤 재확인을 누르면 찾기 화면으로 돌아갑니다.' }],
 }
 
-export function Screen14({ fire, ctx, search }) {
+export function Screen14({ fire, ctx, search, fw = null }) {
   let list = CAUSES[ctx.errorCause] || CAUSES.tubing
   const why = ctx.errorCause === 'search' && search ? reasonText(search.reason) : null
   if (why) list = [...list, { t: why.title, s: '→ ' + why.sub + ' (' + why.code + ')' }]
+  // 장치 점검 실패의 원인이 펌웨어 판 불일치(v1.1 아님)면 그 사유를 맨 위에 둔다
+  if (ctx.errorCause === 'init' && fw === false) {
+    list = [{ t: '장치 펌웨어 판이 맞지 않습니다', s: '→ Teensy 에 v1.1 펌웨어를 올린 뒤 재확인을 누르세요. (3-CM-001)' }, ...list]
+  }
   return (
     <Dark band={C.warning} bandH={14}>
       <Header dark h={72} titleSize={26} title="장치 상태 확인" right="경고" rightColor={C.warning} />

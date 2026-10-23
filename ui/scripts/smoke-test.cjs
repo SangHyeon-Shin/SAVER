@@ -233,6 +233,8 @@ const check = (name, ok, detail = '') => {
   check('표시: 단일 엔코더 모드면 표시, 없으면 표시 안 함', S.searchView({ phase: 'scan', enc_mode: 1 }).encMode === 1
     && S.searchView({ phase: 'scan', enc_mode: 2 }).encMode === 2 && S.searchView({ phase: 'scan' }).encMode === null)
   check('사유: EAPD 없음 안내에 추정값 미사용 명시', S.reasonText('EAPD_MISSING').sub.includes('짐작한 값으로'))
+  check('사유: 펌웨어 판 불일치(FW_VERSION)와 주행 기능 없음(UNSUPPORTED)을 구분',
+    S.reasonText('FW_VERSION').sub.includes('v1.1') && !S.reasonText('UNSUPPORTED').sub.includes('v1.1'))
 
   // 실패 시나리오 (오프라인 시연)
   const d2 = openDom('?start=X_SEARCH&eapd=none').window.document
@@ -496,7 +498,8 @@ const check = (name, ok, detail = '') => {
   check('유닛 표시: 파형 속도는 받은 분당 횟수에 맞춤, 값이 없으면 정지', UV.waveDur(110, 150) === '4.36s' && UV.waveDur(null, 150) === null)
   check('유닛 사유 문구: 거부 사유를 쉬운 말로, 오류 코드는 그대로',
     UV.unitReasonText('NOT_READY').includes('시연용 펌웨어') && UV.unitReasonText('3-CU-021') === '장치 오류 3-CU-021'
-    && UV.unitReasonText('TARGET_NOT_SET').includes('목표 깊이') && UV.unitReasonText('FAULT:3-MU-002').includes('3-MU-002'))
+    && UV.unitReasonText('TARGET_NOT_SET').includes('목표 깊이') && UV.unitReasonText('FAULT:3-MU-002').includes('3-MU-002')
+    && UV.unitReasonText('FW_VERSION').includes('v1.1'))
   check('유닛 상태: 브리지 단계 → 화면 문구, 다른 유닛 상태는 대기',
     UV.phaseView({ unit: 'compress', phase: 'starting', step: 'HOME' }, 'compress').text === '원점 복귀 중'
     && UV.phaseView({ unit: 'vacuum', phase: 'running' }, 'compress').phase === 'idle'

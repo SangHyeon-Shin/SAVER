@@ -11,15 +11,17 @@ import { IMG } from '../images'
    시간 제한 없이 여기서 기다린다(init_seq.py). 8초가 지나도 그대로면 장치 연결 상태를 문구로 알린다(10/23).
    link: 브리지가 알린 Teensy 직렬 연결(true/false). 오프라인 시연과 결선 시연 모드의 전체 UI 는 null 이라 문구가 그대로다 */
 const S1_HINT_MS = 8000
-export function Screen01({ link = null }) {
+export function Screen01({ link = null, fw = null }) {
   const [slow, setSlow] = React.useState(false)
   React.useEffect(() => {
     const t = setTimeout(() => setSlow(true), S1_HINT_MS)
     return () => clearTimeout(t)
   }, [])
-  const hint = !slow || link === null ? null
-    : link ? '장치 응답을 기다리고 있습니다 · Teensy 전원과 펌웨어를 확인하세요'
-      : '장치(Teensy)가 연결되지 않았습니다 · USB 케이블을 확인하세요'
+  // 펌웨어 판 불일치(v1.1 아님)는 기다려도 풀리지 않으므로 바로 알린다
+  const hint = link && fw === false ? '장치 펌웨어 판이 맞지 않습니다 · Teensy 에 v1.1 펌웨어가 필요합니다'
+    : !slow || link === null ? null
+      : link ? '장치 응답을 기다리고 있습니다 · Teensy 전원과 펌웨어를 확인하세요'
+        : '장치(Teensy)가 연결되지 않았습니다 · USB 케이블을 확인하세요'
   return (
     <Light style={{ alignItems: 'center', justifyContent: 'center' }}>
       <div style={{ width: 400, height: 250, display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 20 }}>

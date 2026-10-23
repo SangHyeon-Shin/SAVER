@@ -267,7 +267,8 @@ export default function App() {
   const radar = live ? bridge.radar : null
   // S1 화면의 장치 연결 안내(운용 흐름에서만). 오프라인 시연, 결선 시연 모드의 전체 UI 는 모형이라 null
   const link = live ? bridge.linkUp : null
-  const props = { fire, ctx, demo, vitals, waves, search, searchCtl, setPatient, aedWarnS, paused, radar, link }
+  const fw = live ? bridge.fwOk : null           // 장치 펌웨어 판(v1.1) 확인 결과. false 면 S1·S10 에 안내
+  const props = { fire, ctx, demo, vitals, waves, search, searchCtl, setPatient, aedWarnS, paused, radar, link, fw }
 
   /* ---------- 결선 시연 메뉴와 유닛 화면 (D-51) ----------
      결선 시연 모드 브리지에 연결되면 유닛 화면은 장치 값만 그리고 시작·정지 요청만 보낸다.
@@ -323,7 +324,7 @@ export default function App() {
     start: () => { if (unitLive) { bridge.clearSearch(); bridge.sendUnit('drive', 'start') } else udemo.start() },
     stop: () => (unitLive ? bridge.sendUnit('drive', 'stop') : udemo.stop('USER_STOP')),
   }
-  const menuStatus = { sim: !unitLive, bridge: bridge.connected, teensy: bridge.linkUp,
+  const menuStatus = { sim: !unitLive, bridge: bridge.connected, teensy: bridge.linkUp, fw: bridge.fwOk,
                        radar: radarView(unitLive ? bridge.radar : null).live }
 
   let body
@@ -457,6 +458,7 @@ function DevPanel({ ctx, node, demo, setDemo, setCtx, fire, bridge, scale, onClo
         </div>
         <div style={{ color: bridge.linkUp ? C.success : '#7c8492' }}>
           ● Teensy {bridge.linkUp ? '연결됨' : '미연결'}
+          {bridge.linkUp && bridge.fwOk === false && <span data-fw-mismatch style={{ color: C.warning }}> · 펌웨어 v1.1 아님</span>}
           {bridge.stale && <span style={{ color: C.warning }}> · stale</span>}
         </div>
         <div data-radar-status style={{ color: rv.live ? C.success : '#7c8492' }}>● {rv.status}</div>

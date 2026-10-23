@@ -76,7 +76,7 @@ function StatusChips({ status }) {
         ? chip(false, s.bridge ? '모의 데이터 (개발 패널)' : '오프라인 · 모의 데이터', true)
         : <>
             {chip(s.bridge, s.bridge ? '젯슨 연결' : '젯슨 미연결')}
-            {chip(s.teensy, s.teensy ? '장치 연결' : '장치 미연결')}
+            {chip(s.teensy && s.fw !== false, !s.teensy ? '장치 미연결' : s.fw === false ? '장치 펌웨어 v1.1 아님' : '장치 연결')}
             {chip(s.radar, s.radar ? '레이더 수신' : '레이더 없음')}
           </>}
     </div>

@@ -25,6 +25,7 @@ export const UNIT_IDS = UNITS.map((u) => u.id)
 const REASON = {
   NOT_CONNECTED: '장치(Teensy)가 연결되지 않았습니다',
   LINK_CHECKING: '장치를 확인하고 있습니다 · 잠시 뒤 다시 누르세요',
+  FW_VERSION: '장치 펌웨어 판이 맞지 않습니다 (v1.1 필요)',
   LINK_DOWN: '장치 연결이 끊겼습니다',
   TARGET_NOT_SET: '목표 깊이가 설정되지 않았습니다 (설정 파일 필요)',
   NOT_READY: '장치가 압박 준비 상태가 아닙니다 (흡착 없이 압박하려면 시연용 펌웨어 필요)',
