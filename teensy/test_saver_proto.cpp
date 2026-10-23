@@ -426,7 +426,9 @@ int main(int argc, char** argv)
     std::cout << "\n[v1.1 최악값 고정 파일]\n";
     std::string want = fixtureText(), got, used;
     for (size_t k = 0; k < sizeof FIXTURE_PATHS / sizeof FIXTURE_PATHS[0] && used.empty(); k++) {
-        std::ifstream in(FIXTURE_PATHS[k], std::ios::binary);
+        // Git may check JSONL out as CRLF on Windows; compare logical lines
+        // against the LF generator without rewriting the shared fixture.
+        std::ifstream in(FIXTURE_PATHS[k]);
         if (!in) continue;
         std::stringstream ss; ss << in.rdbuf(); got = ss.str(); used = FIXTURE_PATHS[k];
     }

@@ -4,6 +4,7 @@
 > 사용법은 [README_demo.md](README_demo.md)를 따른다. Arduino IDE에서는 `teensy.ino`를 연다.
 > 팀의 v1.1 참고 구현은 `saver_v11_reference.h`로 보존했고 `tests/host/`만 이를 포함한다.
 > 참고 구현과 실제 시연 펌웨어는 서로 다른 시험 대상이다. 자동 HOME·탐색 성공을 가정하지 않는다.
+> rebase 통합 범위와 재검증 기록은 [INTEGRATION_20261023.md](INTEGRATION_20261023.md)에 있다.
 
 ## 프로토콜 v1.1 통신 계층 (2026-10-23, 신상현(Claude Code) 작성, 한건민 검토 필요)
 

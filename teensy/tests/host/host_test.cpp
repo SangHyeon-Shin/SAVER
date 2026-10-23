@@ -1,4 +1,4 @@
-/* host_test.cpp — saver_teensy.ino(v1.1)를 고치지 않고 PC 에서 컴파일해 명령 처리를 시험한다.
+/* host_test.cpp — saver_v11_reference.h를 PC에서 컴파일해 참고 통신 구현을 시험한다.
  * 2026-10-23 신상현(Claude Code) 작성, 한건민 검토 필요.
  * 실물 동작 검증이 아니다. Teensy 툴체인 컴파일도 아니다(Arduino.h 등은 이 폴더의 대용 헤더).
  * 저장소 루트에서:
