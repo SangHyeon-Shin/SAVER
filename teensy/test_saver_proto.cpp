@@ -1,3 +1,4 @@
+#ifndef ARDUINO // Native test program, never an Arduino firmware entry point.
 /* saver_proto.h 단위시험 — PC에서 실행
  *   g++ -std=c++11 -Wall -Wextra -o test test_saver_proto.cpp && ./test          */
 #include "saver_proto.h"
@@ -98,3 +99,4 @@ int main()
               << "  (통과 " << pass << " / 실패 " << fail << ")\n\n";
     return fail == 0 ? 0 : 1;
 }
+#endif

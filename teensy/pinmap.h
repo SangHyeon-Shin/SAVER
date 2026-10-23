@@ -11,7 +11,7 @@
  * required.  Native USB Serial does not consume GPIO pins.
  *
  * Assigned buses (pin assignment does not imply a working device driver):
- *   Serial7 RX/TX 28/29 : compression motor driver (baud/protocol TBD)
+ *   Serial7 RX/TX 28/29 : VESC compression current control, 115200 baud
  *   Wire SDA/SCL 18/19  : MAX30102
  *   Wire1 SDA/SCL 17/16 : NAU7802, independent of the MAX30102 bus
  *   Serial8 RX/TX 34/35 : WT901C-TTL (driver/baud not implemented in main)

@@ -42,12 +42,17 @@ foreach ($required in @('Wire1.setSDA(SDA_PIN)', 'Wire1.setSCL(SCL_PIN)', 'Wire1
   if (-not $logger.Contains($required)) { throw "Missing independent-bus path: $required" }
 }
 $main = Get-Content -LiteralPath (Join-Path $repo 'teensy/saver_teensy.ino') -Raw -Encoding UTF8
+$main += Get-Content -LiteralPath (Join-Path $repo 'teensy/src/demo/demo_app.h') -Raw -Encoding UTF8
 if ($main -match '\b(pinMode|digitalWrite|analogRead|attachInterrupt)\s*\(\s*PIN_\w+_RESERVED\b') {
   throw 'Main must not access disconnected spare ADC/Hall pins.'
 }
-foreach ($name in @('PIN_GYRO_UART_RX','PIN_GYRO_UART_TX','PIN_NAU7802_SDA','PIN_NAU7802_SCL')) {
+foreach ($name in @('PIN_GYRO_UART_RX','PIN_GYRO_UART_TX')) {
   if (-not $main.Contains("pinMode($name, INPUT)")) { throw "Missing high-Z reservation: $name" }
 }
-if ($main -match 'Serial8\.begin\(') { throw 'This pin-only change must not activate an unimplemented gyro driver.' }
+if ($main -match 'Serial8\.begin\(') { throw 'Manual-placement firmware must not activate an unimplemented gyro driver.' }
+$bindings = Get-Content -LiteralPath (Join-Path $repo 'teensy/src/demo/bindings.h') -Raw -Encoding UTF8
+foreach ($required in @('PIN_NAU7802_SDA == 17','PIN_NAU7802_SCL == 16', 'PIN_CP_UART_RX == 28')) {
+  if (-not $bindings.Contains($required)) { throw "Missing frozen driver pin guard: $required" }
+}
 Write-Output "PASS: $count pinmap compile-time assertions; combined/PPG/Wire1/main source guards."
 Write-Output 'No serial port, firmware upload, UART/I2C transaction, GPIO or motor hardware test performed.'
