@@ -102,13 +102,18 @@ export default function App() {
   }, [])
 
   const liveRef = useRef(false)
-  const bridge = useBridge({ onState: (snap) => { if (liveRef.current) applyState(snap) } })
+  // 브리지는 연결 직후 현재 상태(SYNC)를 먼저 보낸다. 그때는 아직 live 가 정해지기 전이라 버리면, 브리지가 이미
+  // S1 을 지난 경우 화면이 S1 에 남는다(10/23 젯슨 "시스템 점검 중" 멈춤). 마지막 상태를 두었다가 live 가 되면 그린다
+  const lastSnapRef = useRef(null)
+  const bridge = useBridge({ onState: (snap) => { lastSnapRef.current = snap; if (liveRef.current) applyState(snap) } })
   /* 브리지 모드: 'operate'(상태머신 흐름, 브리지가 주인) | 'unit_demo'(결선 시연 모드). 설정을 받기 전은 null.
      시연 모드에서 전체 UI 는 모형(로컬 전이)이고, 유닛 화면만 장치와 주고받는다 */
   const mode = bridge.config ? (bridge.config.mode || 'operate') : null
   const unitDemo = mode === 'unit_demo'
   const live = bridge.connected && !unitDemo           // 전체 UI 가 브리지 상태를 그리는 운용 흐름
   liveRef.current = live
+  useEffect(() => { if (!bridge.connected) lastSnapRef.current = null }, [bridge.connected])   // 다시 연결되면 새 SYNC 를 기다린다
+  useEffect(() => { if (live && lastSnapRef.current) applyState(lastSnapRef.current) }, [live])
   const unitDemoRef = useRef(false); unitDemoRef.current = unitDemo
   const [everUp, setEverUp] = useState(false)          // 키오스크: 한 번이라도 연결됐는지(끊김 안내 구분)
   useEffect(() => { if (bridge.connected) setEverUp(true) }, [bridge.connected])
