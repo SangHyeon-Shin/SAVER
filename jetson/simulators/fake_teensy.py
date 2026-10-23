@@ -54,6 +54,23 @@ PROTO_VERSION = 1
 MAX_LINE = 512
 
 
+
+# 모의 흉부 모델(시뮬레이션 전용, 의학적 근거 없음). PROJECT_STATE §2 최대 압박력 계산의 강성 10 kN/m, 점성 300 N·s/m 를 쓴다.
+# 강성 측정 화면(unit_demo stiff)과 그 시험이 받은 힘과 깊이로 이 강성을 다시 구하는지 본다.
+SIM_CHEST_K_N_MM = 10.0
+SIM_CHEST_C_NS_MM = 0.3
+
+
+def chest_peak_force(depth_mm, bpm):
+    """변위 x = D(1 - cos wt)/2 로 누를 때 F = k x + c x' 의 한 주기 최댓값(N). 압박 텔레메트리 cp_force_N 의 모의값."""
+    import math
+    if depth_mm <= 0:
+        return 0.0
+    a = SIM_CHEST_K_N_MM * depth_mm / 2.0
+    b = SIM_CHEST_C_NS_MM * depth_mm * math.pi * (bpm / 60.0)
+    return a + math.sqrt(a * a + b * b)
+
+
 class FakeTeensy(object):
 
     def __init__(self, tel_hz=20, seed=None, bench=False):
@@ -144,9 +161,10 @@ class FakeTeensy(object):
         m = {"t": "tel", "ms": self.ms(), "state": self.state}
 
         if self.state == "CPR_RUNNING":
+            depth = self.target_depth + math.sin(t * 1.9) * 1.4
             m["cp_rate_cpm"] = round(self.target_bpm + math.sin(t * 0.7) * 1.2, 2)
-            m["cp_depth_mm"] = round(self.target_depth + math.sin(t * 1.9) * 1.4, 2)
-            m["cp_force_N"] = round(380 + math.sin(t * 1.9) * 45, 2)
+            m["cp_depth_mm"] = round(depth, 2)
+            m["cp_force_N"] = round(chest_peak_force(depth, self.target_bpm) * (1 + math.sin(t * 1.3) * 0.01), 2)
             m["cp_motor_i_A"] = round(6.5 + abs(math.sin(t * 1.9)) * 2.0, 2)
         elif self.state in ("CPR_PAUSED", "CPR_READY"):
             m["cp_rate_cpm"] = 0.0

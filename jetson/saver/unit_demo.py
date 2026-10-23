@@ -11,7 +11,11 @@
   compress  IDLE: ARM → HOME(원점 완료) → SET_TARGET → START_CPR            STOP_CPR
             ARMED: HOME 부터. HOMED·VACUUM_HOLD·CPR_READY: SET_TARGET 부터
   vacuum    IDLE: ARM → HOME(원점 완료) → VACUUM_ON → VACUUM_OK               VACUUM_OFF
+  stiff     압박과 같은 순서로 시작 → 압박 주기 STIFF_SETTLE + STIFF_CYCLES 회 →     STOP_CPR
+            STOP_CPR(END) → 완료. 받은 cp_force_N, cp_depth_mm 로 유효 강성(N/mm)을 낸다
   drive     IDLE: ARM → 압박점 탐색(search.py, v1.1 명령)               탐색 중지(DRIVE_STOP)
+            10/23 팀장: 구동이 아직 구현되지 않아 시연 메뉴에서 빼고 강성 측정(stiff)을 넣었다.
+            이 절차는 남겨 두며 UI 는 개발용 바로가기(?unit=drive)로만 연다
 
 규칙
 - 진입만으로 움직이지 않는다. 시작은 화면에서 사람이 눌러야 한다(자동 시작 없음).
@@ -31,7 +35,8 @@ import time
 from . import protocol as P
 from . import search as S
 
-UNITS = ("patient", "compress", "drive", "vacuum")
+UNITS = ("patient", "compress", "stiff", "drive", "vacuum")
+CPR_UNITS = ("compress", "stiff")         # 압박 명령(START_CPR, STOP_CPR)을 쓰는 유닛
 ACTIONS = ("enter", "leave", "start", "stop")
 BUSY = ("starting", "running", "stopping")
 # 원점 복귀·흡착 완료를 기다리는 화면 대기 한도(초). 장치 안전 판단이 아니다(인터록과 정지는 Teensy 가 맡는다).
@@ -39,6 +44,45 @@ STEP_TIMEOUT_S = 30.0
 # GET_STATUS 뒤 텔레메트리를 기다리는 시간
 STATUS_TEL_S = 1.0
 FAULT_STATES = ("FAULT", "ESTOP")
+# 강성 측정 창. 압박 몇 주기로 강성을 구할지 정하는 측정 설계값이며 의학·안전 값이 아니다
+# (압박 깊이, 속도, 힘 상한은 설정 파일 값을 쓰고, 인터록과 정지는 Teensy 가 맡는다).
+STIFF_SETTLE = 2              # 처음 주기는 버린다(깊이가 목표에 닿기 전)
+STIFF_CYCLES = 10             # 강성을 구하는 주기 수
+STIFF_MIN_DEPTH_MM = 1.0      # 깊이가 이보다 작은 주기는 나누지 않는다(수치 보호)
+STIFF_GRACE_S = 5.0           # 측정이 끝나야 할 시각을 이만큼 넘기면 멈춘다(텔레메트리가 끊긴 경우)
+
+
+def stiffness(samples, period_s, settle=STIFF_SETTLE, cycles=STIFF_CYCLES, min_depth_mm=STIFF_MIN_DEPTH_MM):
+    """받은 압박 텔레메트리로 유효 강성을 구한다.
+
+    samples: [(t_s, cp_force_N 또는 None, cp_depth_mm 또는 None)]. t_s 는 압박 시작(CPR_RUNNING 첫 텔레메트리) 뒤 초.
+    압박 한 주기 길이(period_s)의 창마다 최대 힘 F 와 최대 깊이 D 를 잡아 k = F / D 를 구하고 평균한다.
+    cp_force_N 이 순간값이든 주기 최댓값이든 한 주기 창의 최댓값은 그 주기의 최대 힘에 가깝다
+    (20 Hz 요약값이라 순간값이면 조금 작게 나올 수 있다). 처음 settle 주기는 버리고, 끝나지 않은 창,
+    힘이나 깊이 값이 없는 창, 깊이가 min_depth_mm 보다 작은 창은 뺀다. 쓸 수 있는 창이 없으면 None.
+    """
+    if not samples or not period_s or period_s <= 0:
+        return None
+    end = samples[-1][0]
+    pts = []
+    for i in range(settle, settle + cycles):
+        a, b = i * period_s, (i + 1) * period_s
+        if b > end + 1e-9:
+            break                                   # 아직 끝나지 않은 창
+        fs = [f for t, f, d in samples if a <= t < b and f is not None]
+        ds = [d for t, f, d in samples if a <= t < b and d is not None]
+        if not fs or not ds or max(ds) < min_depth_mm:
+            continue
+        pts.append((round(max(ds), 2), round(max(fs), 1)))
+    if not pts:
+        return None
+    ks = [f / d for d, f in pts]
+    n = len(ks)
+    k = sum(ks) / n
+    sd = (sum((x - k) ** 2 for x in ks) / (n - 1)) ** 0.5 if n > 1 else 0.0
+    return {"n": n, "k_N_mm": round(k, 2), "k_sd": round(sd, 2),
+            "f_N": round(sum(f for _, f in pts) / n, 1), "d_mm": round(sum(d for d, _ in pts) / n, 2),
+            "pts": [list(x) for x in pts]}
 
 
 class UnitDemo(object):
@@ -63,6 +107,7 @@ class UnitDemo(object):
         self._flag = None           # ACK 보다 먼저 온 완료 이벤트(HOMING_DONE, VACUUM_OK)
         self._ran = False           # 압박: 텔레메트리에서 CPR_RUNNING 을 본 뒤에만 이탈을 감시한다
         self._eapd = None           # 구동: 시작 판단 때 읽은 EAPD. 탐색에 같은 값을 쓴다
+        self._stf = None            # 강성 측정: {period, ms0, samples, done, t_run, final}
         self._t = 0.0
         # 리더 스레드(ACK, tel, evt)와 asyncio 틱, WebSocket 요청이 함께 부른다.
         # 탐색 모듈 호출과 UI 알림은 잠금을 푼 뒤에 한다(탐색 모듈 잠금과 엇갈리지 않게).
@@ -81,7 +126,19 @@ class UnitDemo(object):
 
     def snapshot(self):
         return {"type": "unit", "screen": self.screen, "unit": self.unit, "phase": self.phase,
-                "step": self.step, "reason": self.reason, "mcu": self.link.mcu_state}
+                "step": self.step, "reason": self.reason, "mcu": self.link.mcu_state,
+                "stiff": self._stiff_view() if self.unit == "stiff" else None}
+
+    def _stiff_view(self):
+        """강성 측정 진행(끝난 주기 수)과 지금까지의 결과. 결과는 받은 값으로만 낸다."""
+        s = self._stf
+        if not s:
+            return None
+        out = {"of": STIFF_CYCLES, "done": s["done"]}
+        r = s["final"] if s["final"] is not None else stiffness(s["samples"], s["period"])
+        if r:
+            out.update(r)
+        return out
 
     # ── UI 요청 ─────────────────────────────────────────────
     def request(self, unit, action):
@@ -155,7 +212,7 @@ class UnitDemo(object):
             return
         w = self._wait
         if w == "stop":
-            self._done_phase("stopped")
+            self._done_phase("done" if self.reason == "END" else "stopped")
         elif w == "status":
             self._wait = "status_tel"
             self._t = self.clock()
@@ -201,9 +258,11 @@ class UnitDemo(object):
         elif w == "vacuum":
             if st == "VACUUM_HOLD":
                 self._running()
-        elif self.phase == "running" and self.unit == "compress":
+        elif self.phase == "running" and self.unit in CPR_UNITS:
             if st == "CPR_RUNNING":
                 self._ran = True
+                if self.unit == "stiff":
+                    self._stiff_sample(msg)
             elif self._ran and st is not None and st not in ("CPR_RUNNING", "CPR_PAUSED"):
                 self._done_phase("stopped", "DEVICE_STOPPED")     # 장치가 스스로 멈췄다
 
@@ -278,6 +337,13 @@ class UnitDemo(object):
             elif w in ("vacuum",) and now - self._t > STEP_TIMEOUT_S:
                 self._fail("VACUUM_TIMEOUT")
                 self._send_quiet("VACUUM_OFF", {})   # 목표에 못 닿은 채 블로워를 켜 두지 않는다
+            elif self.unit == "stiff" and self.phase == "running" and self._stf is not None:
+                s = self._stf
+                if not self._ran and now - self._t > STEP_TIMEOUT_S:
+                    self._fail("NOT_RUNNING")        # START_CPR 은 받았는데 압박이 시작되지 않았다
+                elif s["t_run"] is not None and \
+                        now - s["t_run"] > (STIFF_SETTLE + STIFF_CYCLES) * s["period"] + STIFF_GRACE_S:
+                    self._fail("STIFF_TIMEOUT")      # 텔레메트리가 끊겨 측정이 끝나지 않는다
         self._emit()
 
     # ── 내부 ────────────────────────────────────────────────
@@ -292,6 +358,7 @@ class UnitDemo(object):
         self._flag = None
         self._ran = False
         self._eapd = None
+        self._stf = None
 
     def _begin(self, unit):
         self._clear()
@@ -304,9 +371,14 @@ class UnitDemo(object):
             self._fail("LINK_CHECKING")         # 펌웨어 판(GET_INFO) 확인 전. 잠시 뒤 다시
         elif self.link.proto != P.PROTO_REV:
             self._fail("FW_VERSION")            # v1.1 펌웨어가 아님. 장치로 동작 명령을 보내지 않는다
-        elif unit == "compress" and not self.cfg.get("target_depth_mm"):
+        elif unit in CPR_UNITS and not self.cfg.get("target_depth_mm"):
             self._fail("TARGET_NOT_SET")        # 미확정 목표로 움직이지 않는다(원점 복귀도 하지 않음)
+        elif unit == "stiff" and not self.cfg.get("target_bpm"):
+            self._fail("TARGET_NOT_SET")        # 주기 길이를 정할 수 없다
         else:
+            if unit == "stiff":
+                self._stf = {"period": 60.0 / float(self.cfg["target_bpm"]), "ms0": None, "samples": [],
+                             "done": 0, "t_run": None, "final": None}
             self._send("GET_STATUS", {}, "status")
 
     def _decide(self, tel):
@@ -328,7 +400,7 @@ class UnitDemo(object):
             elif st not in ("ARMED", "HOMED"):
                 return self._fail("STATE:" + str(st))
             plan.append(("SEARCH", None, "search"))
-        elif u == "compress":
+        elif u in CPR_UNITS:
             if st == "CPR_RUNNING":
                 self._ran = True
                 return self._running()
@@ -391,6 +463,32 @@ class UnitDemo(object):
         eapd = self._eapd
         self._calls.append(lambda: self.search.start(eapd))
 
+    def _stiff_sample(self, msg):
+        """압박 중 텔레메트리 한 줄을 강성 측정에 더한다. 측정 창이 끝나면 압박을 멈춘다(STOP_CPR END)."""
+        s = self._stf
+        if s is None or s["final"] is not None:
+            return
+        ms = msg.get("ms")
+        if not isinstance(ms, (int, float)):
+            ms = self.clock() * 1000.0
+        if s["ms0"] is None:
+            s["ms0"], s["t_run"] = ms, self.clock()
+        num = lambda v: v if isinstance(v, (int, float)) and not isinstance(v, bool) else None
+        s["samples"].append(((ms - s["ms0"]) / 1000.0, num(msg.get("cp_force_N")), num(msg.get("cp_depth_mm"))))
+        done = max(0, min(STIFF_CYCLES, int(s["samples"][-1][0] // s["period"]) - STIFF_SETTLE))
+        if done != s["done"]:
+            s["done"] = done
+            self._dirty = True
+        if done >= STIFF_CYCLES:
+            r = stiffness(s["samples"], s["period"])
+            s["final"] = r or {}
+            if r:
+                self._note("UNIT_STIFF:k=%.2f N/mm,sd=%.2f,F=%.1f N,D=%.2f mm,n=%d"
+                           % (r["k_N_mm"], r["k_sd"], r["f_N"], r["d_mm"], r["n"]))
+                self._stop("END")
+            else:
+                self._fail("STIFF_NO_DATA")     # 힘이나 깊이 값이 오지 않았다. _fail 이 압박 정지를 요청한다
+
     def _send(self, cmd, kw, wait):
         self.step = cmd
         self._wait = wait
@@ -429,8 +527,9 @@ class UnitDemo(object):
             else:
                 self._done_phase("stopped", why)
             return
-        if u == "compress":
-            cmd, kw = "STOP_CPR", {"reason": "USER_STOP" if why in ("USER_STOP", "LEFT_SCREEN") else "SAFETY"}
+        if u in CPR_UNITS:
+            reason = "END" if why == "END" else "USER_STOP" if why in ("USER_STOP", "LEFT_SCREEN") else "SAFETY"
+            cmd, kw = "STOP_CPR", {"reason": reason}
         elif u == "vacuum":
             cmd, kw = "VACUUM_OFF", {}
         else:
@@ -456,8 +555,8 @@ class UnitDemo(object):
         unit = self.unit
         # 압박이 돌고 있었거나 START_CPR 의 응답을 못 받았으면 모터 정지를 한 번 더 요청한다
         # (sev 3 이면 Teensy 가 이미 껐다. 정지 방향 명령이라 해가 없다)
-        need_stop = unit == "compress" and (self.phase == "running" or
-                                            (self.step == "START_CPR" and why == "TIMEOUT"))
+        need_stop = unit in CPR_UNITS and (self.phase == "running" or
+                                           (self.step == "START_CPR" and why == "TIMEOUT"))
         self._done_phase("failed", why)
         if need_stop and self.link.connected:
             self._send_quiet("STOP_CPR", {"reason": "SAFETY"})

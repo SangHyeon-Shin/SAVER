@@ -21,7 +21,7 @@ React UI ──ws://:8765── bridge.py ──USB Serial── Teensy 4.1
 
 ## 결선 시연 모드 (`--unit-demo`, D-51)
 
-결선(10/24) 포스터 시연용이다. UI 첫 화면이 시연 메뉴(전체 UI, 환자 상태, 압박, 구동, 흡착)가 되고, 브리지는
+결선(10/24) 포스터 시연용이다. UI 첫 화면이 시연 메뉴(전체 UI, 환자 상태, 압박, 강성 측정, 흡착)가 되고, 브리지는
 상태머신 흐름과 S1 자동 초기화(ARM, HOME)를 돌리지 않는다. 장치는 유닛 화면의 [시작]으로만 움직인다.
 기본(운용 모드)은 그대로 메뉴 없이 상태머신 흐름이다.
 
@@ -40,7 +40,8 @@ python3 -m saver.bridge --unit-demo --serial /tmp/ttyFAKE --config config.bench.
 | 전체 UI | 없음. S1~S13 화면 흐름을 처음부터 모형으로(로컬 전이) | 모의값 |
 | 환자 상태 | 없음 | 레이더 호흡수, 손가락 센서 `ppg_hr_bpm`, `spo2_pct` |
 | 압박 | ARM → HOME → SET_TARGET → START_CPR, 정지 STOP_CPR | `cp_depth_mm`, `cp_rate_cpm`, `cp_force_N`, 경과 시간, 횟수(속도 적분, "약") |
-| 구동 | ARM → 압박점 탐색(`search.py`, v1.1 명령) | 탐색 진행(압박 위치 찾기 화면) |
+| 강성 측정 (10/23, D-53) | 압박과 같은 순서 → 2주기 버리고 10주기 측정 → STOP_CPR{END} | 힘-깊이 그림, 유효 강성 k = 주기 최대 힘 ÷ 최대 깊이(N/mm), 최대 힘, 최대 깊이, 진행, 편차. 결과는 기록에 `UNIT_STIFF` |
+| (구동, 메뉴에서 뺌) | ARM → 압박점 탐색(`search.py`, v1.1 명령). 개발용 바로가기 `?unit=drive` | 탐색 진행(압박 위치 찾기 화면) |
 | 흡착 | ARM → HOME → VACUUM_ON, 해제 VACUUM_OFF | `vac_kPa`, 목표, 고정 유지 시간, `vac_leak` |
 
 - 진입만으로는 명령이 없다. 압박 시작은 1초 길게 누르기. 다른 화면으로 가거나 UI 연결이 모두 끊기면 진행 중인 동작을 멈춘다.

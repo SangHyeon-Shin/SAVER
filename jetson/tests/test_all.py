@@ -2016,6 +2016,112 @@ ck("유닛 이름, 동작 이름 검사", urig()[1].request("x", "enter") == (Fa
 _udkeep = dict((k, B.CONFIG.get(k)) for k in ("target_depth_mm", "force_max_N", "vacuum_target_kPa"))
 
 
+# ── 강성 측정(stiff, 10/23 팀장: 구동 대신 시연 메뉴에) ──
+from saver.unit_demo import stiffness, STIFF_SETTLE, STIFF_CYCLES
+import math as _m
+_T = 60.0 / 110
+_kpk = 514.5 / 50.0                                  # 모의 흉부 모델(k 10 N/mm, c 0.3 N·s/mm)의 주기 최대 힘 / 깊이
+_n = int((STIFF_SETTLE + STIFF_CYCLES) * _T / 0.05) + 2
+_pk = [(i * 0.05, 514.5, 50.0) for i in range(_n)]  # 주기 최댓값으로 보내는 펌웨어
+r_pk = stiffness(_pk, _T)
+ck("강성 추정: 주기 최댓값 텔레메트리 → k = F/D, 처음 주기는 버리고 10주기",
+   r_pk and r_pk["n"] == STIFF_CYCLES and abs(r_pk["k_N_mm"] - _kpk) < 0.01 and r_pk["k_sd"] == 0.0
+   and len(r_pk["pts"]) == STIFF_CYCLES, str(r_pk))
+
+
+def _inst(t, d=50.0, f=110 / 60.0):
+    th = 2 * _m.pi * f * t
+    return 10.0 * d / 2 * (1 - _m.cos(th)) + 0.3 * d * _m.pi * f * _m.sin(th)
+
+
+_in = [(i * 0.05, _inst(i * 0.05), 50.0) for i in range(_n)]  # 순간값(20 Hz 표본)으로 보내는 펌웨어
+r_in = stiffness(_in, _T)
+ck("강성 추정: 순간 힘 20 Hz 표본이어도 주기 창 최댓값으로 4 % 안에서 같은 값",
+   r_in and r_in["n"] == STIFF_CYCLES and 0.96 * _kpk <= r_in["k_N_mm"] <= _kpk + 0.01, str(r_in and r_in["k_N_mm"]))
+_gap = [(t, (None if 2 * _T <= t < 3 * _T else f), d) for t, f, d in _pk]
+_shallow = [(t, f, (0.5 if 3 * _T <= t < 4 * _T else d)) for t, f, d in _pk]
+ck("강성 추정: 힘 값이 없는 주기, 깊이가 1 mm 미만인 주기는 빼고, 0 으로 나누지 않음",
+   stiffness(_gap, _T)["n"] == STIFF_CYCLES - 1 and stiffness(_shallow, _T)["n"] == STIFF_CYCLES - 1
+   and stiffness([(t, None, d) for t, f, d in _pk], _T) is None and stiffness([], _T) is None)
+ck("강성 추정: 끝나지 않은 주기 창은 세지 않음",
+   stiffness([x for x in _pk if x[0] < (STIFF_SETTLE + 3.5) * _T], _T)["n"] == 3)
+
+SC = {"target_depth_mm": 50, "force_max_N": 600}
+
+
+def stiff_run(lk, ud, clk, secs, force=514.5, depth=50.0, ms0=1000):
+    """압박 중 텔레메트리를 20 Hz 로 secs 초 넣는다(장치 시각 ms)."""
+    for i in range(int(secs / 0.05)):
+        lk.mcu_state = "CPR_RUNNING"
+        m = {"t": "tel", "state": "CPR_RUNNING", "ms": ms0 + i * 50, "estop": False, "faults": []}
+        if force is not None:
+            m["cp_force_N"] = force
+        if depth is not None:
+            m["cp_depth_mm"] = depth
+        clk["t"] += 0.05
+        ud.on_tel(m)
+        if ud.phase != "running":
+            break
+
+
+lk, ud, sr, clk, pushed = urig()
+ud.request("stiff", "enter")
+ck("강성 측정: 목표 깊이가 비어 있으면 명령 없이 실패(TARGET_NOT_SET)",
+   ud.request("stiff", "start") == (True, None) and ud.phase == "failed" and ud.reason == "TARGET_NOT_SET" and lk.sent == [])
+lk, ud, sr, clk, pushed = urig(SC)
+ud.request("stiff", "enter")
+e0 = lk.sent == [] and ud.phase == "idle"
+ud.request("stiff", "start"); uack(ud, lk); utel(ud, lk, "HOMED")
+s1 = ucmds(lk) == ["GET_STATUS", "SET_TARGET"] and lk.sent[-1][1] == {"bpm": 110, "depth_mm": 50, "force_max_N": 600}
+uack(ud, lk); uack(ud, lk)
+ck("강성 측정: 진입만으로 명령 없음, 시작은 압박과 같은 순서(SET_TARGET, START_CPR), ACK 뒤 running",
+   e0 and s1 and ucmds(lk)[-1] == "START_CPR" and ud.phase == "running", str(ucmds(lk)))
+stiff_run(lk, ud, clk, 3.0)
+mid = pushed[-1].get("stiff") or {}
+m1 = ud.phase == "running" and 0 < mid.get("done", 0) < STIFF_CYCLES and mid.get("of") == STIFF_CYCLES
+stiff_run(lk, ud, clk, 5.0, ms0=4000)
+end_kw = lk.sent[-1][1]
+m2 = ucmds(lk)[-1] == "STOP_CPR" and end_kw.get("reason") == "END" and ud.phase == "stopping"
+uack(ud, lk)
+fin = pushed[-1].get("stiff") or {}
+ck("강성 측정: 진행(끝난 주기 수)을 알리고, 10주기 뒤 STOP_CPR{reason:END} → ACK 뒤 done, k = F/D",
+   m1 and m2 and ud.phase == "done" and fin.get("done") == STIFF_CYCLES and fin.get("n") == STIFF_CYCLES
+   and abs(fin.get("k_N_mm", 0) - _kpk) < 0.01 and fin.get("f_N") == 514.5 and fin.get("d_mm") == 50.0,
+   "%s %s %s" % (ud.phase, end_kw, fin))
+ck("강성 측정: 다른 유닛의 상태 알림에는 강성 값이 없음", urig()[1].snapshot()["stiff"] is None)
+
+lk, ud, sr, clk, pushed = urig(SC)
+ud.request("stiff", "enter"); ud.request("stiff", "start"); uack(ud, lk); utel(ud, lk, "HOMED"); uack(ud, lk); uack(ud, lk)
+stiff_run(lk, ud, clk, 3.0)
+ud.request("stiff", "stop"); s_kw = lk.sent[-1][1]; uack(ud, lk)
+part = pushed[-1].get("stiff") or {}
+ck("강성 측정: 도중 [정지] → STOP_CPR{USER_STOP} → stopped, 끝난 주기까지의 부분 결과",
+   s_kw.get("reason") == "USER_STOP" and ud.phase == "stopped" and 0 < part.get("n", 0) < STIFF_CYCLES, str(part))
+lk, ud, sr, clk, pushed = urig(SC)
+ud.request("stiff", "enter"); ud.request("stiff", "start"); uack(ud, lk); utel(ud, lk, "HOMED"); uack(ud, lk); uack(ud, lk)
+stiff_run(lk, ud, clk, 8.0, force=None)
+ck("강성 측정: 힘 값이 오지 않으면 실패(STIFF_NO_DATA)하고 압박 정지 요청(SAFETY)",
+   ud.phase == "failed" and ud.reason == "STIFF_NO_DATA" and ucmds(lk)[-1] == "STOP_CPR"
+   and lk.sent[-1][1].get("reason") == "SAFETY", "%s %s" % (ud.reason, lk.sent[-1]))
+lk, ud, sr, clk, pushed = urig(SC)
+ud.request("stiff", "enter"); ud.request("stiff", "start"); uack(ud, lk); utel(ud, lk, "HOMED"); uack(ud, lk); uack(ud, lk)
+clk["t"] += STEP_TIMEOUT_S + 0.5; ud.tick()
+ck("강성 측정: START_CPR 뒤 압박이 시작되지 않으면 실패(NOT_RUNNING)하고 정지 요청",
+   ud.phase == "failed" and ud.reason == "NOT_RUNNING" and ucmds(lk)[-1] == "STOP_CPR", str(ucmds(lk)))
+lk, ud, sr, clk, pushed = urig(SC)
+ud.request("stiff", "enter"); ud.request("stiff", "start"); uack(ud, lk); utel(ud, lk, "HOMED"); uack(ud, lk); uack(ud, lk)
+stiff_run(lk, ud, clk, 2.0)
+clk["t"] += 30.0; ud.tick()
+ck("강성 측정: 측정 중 텔레메트리가 끊겨 끝나지 않으면 실패(STIFF_TIMEOUT)하고 정지 요청",
+   ud.phase == "failed" and ud.reason == "STIFF_TIMEOUT" and ucmds(lk)[-1] == "STOP_CPR", str(ud.reason))
+lk, ud, sr, clk, pushed = urig(SC)
+ud.request("stiff", "enter"); ud.request("stiff", "start"); uack(ud, lk); utel(ud, lk, "HOMED"); uack(ud, lk); uack(ud, lk)
+stiff_run(lk, ud, clk, 1.0)
+ud.request("compress", "enter")
+ck("강성 측정 중 다른 유닛 화면으로 → 압박 정지(STOP_CPR USER_STOP)",
+   ucmds(lk)[-1] == "STOP_CPR" and lk.sent[-1][1].get("reason") == "USER_STOP", str(lk.sent[-1]))
+
+
 def _ud_bridge(port, unit_demo=True):
     b_ = B.Bridge(argparse.Namespace(serial=port, logdir=tempfile.mkdtemp(prefix="saver_ud_"), spec=None, port=0,
                                      unit_demo=unit_demo))
@@ -2071,6 +2177,15 @@ ck("브리지 + 모의 Teensy: 압박 중 텔레메트리에 깊이, 속도, 힘
 bu.unit_msg({"type": "unit", "unit": "compress", "action": "stop"})
 st_ = _ud_wait(bu, lambda: bu.units.phase == "stopped" and (bu.link.last_tel or {}).get("state") == "HOMED", 5.0)
 ck("브리지 + 모의 Teensy: 정지 → STOP_CPR, 장치 HOMED, stopped", st_, "%s %s" % (bu.units.phase, bu.link.mcu_state))
+bu.unit_msg({"type": "unit", "unit": "stiff", "action": "enter"})
+bu.unit_msg({"type": "unit", "unit": "stiff", "action": "start"})
+sd_ = _ud_wait(bu, lambda: bu.units.phase in ("done", "failed", "stopped"), 15.0)
+sv_ = bu.units.snapshot().get("stiff") or {}
+ck("브리지 + 모의 Teensy: 강성 측정 → 10주기 뒤 STOP_CPR(END), done, 모의 흉부 모델 강성(약 10.3 N/mm)을 다시 구함",
+   sd_ and bu.units.phase == "done" and [c for c, _ in sentu if c == "STOP_CPR"] and
+   [k for c, k in sentu if c == "STOP_CPR"][-1].get("reason") == "END" and 9.6 <= sv_.get("k_N_mm", 0) <= 10.8,
+   "%s %s %s" % (bu.units.phase, bu.units.reason, sv_))
+_ud_wait(bu, lambda: (bu.link.last_tel or {}).get("state") == "HOMED", 4.0)
 bu.unit_msg({"type": "unit", "unit": "vacuum", "action": "enter"})
 bu.unit_msg({"type": "unit", "unit": "vacuum", "action": "start"})
 vh_ = _ud_wait(bu, lambda: bu.units.phase == "running" and (bu.link.last_tel or {}).get("vac_kPa", 0) < -20, 6.0)

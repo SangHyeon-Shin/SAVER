@@ -16,8 +16,8 @@
   UI ← {"type":"config", "mode":"operate"|"unit_demo", 목표값...}
 
 결선 시연 모드(--unit-demo, D-51): 상태머신 흐름(S1 자동 초기화 포함)을 돌리지 않는다.
-  UI → {"type":"unit","unit":"patient"|"compress"|"drive"|"vacuum","action":"enter"|"leave"|"start"|"stop"}
-  UI ← {"type":"unit", screen, unit, phase, step, reason, mcu}   (unit_demo.py)
+  UI → {"type":"unit","unit":"patient"|"compress"|"stiff"|"vacuum"|"drive","action":"enter"|"leave"|"start"|"stop"}
+  UI ← {"type":"unit", screen, unit, phase, step, reason, mcu, stiff}   (unit_demo.py. stiff 는 강성 측정 진행과 결과)
 
 실행
   python3 -m saver.bridge                                  # 시리얼 없이 (UI 시험)
@@ -50,7 +50,7 @@ if __package__ in (None, ""):                     # 직접 실행 대응
     from saver.search import SearchRunner, PARAM_KEYS as SEARCH_KEYS
     from saver.init_seq import InitRunner
     from saver.radar import RadarLink
-    from saver.unit_demo import UnitDemo
+    from saver.unit_demo import UnitDemo, STIFF_CYCLES
 else:
     from . import protocol as P
     from .state_machine import StateMachine
@@ -59,7 +59,7 @@ else:
     from .search import SearchRunner, PARAM_KEYS as SEARCH_KEYS
     from .init_seq import InitRunner
     from .radar import RadarLink
-    from .unit_demo import UnitDemo
+    from .unit_demo import UnitDemo, STIFF_CYCLES
 
 
 # ─────────────────────────────────────────────────────────────
@@ -76,6 +76,8 @@ CONFIG = {
                                   # (인터록 점검표 C11). false 면 장치 연결 중 인공호흡 안내(X_VENT)에 들어가지 않는다(D-45)
     "home_timeout_s": None,       # TODO 한건민. S1 초기화 뒤 원점 완료(HOMING_DONE)를 기다리는 시간 제한(초). 10/12 실측 뒤.
                                   # 비어 있으면 시간은 검사하지 않고, 탐색·흡착 진입은 requires_mcu(HOMED)가 막는다(D-46)
+    "model_stiffness_N_mm": None, # 강성 측정 화면의 비교선. PROJECT_STATE §2 최대 압박력 계산의 흉부 모델 강성(10 kN/m,
+                                  # simulated). 표시만 하고 판단에 쓰지 않는다. 비어 있으면 비교선을 그리지 않는다
     "radar_floor_mm": None,       # TODO 신상현(실측). 탐색 자세(바퀴 내림)에서 레이더 면의 바닥 위 높이(mm).
                                   # EAPD = radar_floor_mm − 레이더 거리(radar.py, D-50). 비어 있으면 레이더로 EAPD 를
                                   # 만들지 않아 탐색이 EAPD_MISSING 으로 시작하지 않는다(대체 상수 없음)
@@ -370,7 +372,8 @@ class Bridge(object):
         return {"type": "config", "mode": "unit_demo" if self.unit_demo else "operate",
                 "aed_pause_warn_s": CONFIG.get("aed_pause_warn_s"),
                 "target_bpm": val("target_bpm"), "target_depth_mm": val("target_depth_mm"),
-                "force_max_N": val("force_max_N"), "vacuum_target_kPa": val("vacuum_target_kPa")}
+                "force_max_N": val("force_max_N"), "vacuum_target_kPa": val("vacuum_target_kPa"),
+                "model_stiffness_N_mm": val("model_stiffness_N_mm"), "stiff_cycles": STIFF_CYCLES}
 
     def unit_msg(self, msg):
         """UI 의 유닛 요청(결선 시연 모드). 거부하면 UI 에 보낼 응답을, 받아들이면 None 을 돌려준다."""
@@ -423,7 +426,7 @@ class Bridge(object):
         self._link_port = port
         self.push(dict(self.link_msg(), connected=connected, port=port))
         if self.unit_demo:
-            running = self.units.unit == "compress" and self.units.phase == "running"
+            running = self.units.unit in ("compress", "stiff") and self.units.phase == "running"
             self.units.on_link(connected)
             if not connected and running:
                 self.push({"type": "error", "code": "3-CM-010", "sev": 2,
