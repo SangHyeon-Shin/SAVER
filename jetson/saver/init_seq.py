@@ -21,6 +21,9 @@ S1 의 명령을 한꺼번에 보내지 않고, ACK 와 장치 상태를 보며 
 ACK 가 거부(ok=false)되거나 오지 않으면(2-CM-002) 그 자리에서 INIT_ERROR.
 INIT_DONE 전에 링크가 끊기면 다시 연결된 뒤 PING 부터 다시 한다.
 
+펌웨어 판(프로토콜 v1.1): 링크가 GET_INFO 로 v1.1 을 확인한 뒤에야 PING 부터 시작한다.
+v1.1 이 아니면(v1.0 펌웨어 등) 기다리지 않고 INIT_ERROR(FW_VERSION:<판>)로 끝낸다.
+
 담당하지 않는 것: 전이 규칙(protocol/state_machine_v2.json), 실시간 제어와 인터록(Teensy).
 Python 3.6 호환.
 """
@@ -31,6 +34,10 @@ from . import protocol as P
 
 PRE_DONE = ("wait_link", "ping", "status", "status_tel", "arm", "home")
 HOMING_OK_STATES = ("ARMED", "HOMED")     # 원점 복귀 중(ARMED)이거나 끝남(HOMED)
+
+
+def _fw_mismatch(msg):
+    return msg.get("code") == "3-CM-001" and str(msg.get("why", "")).startswith("FW_NOT_V11")
 
 
 class InitRunner(object):
@@ -60,6 +67,13 @@ class InitRunner(object):
     def owns(self, seq):
         """이 절차가 보낸 명령인지. 브리지는 이 명령의 오류를 일반 규칙(ERROR, STOP)으로 처리하지 않는다."""
         return seq is not None and seq in self._seqs
+
+    def handles(self, msg):
+        """브리지가 일반 규칙 대신 이 절차에 넘길 오류인지: 절차가 보낸 명령의 오류, 또는 장치 연결을
+        기다리는 동안 링크가 알린 펌웨어 판 불일치(3-CM-001 FW_NOT_V11)."""
+        if self.owns(msg.get("seq")):
+            return True
+        return self.step == "wait_link" and _fw_mismatch(msg)
 
     def snapshot(self):
         return {"step": self.step, "reason": self.reason, "homed": self.homed}
@@ -158,6 +172,8 @@ class InitRunner(object):
                 and str(msg.get("why", "")).startswith("ACK_TIMEOUT"):
             self._seq = None
             self._fail(str(msg.get("why")))
+        elif self.step == "wait_link" and _fw_mismatch(msg):
+            self._check_fw()
 
     def on_link(self, connected):
         with self._lock:
@@ -180,6 +196,7 @@ class InitRunner(object):
     def _tick(self):
         now = self.clock()
         if self.step == "wait_link":
+            self._check_fw()
             self._try_begin()
         elif self.step == "status_tel" and now - self._t > P.STALE_S:
             self._fail("NO_STATUS")
@@ -190,11 +207,17 @@ class InitRunner(object):
 
     # ── 내부 ────────────────────────────────────────────────
     def _ready(self):
-        return bool(self.link.connected) and self.link.proto is not None
+        return bool(self.link.connected) and self.link.proto == P.PROTO_REV
 
     def _try_begin(self):
         if self.step == "wait_link" and self._ready():
             self._send("PING", "ping")
+
+    def _check_fw(self):
+        """연결됐는데 펌웨어 판이 v1.1 이 아니면 기다리지 않고 끝낸다(명령은 하나도 보내지 않았다)."""
+        proto = self.link.proto
+        if self.step == "wait_link" and self.link.connected and proto is not None and proto != P.PROTO_REV:
+            self._fail("FW_VERSION:" + str(proto))
 
     def _send(self, cmd, step):
         self.step = step

@@ -26,6 +26,8 @@ import math
 import threading
 import time
 
+from . import protocol as P
+
 # 탐색에 필요한 Jetson 설정값. 비어 있으면(None, 0) 탐색을 시작하지 않는다.
 PARAM_KEYS = (
     "press_mm",            # 접촉점에서 더 내리는 깊이(보고서 δ₀)
@@ -174,8 +176,11 @@ class SearchRunner(object):
             p, bad = check_params(self.cfg)
             if bad:
                 self._fail("PARAM_UNSET", ",".join(bad))
-            elif self.link.proto != "1.1" or not set(NEED_CAPS) <= set(self.link.caps or ()):
-                self._fail("UNSUPPORTED", str(self.link.proto))
+            elif self.link.proto != P.PROTO_REV:
+                self._fail("FW_VERSION", str(self.link.proto))      # v1.1 펌웨어가 아님(판 불일치, 확인 전 포함)
+            elif not set(NEED_CAPS) <= set(self.link.caps or ()):
+                # v1.1 이지만 주행·헤드 기능을 알리지 않음(GET_INFO caps). 펌웨어에 구동 구현이 없는 경우
+                self._fail("UNSUPPORTED", ",".join(c for c in NEED_CAPS if c not in (self.link.caps or ())))
             else:
                 self.p = p
                 d = cp_distance(eapd_mm, p)

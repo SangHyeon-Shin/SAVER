@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""fake_teensy_v11.py — 프로토콜 v1.1 초안(docs/protocol_v1.1_draft.md, 7차 합의본) 모의 Teensy
+"""fake_teensy_v11.py — 프로토콜 v1.1(protocol/teensy_usb_protocol_v1.md v1.1) 모의 Teensy
 
-v1.0 모의 장치(fake_teensy.FakeTeensy)를 상속해 탐색 후 고정(D-11)에 필요한 부분만 구현한다.
+v1.0 모의 장치(fake_teensy.FakeTeensy)를 상속해 v1.1 동작을 구현한다. fake_teensy.py 의 기본 장치다.
 펌웨어 구현(한건민)이 아니다. Jetson 개발과 시험용이며, 동작이 펌웨어와 다르면 펌웨어가 기준이다.
 
 구현한 것
-  - GET_INFO(INFO 이벤트), tel 의 tn·boot_id, 매 주기 mot
+  - GET_INFO(INFO 이벤트), GET_FAULTS(err 줄과 FAULTS_END), tel 의 tn·boot_id, 매 주기 mot
   - bid·aid 판단 순서(§2.5): AID_REQUIRED, BOOT_MISMATCH, 같은 aid 재전송, SEQ_CONFLICT, STALE_SEQ, AID_EXHAUSTED
     기록 칸 act_cur·act_rej·cmd_last, 정지 방향 명령 예외(정지 출력 먼저, 기록 사유로 거부하지 않음)
   - 동작 명령: HOME(ARMED·HOMED·VACUUM_HOLD), HEAD_HOLD, DRIVE_STEP, SET_CP_POINT(offset_mm=0, 접촉 영점)
@@ -16,8 +16,9 @@ v1.0 모의 장치(fake_teensy.FakeTeensy)를 상속해 탐색 후 고정(D-11)�
   - 설정값이 없으면 해당 명령 거부(LIMIT_UNSET, 2-TU-008). 기본값은 모두 미설정이다
   - 모의 반력: Phantom(경질부 위에서 높고 말단을 지나면 낮아지는 강성, 잡음)
 
-구현하지 않은 것: GET_FAULTS, 엔코더·IMU·기울기 고장, SETTLE_FAIL·SHORT, STIFFNESS_SCAN·TRIAL_COMPRESSION 의 busy,
-압박 중 동작. 이 값들은 펌웨어 시험(teensy/test_saver_proto.cpp)과 실물 시험이 맡는다.
+  - bench=True(--bench): 결선 시연 제안(D-51, 한건민 합의 전)대로 흡착 없이 HOMED 에서 START_CPR 을 받는다
+구현하지 않은 것: 엔코더·IMU·기울기 고장, SETTLE_FAIL·SHORT, STIFFNESS_SCAN·TRIAL_COMPRESSION 의 busy,
+압박 중 동작, faults 여러 개(faults_more). 이 값들은 펌웨어 시험(teensy/test_saver_proto.cpp)과 실물 시험이 맡는다.
 
 모든 수치(Phantom, 시뮬레이션 설정)는 시뮬레이션 전용이며 의학적·공학적 근거가 없다.
 """
@@ -94,10 +95,10 @@ class Phantom(object):
 class FakeTeensy11(FakeTeensy):
 
     def __init__(self, tel_hz=20, seed=None, settings=None, boot_id=None, phantom=None,
-                 auto=True, time_scale=1.0, outbox=None, vac_residual_kPa=0.0):
-        super(FakeTeensy11, self).__init__(tel_hz=tel_hz, seed=seed)
+                 auto=True, time_scale=1.0, outbox=None, vac_residual_kPa=0.0, bench=False):
+        super(FakeTeensy11, self).__init__(tel_hz=tel_hz, seed=seed, bench=bench)
         self.fw = "1.1.0-sim"
-        self.caps = ["DRIVE", "HEAD_HOLD", "CP_ZERO", "MOT", "AID"]
+        self.caps = ["DRIVE", "HEAD_HOLD", "CP_ZERO", "MOT", "AID", "FAULTS"]
         self.boot_id = boot_id if boot_id is not None else self.rng.randint(1, 65535)
         self.settings = dict((k, None) for k in SETTING_KEYS)
         self.settings.update(settings or {})
@@ -205,22 +206,15 @@ class FakeTeensy11(FakeTeensy):
     def telemetry(self):
         self.tick()
         self.tn += 1
-        ms = self.ms()
-        t = time.time() - self.t0
-        m = {"t": "tel", "ms": ms, "tn": self.tn, "boot_id": self.boot_id, "state": self.state}
-        if self.state == "CPR_RUNNING":
-            m["cp_rate_cpm"] = round(self.target_bpm + math.sin(t * 0.7) * 1.2, 2)
-            m["cp_depth_mm"] = round(self.target_depth + math.sin(t * 1.9) * 1.4, 2)
-            m["cp_force_N"] = round(380 + math.sin(t * 1.9) * 45, 2)
-        elif self.head_hold_active:
+        m = self.tel_msg()                  # v1.0 필드(압박값, PPG, 온도, 팬)에 v1.1 값을 덮는다
+        ms = m["ms"]
+        m["tn"], m["boot_id"] = self.tn, self.boot_id
+        if self.state != "CPR_RUNNING" and self.head_hold_active:
+            for k in ("cp_rate_cpm", "cp_depth_mm", "cp_motor_i_A"):
+                m.pop(k, None)
             m["cp_force_N"] = round(self.phantom.force(self._x, self.press_depth), 2)
         m["vac_kPa"] = round(self.vac_p + self.rng.uniform(-0.2, 0.2), 2)
-        m["temp_C"] = 28.0
-        m["estop"] = self.estop
         m["limit_top"] = self.head_pos == 0.0
-        m["limit_bottom"] = False
-        m["vac_leak"] = self.leak
-        m["faults"] = [self.fault] if self.fault else []
         self._send(m)
         self._send(self.mot_msg(ms))
 
@@ -335,8 +329,14 @@ class FakeTeensy11(FakeTeensy):
             if m["drv_enc_mode"] == 1 and self.settings.get("drv_enc_side"):
                 m["drv_enc_side"] = self.settings["drv_enc_side"]
             self.evt("INFO", **m)
-        else:                                      # GET_FAULTS 는 구현하지 않음
-            self._ack(seq, False, "1-CM-005", "UNKNOWN_COMMAND")
+        elif cmd == "GET_FAULTS":                  # §3.5: ACK, 활성 오류마다 err 한 줄, FAULTS_END(n)
+            self._ack(seq)
+            codes = [self.fault] if self.fault else []
+            for c in codes:
+                sev = int(c.split("-")[0])
+                self._send({"t": "err", "ms": self.ms(), "code": c, "sev": sev, "latched": sev >= 3,
+                            "why": "FAULT_ACTIVE"})
+            self.evt("FAULTS_END", seq=seq, n=len(codes))
 
     # ── 동작 명령 ───────────────────────────────────────────
     def _unset(self, keys):
@@ -618,9 +618,10 @@ class FakeTeensy11(FakeTeensy):
         elif cmd == "VACUUM_OFF":
             self.vac_output = False             # 상태와 rearm_lock 은 해제 확인까지 그대로
         elif cmd == "START_CPR":
-            if self.state != "CPR_READY":
+            bench_ok = self.bench and self.state == "HOMED"     # 결선 시연 제안(D-51): 흡착·영점 없이 압박
+            if self.state != "CPR_READY" and not bench_ok:
                 return False, "2-CU-011", "NOT_READY"
-            if not self.cp_zero_set:
+            if not self.cp_zero_set and not bench_ok:
                 return False, "2-CU-011", "CP_ZERO_UNSET"
             if self.target_depth <= 0:
                 return False, "2-CU-012", "TARGET_NOT_SET"
@@ -652,6 +653,9 @@ class FakeTeensy11(FakeTeensy):
             self.head_hold_active = False
             self.head_pos = None
             self.drv_origin = None
+            self.vac_output = False             # 정상 복귀: 음압 출력 끔, 재가동 금지·해제 대기 없음
+            self.rearm_lock = False
+            self.pending_release = None
             return ok
         if what == "estop":
             self._stop_output("DISARM")

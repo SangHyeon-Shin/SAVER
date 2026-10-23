@@ -29,6 +29,16 @@ ck("본문 511 byte 수신 허용 (v1.1 §3.4)", len(_body(511)) == 511 and P.de
 ck("본문 512 byte 수신 거부", len(_body(512)) == 512 and P.decode(_body(512).encode()) is None)
 a = P.AidCounter(P.AID_MAX - 1); ck("aid 순환 없음, 한도 뒤 None", [a.next(), a.next(), a.next()] == [P.AID_MAX - 1, P.AID_MAX, None])
 ck("명령 분류: 조회 4, 정지 4", len(P.QUERY_CMDS) == 4 and len(P.STOP_CMDS) == 4 and set(P.QUERY_CMDS + P.STOP_CMDS) <= set(P.CMD))
+_EXD = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "protocol", "examples")
+_ex_bad = []
+for _fn in ("commands.jsonl", "telemetry.jsonl"):
+    for _ln in open(os.path.join(_EXD, _fn), "rb").read().split(b"\n"):
+        if _ln and (P.decode(_ln) is None or len(_ln) > P.MAX_BODY):
+            _ex_bad.append((_fn, _ln[:40]))
+_exc = [P.decode(l) for l in open(os.path.join(_EXD, "commands.jsonl"), "rb").read().split(b"\n") if l]
+ck("명세 예제(protocol/examples) 모든 줄 수신 가능, 본문 511 byte 이하", not _ex_bad, str(_ex_bad[:2]))
+ck("명세 예제: 첫 명령은 GET_INFO, 앞쪽 비조회 명령은 bid·aid 를 싣는다(v1.1)",
+   _exc[0]["cmd"] == "GET_INFO" and all("bid" in m and "aid" in m for m in _exc[:20] if m["cmd"] not in P.QUERY_CMDS))
 
 print("\n== 2. 상태머신 ==")
 fired = []
@@ -232,10 +242,10 @@ ck("requires_mcu 가 Teensy 내부 상태인지", not bad_rq, str(bad_rq[:2]))
 cmds = set(c for d in spec["nodes"].values() for c in d.get("enter_cmds", []))
 ck("enter_cmds 가 명세 명령인지", cmds <= set(P.CMD), str(sorted(cmds - set(P.CMD))))
 
-print("\n== 3. 가짜 Teensy 실물 연결 ==")
+print("\n== 3. 가짜 Teensy 실물 연결 (v1.1 기본 모의 장치) ==")
 sim = subprocess.Popen([sys.executable, "-u",
     os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "simulators", "fake_teensy.py"),
-    "--port", "/tmp/ttyFAKE_TEST", "--hz", "20", "--seed", "1", "--quiet"],
+    "--port", "/tmp/ttyFAKE_TEST", "--hz", "20", "--seed", "1", "--quiet", "--time-scale", "0.05"],
     stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
 time.sleep(1.2)
 ck("가상 포트 생성", os.path.exists("/tmp/ttyFAKE_TEST"))
@@ -249,8 +259,9 @@ ck("링크 연결", link.connected)
 ck("텔레메트리 수신", len(tel) > 5, "%d건" % len(tel))
 ck("stale 아님", not link.is_stale())
 ck("MCU 상태 수신", link.mcu_state == "IDLE", str(link.mcu_state))
-ck("v1.0 펌웨어 판별(GET_INFO 미지원)", link.proto == "1.0" and link.mcu_flags is None, str(link.proto))
-ck("GET_INFO 거부를 오류로 보고하지 않음", not any(e.get("why") == "UNKNOWN_COMMAND" for e in errs))
+ck("v1.1 펌웨어 판별(GET_INFO: proto 1.1, caps AID·MOT·FAULTS)", link.proto == "1.1" and link.fw_ok is True
+   and {"AID", "MOT", "FAULTS"} <= link.caps and link.mcu_flags is not None, str(link.proto))
+ck("판 불일치 오류 없음", not any(e.get("code") == "3-CM-001" for e in errs))
 
 link.send("ARM"); time.sleep(0.4)
 ck("ARM 반영", link.mcu_state == "ARMED", str(link.mcu_state))
@@ -263,10 +274,10 @@ n0 = len(errs)
 link.send("START_CPR"); time.sleep(0.4)
 ck("잘못된 상태 명령 거부", len(errs) > n0 and errs[-1]["code"] == "2-CU-011", str(errs[-1] if errs else ""))
 
-link.send("STIFFNESS_SCAN"); time.sleep(2.0)
-scan = [e for e in evts if e.get("evt") == "SCAN_RESULT"]
-ck("강성 스캔 결과", bool(scan) and len(scan[0].get("stiff", [])) == 8)
-link.send("SET_CP_POINT", idx=scan[0]["best_idx"] if scan else 0); time.sleep(0.4)
+link.send("SET_CP_POINT", offset_mm=0); time.sleep(0.6)
+cpz = [e for e in evts if e.get("evt") == "CP_ZERO_SET"]
+ck("압박 접촉 영점(SET_CP_POINT offset 0) → CP_ZERO_SET OK, CPR_READY",
+   bool(cpz) and cpz[-1].get("result") == "OK" and link.mcu_state == "CPR_READY", str(cpz[-1:]))
 n1 = len(errs)
 link.send("START_CPR"); time.sleep(0.4)
 ck("목표 미설정 시 구동 거부", len(errs) > n1 and errs[-1]["code"] == "2-CU-012", str(errs[-1]["code"] if errs else ""))
@@ -314,22 +325,26 @@ print("\n== 6. Jetson 재시작, Teensy 전원 유지 ==")
 # Teensy 를 별도 5 V 로 켜면(VIN, VUSB 분리) Jetson 재시작이 Teensy 를 리셋하지 않는다.
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "simulators"))
 from fake_teensy import FakeTeensy
+from fake_teensy_v11 import FakeTeensy11
 
-def session(ft, start, cmds):
-    sc = P.SeqCounter(start)
-    for c in cmds:
-        ft.handle({"v": 1, "t": "cmd", "seq": sc.next(), "cmd": c})
-
-ft = FakeTeensy(tel_hz=20, seed=1)
-session(ft, 1, ["GET_STATUS", "PING", "ARM"])
-session(ft, 1, ["GET_STATUS", "PING", "DISARM"])
-ck("같은 seq 재사용 시 실행 안 됨 (명세 §4.1, 시작 seq 고정의 위험)", ft.state == "ARMED", ft.state)
-ft2 = FakeTeensy(tel_hz=20, seed=1)
-session(ft2, 1, ["GET_STATUS", "PING", "ARM"])
-session(ft2, P.initial_seq(random.Random(7)), ["GET_STATUS", "PING", "DISARM"])
-ck("무작위 시작 seq면 재시작 뒤 명령 실행", ft2.state == "IDLE", ft2.state)
-for f in (ft, ft2):
-    os.close(f.master); os.close(f.slave)
+# v1.1: 오래된 요청은 seq 가 아니라 aid 로 가린다(§2.5). 젯슨만 재시작하면 GET_INFO 의 last_aid 다음부터 쓴다
+_rs = []
+ft = FakeTeensy11(seed=1, outbox=_rs, boot_id=500, settings={})
+ft.vac_released = True
+def _c6(seq, aid, cmd, **kw):
+    n = len(_rs)
+    ft.handle(dict({"v": 1, "t": "cmd", "seq": seq, "cmd": cmd, "bid": 500, "aid": aid}, **kw))
+    return [m for m in _rs[n:] if m.get("t") == "ack"][-1]
+_c6(7, 1, "ARM")
+a6 = _c6(1, 1, "SET_TARGET", depth_mm=50.0)
+ck("젯슨만 재시작하고 aid 를 1부터 다시 쓰면 실행 안 됨(SEQ_CONFLICT)", a6.get("why") == "SEQ_CONFLICT"
+   and ft.target_depth == 0, str(a6))
+n6 = len(_rs); ft.handle({"v": 1, "t": "cmd", "seq": 2, "cmd": "GET_INFO"})
+i6 = [m for m in _rs[n6:] if m.get("evt") == "INFO"][0]
+a6 = _c6(i6["last_seq"] + 1, i6["last_aid"] + 1, "SET_TARGET", depth_mm=50.0)
+ck("GET_INFO 의 last_seq·last_aid 다음부터 이어 쓰면 실행", a6.get("ok") and ft.target_depth == 50.0
+   and i6["last_aid"] == 1 and i6["last_seq"] == 7, str(i6))
+os.close(ft.master); os.close(ft.slave)
 ck("시작 seq 범위 1~65535", all(1 <= P.initial_seq() <= 65535 for _ in range(2000)))
 _orig = P.initial_seq
 P.initial_seq = lambda rng=None: 4242
@@ -523,7 +538,8 @@ class _RW(object):
     def write(self, b): self.out.append(P.decode(b))
     def close(self): pass
 def _lk():
-    k = TeensyLink(port="/nonexistent"); k.proto = "1.0"; k.connected = True; k._ser = _RW([])
+    k = TeensyLink(port="/nonexistent"); k.proto = "1.1"; k.caps = set(["AID", "MOT"]); k.boot_id = 7
+    k._aid = P.AidCounter(1); k.connected = True; k._ser = _RW([])
     return k
 lq = _lk()
 lq._ser.chunks = [b'{"broken\n', b'\n',
@@ -564,6 +580,63 @@ nl = TeensyLink(port="/nonexistent")
 ck("GET_INFO 확인 전: 비조회 명령은 보류, 조회·정지는 즉시",
    nl.send("ARM") is None and len(nl._deferred) == 1 and nl.send("PING") is not None
    and nl.send("STOP_CPR") is not None)
+
+# 판 확인: v1.1 만 받는다. v1.0 펌웨어는 GET_INFO 를 UNKNOWN_COMMAND 로 거부한다
+def _fwlink():
+    k = TeensyLink(port="/nonexistent"); k.connected = True; k._ser = _RW([])
+    e_, p_ = [], []
+    k.on_error, k.on_proto = e_.append, (lambda pr, inf: p_.append(pr))
+    k._handshake()
+    return k, e_, p_
+lm, em, pm = _fwlink()
+lm.send("ARM")
+lm._handle({"t": "ack", "seq": lm._info_seq, "ok": False, "err": "1-CM-005", "why": "UNKNOWN_COMMAND"})
+ck("v1.0 펌웨어(GET_INFO 거부) → 판 불일치 3-CM-001 한 번, fw_ok False, 판 알림",
+   lm.proto == "1.0" and lm.fw_ok is False and [e["code"] for e in em].count("3-CM-001") == 1
+   and pm == ["1.0"] and lm.fw_mismatch == "FW_NOT_V11:1.0", str(em))
+ck("판 불일치: 보류했던 ARM 은 보내지 않고(NOT_SENT) 새 ARM 도 보내지 않음",
+   "NOT_SENT:ARM" in [e.get("why") for e in em] and lm.send("ARM") is None
+   and "ARM" not in [m.get("cmd") for m in lm._ser.out])
+sp_, ss_ = lm.send("PING"), lm.send("STOP_CPR")
+ck("판 불일치: 조회와 정지 방향 명령은 보냄(bid·aid 없이)", sp_ is not None and ss_ is not None
+   and lm._ser.out[-1].get("cmd") == "STOP_CPR" and "aid" not in lm._ser.out[-1])
+lm2, em2, pm2 = _fwlink()
+lm2._handle({"t": "evt", "evt": "INFO", "seq": lm2._info_seq, "proto": "1.1", "caps": ["MOT"], "boot_id": 3})
+lm3, em3, pm3 = _fwlink()
+lm3._handle({"t": "evt", "evt": "INFO", "seq": lm3._info_seq, "proto": "1.1", "caps": ["AID", "MOT"], "boot_id": 3,
+             "last_seq": 40, "last_aid": 9})
+ck("INFO 에 AID 가 없으면 판 불일치, proto 1.1 과 AID 면 v1.1(seq·aid 이어 감)",
+   lm2.fw_ok is False and lm2.proto == "1.1-noAID" and pm2 == ["1.1-noAID"]
+   and [e["code"] for e in em2] == ["3-CM-001"]
+   and lm3.fw_ok is True and lm3._seq.next() == 41 and lm3._aid.next() == 10 and em3 == [], "%s %s" % (lm2.proto, em3))
+
+# GET_FAULTS(§3.5): err 를 못 받은 코드나 faults_more 면 전체 목록을 묻는다
+lf = TeensyLink(port="/nonexistent"); lf.connected = True; lf._ser = _RW([])
+lf.proto, lf.caps, lf.boot_id, lf._aid = "1.1", set(["AID", "MOT", "FAULTS"]), 9, P.AidCounter(1)
+ef = []; lf.on_error = ef.append
+def _gf(): return [m for m in lf._ser.out if m and m.get("cmd") == "GET_FAULTS"]
+lf._handle({"t": "tel", "tn": 1, "boot_id": 9, "state": "FAULT", "faults": ["3-CU-021"]})
+g1 = _gf()
+lf._handle({"t": "ack", "seq": g1[0]["seq"] if g1 else -1, "ok": True, "state": "FAULT"})
+lf._handle({"t": "err", "code": "3-CU-021", "sev": 3, "latched": True, "why": "FAULT_ACTIVE"})
+lf._handle({"t": "evt", "evt": "FAULTS_END", "seq": g1[0]["seq"] if g1 else -1, "n": 1})
+ck("err 를 못 받은 고장 코드 → GET_FAULTS, 처음 받는 코드는 평소처럼 처리(replay 아님), n 일치",
+   len(g1) == 1 and ef and not ef[-1].get("replay") and lf._faults_seq is None and lf.faults_full == ["3-CU-021"],
+   str(ef[-1:]))
+lf._faults_at -= 5
+lf._handle({"t": "tel", "tn": 2, "boot_id": 9, "state": "FAULT", "faults": ["3-CU-021"]})
+ck("GET_FAULTS: 같은 목록이면 다시 묻지 않음", len(_gf()) == 1)
+lf._faults_at -= 5
+lf._handle({"t": "tel", "tn": 3, "boot_id": 9, "state": "FAULT", "faults": ["3-CU-021", "2-VU-005"], "faults_more": True})
+g2 = _gf()
+lf._handle({"t": "err", "code": "3-CU-021", "sev": 3, "latched": True, "why": "FAULT_ACTIVE"})
+rp = ef[-1].get("replay") is True
+lf._handle({"t": "evt", "evt": "FAULTS_END", "seq": g2[-1]["seq"], "n": 3})
+ck("faults_more → GET_FAULTS, 이미 받은 코드는 replay 표시, n 불일치면 다음 텔레메트리에서 다시 묻기",
+   len(g2) == 2 and rp and lf._faults_sig is None and lf._faults_seq is None)
+lf._faults_at -= 5
+lf._handle({"t": "tel", "tn": 4, "boot_id": 9, "state": "FAULT", "faults": ["3-CU-021", "2-VU-005"], "faults_more": True})
+ck("GET_FAULTS: 불일치 뒤 다시 요청", len(_gf()) == 3)
 
 print("\n== 8. v1.1 실물 연결 (가상 포트) ==")
 sim3 = subprocess.Popen([sys.executable, "-u", os.path.join(SIMDIR, "fake_teensy.py"),
@@ -610,6 +683,25 @@ ck("Jetson 재시작: INFO last_aid 다음부터 aid", l4.proto == "1.1" and l4.
    "last_aid=%s" % last_aid)
 l4.stop(); sim3.terminate(); sim3.wait()
 try: os.remove("/tmp/ttyFAKE_V11")
+except OSError: pass
+
+print("\n== 8-2. v1.0 펌웨어 연결 → 판 불일치 (가상 포트) ==")
+sim10 = subprocess.Popen([sys.executable, "-u", os.path.join(SIMDIR, "fake_teensy.py"),
+    "--port", "/tmp/ttyFAKE_V10", "--hz", "20", "--seed", "4", "--quiet", "--fw", "1.0"],
+    stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+time.sleep(1.2)
+t10, r10, p10 = [], [], []
+l10 = TeensyLink(port="/tmp/ttyFAKE_V10", on_telemetry=t10.append, on_error=r10.append,
+                 on_proto=lambda pr, inf: p10.append(pr)).start()
+time.sleep(1.5)
+ck("v1.0 펌웨어: 판 불일치(3-CM-001 FW_NOT_V11:1.0) 한 번, 텔레메트리는 계속 받음",
+   l10.proto == "1.0" and l10.fw_ok is False and p10 == ["1.0"] and len(t10) > 5
+   and [e.get("why") for e in r10 if e.get("code") == "3-CM-001"] == ["FW_NOT_V11:1.0"], str(r10[:3]))
+ck("v1.0 펌웨어: ARM 은 보내지 않아 장치 상태 그대로(IDLE)", l10.send("ARM") is None and (time.sleep(0.4) or True)
+   and l10.mcu_state == "IDLE", str(l10.mcu_state))
+ck("v1.0 펌웨어: 하트비트(PING) 응답이 와서 ACK 시간 초과 없음", not any(e.get("code") == "2-CM-002" for e in r10))
+l10.stop(); sim10.terminate(); sim10.wait()
+try: os.remove("/tmp/ttyFAKE_V10")
 except OSError: pass
 
 print("\n== 9. 압박점 탐색 판정과 지휘 (search.py) ==")
@@ -759,7 +851,13 @@ dv, lk, rn, done = rig(cfg=dict(SCFG, tip_ref_n=None))
 ck("탐색 설정값 하나라도 없음 → 시작 안 함", rn.start(205.8) is False and done[-1][1]["reason"] == "PARAM_UNSET"
    and "tip_ref_n" in done[-1][1]["detail"] and lk.log == [])
 dv, lk, rn, done = rig(proto="1.0")
-ck("v1.0 펌웨어 → 탐색 끔", rn.start(205.8) is False and done[-1][1]["reason"] == "UNSUPPORTED" and lk.log == [])
+ck("v1.1 이 아닌 펌웨어 → 탐색 끔(FW_VERSION), 명령 없음",
+   rn.start(205.8) is False and done[-1][1]["reason"] == "FW_VERSION" and lk.log == [])
+dv, lk, rn, done = rig()
+lk.caps = set(["MOT", "AID", "FAULTS"])
+ck("v1.1 이지만 주행·헤드 기능 없음(caps) → 탐색 끔(UNSUPPORTED, 빠진 기능), 명령 없음",
+   rn.start(205.8) is False and done[-1][1]["reason"] == "UNSUPPORTED"
+   and done[-1][1]["detail"] == "DRIVE,HEAD_HOLD" and lk.log == [], str(done[-1][1]))
 dv, lk, rn, done = rig()
 rn.start(250.0); drive(lk, rn)
 ck("EAPD 250 → D 상한 95", rn.snapshot()["D_mm"] == 95.0 and rn.phase == "done")
@@ -981,8 +1079,17 @@ ck("원점 대기: 시간 제한은 설정이 있을 때만(비어 있으면 검
 lk, rn, evs, clk = irig(); rn.start(); iack(rn, lk); lk.connected = False; rn.on_link(False)
 w = rn.step == "wait_link"; lk.connected = True; rn.on_link(True)
 ck("초기화: INIT_DONE 전 링크 끊김 → 다시 연결되면 PING 부터", w and cmds(lk) == ["PING", "GET_STATUS", "PING"], str(cmds(lk)))
-lk, rn, evs, clk = irig(ready=False); rn.start(); n0 = len(lk.sent); lk.proto = "1.0"; rn.tick()
-ck("초기화: 펌웨어 판 확인 전에는 보내지 않고 기다림", n0 == 0 and cmds(lk) == ["PING"])
+lk, rn, evs, clk = irig(ready=False); rn.start(); n0 = len(lk.sent); rn.tick(); w0 = lk.sent == [] and rn.step == "wait_link"
+lk.proto = "1.1"; rn.tick()
+ck("초기화: 펌웨어 판 확인 전에는 보내지 않고 기다림, v1.1 확인 뒤 PING", n0 == 0 and w0 and cmds(lk) == ["PING"])
+lk, rn, evs, clk = irig(ready=False); rn.start(); lk.proto = "1.0"; rn.tick()
+ck("초기화: v1.1 이 아닌 펌웨어 → 기다리지 않고 INIT_ERROR(FW_VERSION:1.0), 명령 없음",
+   lk.sent == [] and evs and evs[-1][0] == "INIT_ERROR" and rn.reason == "FW_VERSION:1.0", str(rn.reason))
+lk, rn, evs, clk = irig(ready=False); rn.start(); lk.proto = "1.0"
+_fm = {"code": "3-CM-001", "sev": 3, "why": "FW_NOT_V11:1.0"}
+h0 = rn.handles(_fm); rn.on_error(_fm)
+ck("초기화: 연결 대기 중 링크의 판 불일치 오류는 절차가 받아 INIT_ERROR(브리지의 안전정지 경로로 가지 않음)",
+   h0 and rn.reason == "FW_VERSION:1.0" and not rn.handles(_fm))
 
 # 상태머신과 함께: 원점 대기 중 오류는 X_MOVE 에서도 S10, 확인 뒤 S1 처음부터
 fi = StateMachine(); lk, _, _, clk = irig()
@@ -997,14 +1104,15 @@ ck("상태머신 연동: HOME ACK → X_MOVE, 원점 대기 중 비상정지 →
 class _W(object):
     def __init__(self): self.out = []
     def write(self, b): self.out.append(P.decode(b)["cmd"])
-lw = TeensyLink(port="/nonexistent"); lw._ser = _W(); lw.proto = "1.0"; lw.connected = True
+lw = TeensyLink(port="/nonexistent"); lw._ser = _W(); lw.proto = "1.1"; lw.caps = set(["AID"]); lw.boot_id = 3
+lw._aid = P.AidCounter(1); lw.connected = True
 lw.send("PAUSE_CPR"); lw.send("STOP_CPR")
 ck("링크: PAUSE_CPR 응답을 기다리지 않고 STOP_CPR 송신", lw._ser.out == ["PAUSE_CPR", "STOP_CPR"], str(lw._ser.out))
 
-# 브리지 + 가상 포트(모의 Teensy v1.0)
+# 브리지 + 가상 포트(모의 Teensy v1.1, 시뮬레이션 설정)
 import argparse, tempfile
 sim6 = subprocess.Popen([sys.executable, "-u", os.path.join(SIMDIR, "fake_teensy.py"),
-    "--port", "/tmp/ttyFAKE_INIT", "--hz", "20", "--seed", "6", "--quiet"],
+    "--port", "/tmp/ttyFAKE_INIT", "--hz", "20", "--seed", "6", "--quiet", "--time-scale", "0.05"],
     stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
 time.sleep(1.2)
 br = B.Bridge(argparse.Namespace(serial="/tmp/ttyFAKE_INIT", logdir=tempfile.mkdtemp(), spec=None, port=0))
@@ -1676,7 +1784,7 @@ from saver.unit_demo import UnitDemo, STEP_TIMEOUT_S, STATUS_TEL_S
 
 class _UL(object):
     """유닛 시연 시험용 링크. 명령을 기록하고 seq 를 돌려준다. 장치 응답은 시험이 넣는다."""
-    def __init__(self, proto="1.0"):
+    def __init__(self, proto="1.1"):
         self.connected, self.proto, self.caps, self.mcu_state = True, proto, set(), None
         self.sent, self.n = [], 500
     def send(self, cmd, **kw):
@@ -1695,7 +1803,7 @@ class _SR(object):
         self.calls.append(("cancel", reason)); self.active = False
 
 
-def urig(cfg=None, proto="1.0", eapd=None):
+def urig(cfg=None, proto="1.1", eapd=None):
     lk, sr, clk, pushed = _UL(proto), _SR(), {"t": 0.0}, []
     c = {"target_bpm": 110, "target_depth_mm": 0, "force_max_N": 0, "vacuum_target_kPa": 0}
     c.update(cfg or {})
@@ -1836,8 +1944,11 @@ lk, ud, sr, clk, pushed = urig(CP); lk.connected = False
 ud.request("compress", "enter"); ud.request("compress", "start")
 lk2, ud2, _, _, _ = urig(CP, proto=None)
 ud2.request("compress", "enter"); ud2.request("compress", "start")
-ck("장치 미연결 → NOT_CONNECTED, 펌웨어 판 확인 전 → LINK_CHECKING (명령 없음)",
-   ud.reason == "NOT_CONNECTED" and ud2.reason == "LINK_CHECKING" and lk.sent == [] and lk2.sent == [])
+lk3, ud3, _, _, _ = urig(CP, proto="1.0")
+ud3.request("compress", "enter"); ud3.request("compress", "start")
+ck("장치 미연결 → NOT_CONNECTED, 펌웨어 판 확인 전 → LINK_CHECKING, v1.1 아님 → FW_VERSION (명령 없음)",
+   ud.reason == "NOT_CONNECTED" and ud2.reason == "LINK_CHECKING" and ud3.reason == "FW_VERSION"
+   and lk.sent == [] and lk2.sent == [] and lk3.sent == [])
 
 VC = {"vacuum_target_kPa": -22.5}
 lk, ud, sr, clk, pushed = urig(VC)
@@ -1870,7 +1981,7 @@ lk, ud, sr, clk, pushed = urig()
 ud.request("drive", "enter"); ud.request("drive", "start"); uack(ud, lk); utel(ud, lk, "IDLE")
 d1 = sr.calls == [("start", None)] and "ARM" not in ucmds(lk)
 ud.on_search_done(False, {"phase": "failed", "reason": "PARAM_UNSET"})
-ck("구동: 탐색 조건이 안 되면(설정 없음, v1.0) ARM 없이 탐색 모듈에 맡겨 사유를 받음(PARAM_UNSET)",
+ck("구동: 탐색 조건이 안 되면(설정 없음, 주행 기능 없음) ARM 없이 탐색 모듈에 맡겨 사유를 받음(PARAM_UNSET)",
    d1 and ud.phase == "failed" and ud.reason == "PARAM_UNSET", str(sr.calls))
 SIMCFG = dict((k, v) for k, v in json.load(open(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
                                                            "config.sim.json"))).items() if not k.startswith("_"))
@@ -1897,7 +2008,7 @@ ck("환자 상태: 시작할 장치 동작 없음(NO_ACTION), 명령 없음",
 ck("유닛 이름, 동작 이름 검사", urig()[1].request("x", "enter") == (False, "UNKNOWN_UNIT")
    and urig()[1].request("compress", "jump") == (False, "UNKNOWN_ACTION"))
 
-# 브리지 + 모의 Teensy(v1.0): 시연 모드는 연결만으로 ARM, HOME 을 보내지 않는다
+# 브리지 + 모의 Teensy(v1.1): 시연 모드는 연결만으로 ARM, HOME 을 보내지 않는다
 _udkeep = dict((k, B.CONFIG.get(k)) for k in ("target_depth_mm", "force_max_N", "vacuum_target_kPa"))
 
 
@@ -1924,7 +2035,7 @@ def _ud_wait(b_, cond, limit):
 
 def _ud_sim(port, extra=()):
     p_ = subprocess.Popen([sys.executable, "-u", os.path.join(SIMDIR, "fake_teensy.py"), "--port", port, "--hz", "20",
-                           "--seed", "8", "--quiet"] + list(extra),
+                           "--seed", "8", "--quiet", "--time-scale", "0.05"] + list(extra),
                           stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
     time.sleep(1.2)
     return p_
@@ -1934,7 +2045,7 @@ B.CONFIG.update({"target_depth_mm": 50, "force_max_N": 600, "vacuum_target_kPa":
 simu = _ud_sim("/tmp/ttyFAKE_UD", ["--bench"])
 bu, sentu, pushu = _ud_bridge("/tmp/ttyFAKE_UD")
 bu.link.start()
-up_ = _ud_wait(bu, lambda: bu.link.connected and bu.link.proto == "1.0" and bu.link.mcu_state == "IDLE", 6.0)
+up_ = _ud_wait(bu, lambda: bu.link.connected and bu.link.proto == "1.1" and bu.link.mcu_state == "IDLE", 6.0)
 time.sleep(1.0)
 moving = [c for c, _ in sentu if c not in ("PING", "GET_STATUS", "GET_INFO")]
 ck("브리지 시연 모드: 장치 연결만으로 ARM, HOME 등 동작 명령 없음, 상태머신 흐름 기록 없음",
@@ -1970,11 +2081,11 @@ bu.link.stop(); simu.terminate(); simu.wait()
 simn = _ud_sim("/tmp/ttyFAKE_UD2")
 bn, sentn, pushn = _ud_bridge("/tmp/ttyFAKE_UD2")
 bn.link.start()
-_ud_wait(bn, lambda: bn.link.connected and bn.link.proto == "1.0" and bn.link.mcu_state == "IDLE", 6.0)
+_ud_wait(bn, lambda: bn.link.connected and bn.link.proto == "1.1" and bn.link.mcu_state == "IDLE", 6.0)
 bn.unit_msg({"type": "unit", "unit": "compress", "action": "enter"})
 bn.unit_msg({"type": "unit", "unit": "compress", "action": "start"})
 rj_ = _ud_wait(bn, lambda: bn.units.phase == "failed", 8.0)
-ck("브리지 + 모의 Teensy(표준 v1.0): 흡착 없는 압박 시작은 장치가 거부(NOT_READY), 화면에 사유",
+ck("브리지 + 모의 Teensy(표준 v1.1): 흡착 없는 압박 시작은 장치가 거부(NOT_READY), 화면에 사유",
    rj_ and bn.units.reason == "NOT_READY" and bn.link.mcu_state == "HOMED",
    "%s %s %s" % (bn.units.phase, bn.units.reason, bn.link.mcu_state))
 bn.link.stop(); simn.terminate(); simn.wait()

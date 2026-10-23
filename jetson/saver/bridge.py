@@ -176,7 +176,9 @@ class Bridge(object):
                                on_link=self._on_link,
                                on_mot=self._on_mot,
                                on_ack=self._on_ack,
+                               on_proto=self._on_proto,
                                logger=self.log)
+        self._link_port = None
         self.search = SearchRunner(self.link, CONFIG, on_update=self._on_search,
                                    on_done=self._on_search_done, logger=self.log)
         # S1 초기화 절차(v2.4, D-46): ACK 와 장치 상태를 보며 PING → GET_STATUS → ARM/HOME 을 차례로 보낸다
@@ -313,12 +315,17 @@ class Bridge(object):
         out = {"type": "error", "code": msg.get("code", ""), "sev": sev,
                "why": msg.get("why", ""), "latched": bool(msg.get("latched")),
                "desc": P.ERR.get(msg.get("code", ""), "")}
+        if msg.get("replay"):
+            out["replay"] = True
         self.push(out)
+        if msg.get("replay"):
+            return                            # GET_FAULTS 로 다시 받은 이미 아는 고장: 표시만 한다(v1.1 §3.5)
         if self.unit_demo:
             self.units.on_error(msg)          # 시연 모드: 상태머신 대신 유닛 동작을 멈추고 실패로 알린다
             return
-        if self.init.owns(msg.get("seq")):
-            # 초기화 명령의 거부·무응답은 절차가 INIT_ERROR → S10 으로 처리한다(장치 상태표, D-46)
+        if self.init.handles(msg):
+            # 초기화 명령의 거부·무응답, 연결 대기 중 펌웨어 판 불일치는 절차가 INIT_ERROR → S10 으로
+            # 처리한다(장치 상태표, D-46). 동작 중이 아니므로 안전정지(S11)로 보내지 않는다
             self.init.on_error(msg)
             return
         if sev >= 3:                       # 위험 → 안전정지
@@ -395,11 +402,26 @@ class Bridge(object):
         self._link_logged_at = time.monotonic()
         self.log.link(self.link.link_stats())
 
+    def link_msg(self):
+        """UI 로 보내는 링크 상태. fw_ok: None=펌웨어 판 확인 전, True=v1.1, False=판 불일치."""
+        up = bool(self.link.connected)
+        m = {"type": "link", "connected": up, "port": self._link_port,
+             "proto": self.link.proto if up else None, "fw_ok": self.link.fw_ok if up else None}
+        fw = (self.link.info or {}).get("fw")
+        if fw:
+            m["fw"] = fw
+        return m
+
+    def _on_proto(self, proto, info):
+        self.log.event("sys", "FW:%s:%s" % (proto, (info or {}).get("fw", "")))
+        self.push(self.link_msg())
+
     def _on_link(self, connected, port):
         self.log.event("sys", "LINK_UP" if connected else "LINK_DOWN")
         if not connected:
             self.log_link()
-        self.push({"type": "link", "connected": connected, "port": port})
+        self._link_port = port
+        self.push(dict(self.link_msg(), connected=connected, port=port))
         if self.unit_demo:
             running = self.units.unit == "compress" and self.units.phase == "running"
             self.units.on_link(connected)
@@ -418,7 +440,7 @@ class Bridge(object):
         self.clients.add(ws)
         if not self.unit_demo:                  # 시연 모드는 상태머신 흐름을 돌리지 않는다(UI 전체 흐름은 모형)
             await ws.send(json.dumps(dict(self.fsm.snapshot(), type="state", event="SYNC")))
-        await ws.send(json.dumps({"type": "link", "connected": self.link.connected}))
+        await ws.send(json.dumps(self.link_msg()))
         await ws.send(json.dumps(self.config_msg()))
         await ws.send(json.dumps(self.radar_snapshot(), ensure_ascii=False))
         if self.unit_demo:

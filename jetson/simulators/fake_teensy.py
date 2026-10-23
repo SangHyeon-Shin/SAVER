@@ -6,15 +6,17 @@
 가상 시리얼 포트(pty)를 만들기 때문에 Jetson 코드는 진짜 장비와 완전히 같은
 경로(pyserial → /dev/pts/N)로 접속합니다. 코드에 "가짜용 분기"가 생기지 않습니다.
 
-명세: protocol/teensy_usb_protocol_v1.md v1.0
+명세: protocol/teensy_usb_protocol_v1.md v1.1
+젯슨은 v1.1 펌웨어하고만 동작하므로 기본은 v1.1 모의 장치(fake_teensy_v11.py)입니다.
+이 파일의 FakeTeensy 는 v1.0 펌웨어 모의로 남겨 두며(--fw 1.0), 젯슨의 판 불일치 처리 시험에 씁니다.
 Teensy 실물 구현과 동작이 일치해야 합니다. 다르면 명세를 고치고 양쪽을 맞추세요.
-v1.1 초안(주행 탐색, bid·aid, mot)은 fake_teensy_v11.py 에 있습니다(--fw 1.1).
 
 실행
-  python3 fake_teensy.py                      # 포트 경로를 출력하고 대기
+  python3 fake_teensy.py                      # v1.1, 시뮬레이션 설정(teensy_settings.sim.json). 포트 경로를 출력하고 대기
   python3 fake_teensy.py --port /tmp/ttyFAKE  # 심볼릭 링크까지 생성
   python3 fake_teensy.py --scenario overcurrent@15
-  python3 fake_teensy.py --fw 1.1 --sim-settings      # v1.1 초안, 시뮬레이션 설정으로 탐색 명령 허용
+  python3 fake_teensy.py --no-settings        # 설정값을 모두 비운 v1.1(실물 펌웨어 기본과 같음: ARM, HOME 거부)
+  python3 fake_teensy.py --fw 1.0             # v1.0 펌웨어 모의(젯슨은 판 불일치로 처리)
   python3 fake_teensy.py --bench              # 결선 시연 제안: 흡착 없이 압박 시연 허용(실물 펌웨어 미구현, D-51)
 
 ※ 백그라운드(&)로 돌리려면 stdin 을 끊어야 합니다. 터미널을 읽는 백그라운드
@@ -133,6 +135,10 @@ class FakeTeensy(object):
 
     # ── 텔레메트리 ──────────────────────────────────────────
     def telemetry(self):
+        self._send(self.tel_msg())
+
+    def tel_msg(self):
+        """한 주기 텔레메트리(v1.0 필드). v1.1 모의 장치는 이 값에 tn·boot_id 와 자기 상태를 더한다."""
         import math
         t = time.time() - self.t0
         m = {"t": "tel", "ms": self.ms(), "state": self.state}
@@ -171,7 +177,7 @@ class FakeTeensy(object):
         m["limit_bottom"] = False
         m["vac_leak"] = self.leak
         m["faults"] = [self.fault] if self.fault else []
-        self._send(m)
+        return m
 
     # ── 명령 처리 ───────────────────────────────────────────
     def require(self, seq, need, why):
@@ -385,10 +391,12 @@ def main():
     ap.add_argument("--fifo", default=None,
                     help="고장 주입용 FIFO 경로. 백그라운드 실행 시 사용")
     ap.add_argument("--quiet", action="store_true")
-    ap.add_argument("--fw", choices=("1.0", "1.1"), default="1.0",
-                    help="1.1: 프로토콜 v1.1 초안 모의(fake_teensy_v11.py)")
-    ap.add_argument("--sim-settings", nargs="?", const="__default__", default=None,
-                    help="v1.1 설정값 JSON(시뮬레이션 전용). 값 없이 쓰면 teensy_settings.sim.json")
+    ap.add_argument("--fw", choices=("1.0", "1.1"), default="1.1",
+                    help="1.1(기본): 프로토콜 v1.1 모의(fake_teensy_v11.py). 1.0: v1.0 펌웨어 모의(판 불일치 시험용)")
+    ap.add_argument("--sim-settings", nargs="?", const="__default__", default="__default__",
+                    help="v1.1 설정값 JSON(시뮬레이션 전용). 기본 teensy_settings.sim.json")
+    ap.add_argument("--no-settings", action="store_true",
+                    help="v1.1 설정값을 모두 비운다(실물 펌웨어 기본과 같이 ARM·HOME·탐색 명령을 거부)")
     ap.add_argument("--time-scale", type=float, default=1.0, help="v1.1 동작 소요 시간 배율")
     ap.add_argument("--bench", action="store_true",
                     help="결선 시연 제안(D-51): 흡착 없이 HOMED 에서 START_CPR 허용. 실물 펌웨어에는 아직 없다(한건민 합의 전)")
@@ -397,14 +405,14 @@ def main():
     if a.fw == "1.1":
         from fake_teensy_v11 import FakeTeensy11
         settings = None
-        if a.sim_settings:
+        if a.sim_settings and not a.no_settings:
             path = a.sim_settings
             if path == "__default__":
                 path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "teensy_settings.sim.json")
             with open(path) as f:
                 settings = dict((k, v) for k, v in json.load(f).items() if not k.startswith("_"))
             print("[주의] 시뮬레이션 설정을 불러왔습니다(%s). 실기에 쓰지 마세요." % path)
-        fake = FakeTeensy11(tel_hz=a.hz, seed=a.seed, settings=settings, time_scale=a.time_scale)
+        fake = FakeTeensy11(tel_hz=a.hz, seed=a.seed, settings=settings, time_scale=a.time_scale, bench=a.bench)
     else:
         fake = FakeTeensy(tel_hz=a.hz, seed=a.seed, bench=a.bench)
     link = None

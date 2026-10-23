@@ -1,16 +1,21 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""SAVER USB 프로토콜 v1.0 + v1.1 초안(docs/protocol_v1.1_draft.md) — Jetson 측 구현
+"""SAVER USB 프로토콜 v1.1 — Jetson 측 구현
 
-명세: protocol/teensy_usb_protocol_v1.md
-Teensy 측 대응 구현: teensy/saver_proto.h
+명세: protocol/teensy_usb_protocol_v1.md (v1.1, 2026-10-23. v1.1 합의본 docs/protocol_v1.1_draft.md 를 반영)
+Teensy 측 대응 구현: teensy/saver_proto.h, teensy/saver_v11.h
+
+젯슨은 v1.1 펌웨어하고만 동작한다. 와이어 버전 "v" 는 v1.0 과 같은 1 이고, 펌웨어 판은
+GET_INFO 의 proto("1.1")와 caps(AID)로 확인한다. v1.0 펌웨어는 판 불일치(3-CM-001)로 다룬다.
 
 Python 3.6 (JetPack 4.6.x) 호환. f-string·dataclass·walrus 사용하지 않습니다.
 """
 import json
 import random
 
-PROTO_VERSION = 1
+PROTO_VERSION = 1           # 와이어 버전("v"). v1.1 도 1 이다(명세 §2.4)
+PROTO_REV = "1.1"           # 펌웨어 판. GET_INFO 의 proto 가 이 값이고 caps 에 REQUIRED_CAPS 가 있어야 한다
+REQUIRED_CAPS = ("AID",)    # bid·aid 규칙(§2.5). 없으면 v1.1 명령 의미를 쓸 수 없다
 MAX_LINE = 512
 MAX_BODY = MAX_LINE - 1     # 줄 끝 LF 를 뺀 본문 한도 (v1.1 §3.4)
 
@@ -20,7 +25,7 @@ CMD = [
     "VACUUM_ON", "VACUUM_OFF", "STIFFNESS_SCAN", "SET_CP_POINT",
     "TRIAL_COMPRESSION", "START_CPR", "PAUSE_CPR", "RESUME_CPR",
     "STOP_CPR", "RESET_FAULT", "SET_TEL_RATE",
-    # v1.1 초안 §2
+    # v1.1 §2
     "GET_INFO", "GET_FAULTS", "DRIVE_STEP", "DRIVE_STOP", "HEAD_HOLD",
 ]
 
@@ -64,7 +69,7 @@ ERR = {
     "2-MU-011": "구동부 온도 경고",
     "3-MU-001": "전원 전압 하한 미달",
     "3-MU-002": "비상정지 작동",
-    # v1.1 초안 §6 (운반 유닛 TU, 음압 해제)
+    # v1.1 §6 (운반 유닛 TU, 음압 해제)
     "2-TU-001": "주행 방향 이탈",
     "2-TU-002": "기울기 초과",
     "3-TU-003": "탐색 반력 상한 초과",
@@ -146,7 +151,7 @@ def build_cmd(seq, cmd, **kw):
 
 
 class SeqCounter(object):
-    """1~65535 순환 (명세 §4.1)"""
+    """1~65535 순환 (명세 §4.1, v1.1 §2.5)"""
 
     def __init__(self, start=1):
         self._n = start
@@ -174,9 +179,9 @@ class AidCounter(object):
 def initial_seq(rng=None):
     """세션 시작 seq (1~65535 중 무작위).
 
-    Teensy 는 최근 8개 seq 를 기억하고 같은 seq 는 실행하지 않는다(명세 §4.1).
-    Teensy 가 별도 전원으로 켜져 있는 채 Jetson 만 재시작하면, 1부터 다시 세는
-    seq 가 직전 세션과 겹쳐 새 명령이 ACK 만 받고 실행되지 않는다.
-    시작값을 무작위로 두어 겹칠 확률을 명령당 8/65535 이하로 낮춘다.
+    v1.1 에서 오래된 요청은 seq 가 아니라 aid 로 가린다(명세 §2.5). seq 는 ACK 짝 맞추기에만 쓰고,
+    GET_INFO 를 받으면 last_seq + 1 부터 이어 간다. 그 전에 나가는 조회(GET_INFO, PING)는
+    매번 새로 실행되지만, Jetson 만 재시작했을 때 직전 세션의 늦은 ACK 와 짝이 섞이지 않게
+    시작값은 무작위로 둔다.
     """
     return (rng or random.SystemRandom()).randint(1, 65535)

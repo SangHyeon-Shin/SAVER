@@ -11,7 +11,7 @@
   compress  IDLE: ARM → HOME(원점 완료) → SET_TARGET → START_CPR            STOP_CPR
             ARMED: HOME 부터. HOMED·VACUUM_HOLD·CPR_READY: SET_TARGET 부터
   vacuum    IDLE: ARM → HOME(원점 완료) → VACUUM_ON → VACUUM_OK               VACUUM_OFF
-  drive     IDLE: ARM → 압박점 탐색(search.py, v1.1 초안 명령)               탐색 중지(DRIVE_STOP)
+  drive     IDLE: ARM → 압박점 탐색(search.py, v1.1 명령)               탐색 중지(DRIVE_STOP)
 
 규칙
 - 진입만으로 움직이지 않는다. 시작은 화면에서 사람이 눌러야 한다(자동 시작 없음).
@@ -302,6 +302,8 @@ class UnitDemo(object):
             self._fail("NOT_CONNECTED")
         elif self.link.proto is None:
             self._fail("LINK_CHECKING")         # 펌웨어 판(GET_INFO) 확인 전. 잠시 뒤 다시
+        elif self.link.proto != P.PROTO_REV:
+            self._fail("FW_VERSION")            # v1.1 펌웨어가 아님. 장치로 동작 명령을 보내지 않는다
         elif unit == "compress" and not self.cfg.get("target_depth_mm"):
             self._fail("TARGET_NOT_SET")        # 미확정 목표로 움직이지 않는다(원점 복귀도 하지 않음)
         else:
@@ -368,7 +370,7 @@ class UnitDemo(object):
         p, bad = S.check_params(self.cfg)
         if bad:
             return False
-        if self.link.proto != "1.1" or not set(S.NEED_CAPS) <= set(self.link.caps or ()):
+        if self.link.proto != P.PROTO_REV or not set(S.NEED_CAPS) <= set(self.link.caps or ()):
             return False
         return S.cp_distance(eapd, p) is not None
 

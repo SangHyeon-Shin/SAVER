@@ -8,9 +8,12 @@
   - 명령 seq 부여, ACK 대기 200 ms, 재전송 2회, 그 후 통신 오류
   - 텔레메트리 stale 판정 (500 ms)
   - 하트비트 PING 1 s
-  - v1.1 초안: 연결마다 GET_INFO 먼저, 비조회 명령에 bid·aid, mot 수신과 tel 짝 맞춤,
-    재부팅(boot_id 변화) 감지, tn 역전 폐기, 장치 플래그(mcu_flags)
-  - 완료 이벤트 유실 때 같은 seq·aid 재전송(resend, 초안 §4.4)
+  - 프로토콜 v1.1(명세 §2.4~3.5): 연결마다 GET_INFO 먼저, 비조회 명령에 bid·aid, mot 수신과 tel 짝 맞춤,
+    재부팅(boot_id 변화) 감지, tn 역전 폐기, 장치 플래그(mcu_flags), faults 가 잘리거나 err 를 못 받은
+    코드가 있으면 GET_FAULTS
+  - 펌웨어 판 확인: v1.1(proto "1.1", caps AID)만 받는다. v1.0 펌웨어(GET_INFO 거부)나 다른 판이면
+    판 불일치(3-CM-001)를 한 번 알리고, 조회와 정지 방향 명령 말고는 보내지 않는다
+  - 완료 이벤트 유실 때 같은 seq·aid 재전송(resend, §4.4)
   - 경과 시간은 단조 시계(time.monotonic)
   - 링크 품질 기록: 끊김, 버린 줄, 재전송, 재부팅 등 누적 횟수(link_stats).
     10/11(모터 없이)과 10/12(모터 구동)를 같은 항목으로 비교하기 위한 것(docs/noise_emi.md)
@@ -102,10 +105,11 @@ class TeensyLink(object):
 
     DEFER_MAX_S = 2.0       # GET_INFO 응답 전 보류한 명령의 유효 시간. 넘으면 보내지 않는다
     SENT_KEEP = 64
+    FAULTS_GAP_S = 1.0      # GET_FAULTS 를 다시 보내기 전 최소 간격(같은 원인으로 연달아 묻지 않게)
 
     def __init__(self, port=None, baud=115200,
                  on_telemetry=None, on_event=None, on_error=None, on_link=None,
-                 logger=None, seq_start=None, on_mot=None, on_ack=None):
+                 logger=None, seq_start=None, on_mot=None, on_ack=None, on_proto=None):
         self.port_hint = port
         self.baud = baud
         self.on_telemetry = on_telemetry or (lambda m: None)
@@ -114,6 +118,7 @@ class TeensyLink(object):
         self.on_link = on_link or (lambda connected, port: None)
         self.on_mot = on_mot or (lambda m: None)
         self.on_ack = on_ack or (lambda m: None)
+        self.on_proto = on_proto or (lambda proto, info: None)   # 펌웨어 판 확인 결과(연결마다)
         self.log = logger
 
         self._ser = None
@@ -130,8 +135,9 @@ class TeensyLink(object):
         self.last_tel = {}
         self.comm_fault = False
 
-        # v1.1 초안
-        self.proto = None               # None=확인 전, "1.0", "1.1"
+        # v1.1
+        self.proto = None               # None=확인 전, "1.1"=맞음, 그 밖("1.0" 등)=판 불일치
+        self.fw_mismatch = None         # 판 불일치 사유(없으면 None)
         self.info = {}
         self.caps = set()
         self.boot_id = None
@@ -144,6 +150,13 @@ class TeensyLink(object):
         self._tn_last = {}              # "tel"/"mot" -> (boot_id, tn)
         self._pair = None               # (tel, mot, 수신 시각): 같은 tn 의 짝
         self._sent = collections.OrderedDict()   # seq -> 보낸 비조회 명령(재전송용, 최근 SENT_KEEP 개)
+        # GET_FAULTS(§3.5): 받은 err 코드, 진행 중인 요청 seq·받은 err 줄 수, 마지막 요청 시각, 마지막 목록
+        self._err_seen = set()
+        self._faults_seq = None
+        self._faults_rx = 0
+        self._faults_at = 0.0
+        self._faults_sig = None
+        self.faults_full = []
 
         # 링크 품질 기록(누적). 송신은 다른 스레드에서도 불리므로 별도 잠금
         self._stat_lock = threading.Lock()
@@ -183,6 +196,7 @@ class TeensyLink(object):
         self.comm_fault = False
         self._was_stale = True          # 새 텔레메트리가 올 때까지는 끊김 중이라 stale 로 다시 세지 않는다
         self._count("link_up")
+        self.proto, self.fw_mismatch = None, None   # 새 연결: 펌웨어 판은 GET_INFO 로 다시 확인한다
         self.on_link(True, path)
         self._handshake()               # v1.1: 다른 명령보다 먼저 GET_INFO (§2.4)
         self.send("GET_STATUS")         # 재연결 시 상태 재동기화 (명세 §9)
@@ -190,10 +204,20 @@ class TeensyLink(object):
 
     def _handshake(self):
         self.proto = None
+        self.fw_mismatch = None
         self._info_at = time.monotonic()
         self._info_seq = self.send("GET_INFO")
 
+    @property
+    def fw_ok(self):
+        """펌웨어 판 확인 결과. None=확인 전, True=v1.1, False=판 불일치."""
+        if self.proto is None:
+            return None
+        return self.proto == P.PROTO_REV
+
     def _set_proto(self, proto, info=None):
+        if proto != P.PROTO_REV:
+            return self._mismatch(proto, info)
         self.proto = proto
         if info is not None:
             self.info = info
@@ -214,9 +238,31 @@ class TeensyLink(object):
                 self.send(cmd, **kw)
             else:
                 self.on_error({"code": "2-CM-002", "sev": 2, "why": "NOT_SENT:" + cmd})
+        self._notify_proto()
+
+    def _mismatch(self, proto, info=None):
+        """v1.1 이 아닌 펌웨어. 판 불일치를 한 번 알리고, 보류한 명령은 보내지 않는다(명세 §2.4).
+        조회(PING, GET_STATUS)와 정지 방향 명령은 계속 보낸다(통신 감시 유지, 정지 요청은 막지 않는다)."""
+        self.proto = str(proto or "?")
+        self.info = dict(info) if info else {}
+        self.caps = set(self.info.get("caps") or [])
+        self.fw_mismatch = "FW_NOT_V11:" + self.proto
+        if self.log:
+            self.log.event("sys", "PROTO_MISMATCH_" + self.proto)
+        pend, self._deferred = self._deferred, []
+        for cmd, kw, at in pend:
+            self.on_error({"code": "2-CM-002", "sev": 2, "why": "NOT_SENT:" + cmd})
+        self.on_error({"code": "3-CM-001", "sev": 3, "latched": False, "why": self.fw_mismatch})
+        self._notify_proto()
+
+    def _notify_proto(self):
+        try:
+            self.on_proto(self.proto, dict(self.info))
+        except Exception:
+            pass                        # 알림 실패가 링크를 막지 않는다
 
     def uses_aid(self):
-        return self.proto == "1.1" and "AID" in self.caps
+        return self.proto == P.PROTO_REV and "AID" in self.caps
 
     def _close(self):
         if self._ser:
@@ -235,10 +281,16 @@ class TeensyLink(object):
         """명령 전송. seq 를 돌려주며 ACK 는 백그라운드에서 처리한다.
 
         펌웨어 판(GET_INFO)을 확인하기 전에는 조회·정지 명령만 바로 보내고 나머지는 보류한다
-        (bid·aid 없이 보내면 v1.1 펌웨어가 AID_REQUIRED 로 거부한다). 보류 중이면 None."""
-        if self.proto is None and cmd not in P.QUERY_CMDS and cmd not in P.STOP_CMDS:
-            self._deferred.append((cmd, kw, time.monotonic()))
-            return None
+        (bid·aid 없이 보내면 v1.1 펌웨어가 AID_REQUIRED 로 거부한다). 보류 중이면 None.
+        판 불일치(v1.1 이 아님)면 조회·정지 명령만 보내고 나머지는 보내지 않는다(None)."""
+        if cmd not in P.QUERY_CMDS and cmd not in P.STOP_CMDS:
+            if self.proto is None:
+                self._deferred.append((cmd, kw, time.monotonic()))
+                return None
+            if self.proto != P.PROTO_REV:
+                if self.log:
+                    self.log.event("cmd", "NOT_SENT_FW:" + cmd)
+                return None
         if self.uses_aid() and cmd not in P.QUERY_CMDS:
             aid = self._aid.next()
             if aid is None:             # aid 소진: 재시작 안내(§2.5-7). 정지 방향은 aid 없이도 실행된다
@@ -267,7 +319,7 @@ class TeensyLink(object):
         return dict(m) if m else None
 
     def resend(self, seq):
-        """같은 seq·aid·파라미터로 다시 보낸다(초안 §4.4-3). Teensy 는 재실행하지 않고
+        """같은 seq·aid·파라미터로 다시 보낸다(§4.4-3). Teensy 는 재실행하지 않고
         원래 ACK 와 저장된 완료 이벤트를 다시 보낸다. 재부팅 전 명령은 남아 있지 않다."""
         with self._lock:
             msg = self._sent.get(seq)
@@ -305,9 +357,11 @@ class TeensyLink(object):
                 self._pending.pop(seq, None)
             if seq is not None and seq == self._info_seq and self.proto is None:
                 if not msg.get("ok", False):
-                    # v1.0 펌웨어는 GET_INFO 를 모른다 → v1.0 규칙(§2.4). 오류로 보고하지 않는다
+                    # v1.0 펌웨어는 GET_INFO 를 모른다(UNKNOWN_COMMAND) → 판 불일치(§2.4)
                     self._set_proto("1.0")
                     return
+            if seq is not None and seq == self._faults_seq and not msg.get("ok", False):
+                self._faults_seq = None         # GET_FAULTS 거부(지원 안 함): 다음 간격 뒤 다시 묻지 않게 둔다
             elif not msg.get("ok", False):
                 self.on_error({"code": msg.get("err", ""), "sev": P.severity(msg.get("err")),
                                "why": msg.get("why", ""), "seq": seq})
@@ -323,6 +377,7 @@ class TeensyLink(object):
             self.last_tel_at = time.monotonic()
             self._set_mcu_state(msg.get("state", self.mcu_state))
             self.on_telemetry(msg)
+            self._check_faults(msg)
 
         elif t == "mot":
             if not self._in_order("mot", msg):
@@ -335,11 +390,28 @@ class TeensyLink(object):
 
         elif t == "evt":
             if msg.get("evt") == "INFO" and self.proto is None:
-                self._set_proto("1.1" if "AID" in (msg.get("caps") or []) else "1.0", msg)
+                caps = msg.get("caps") or []
+                proto = str(msg.get("proto") or "?")
+                if proto == P.PROTO_REV and not all(c in caps for c in P.REQUIRED_CAPS):
+                    proto += "-noAID"           # 판 표시는 1.1 이지만 bid·aid 규칙이 없다 → 판 불일치
+                self._set_proto(proto, msg)
+            elif msg.get("evt") == "FAULTS_END" and msg.get("seq") == self._faults_seq:
+                self._faults_end(msg)
+                return
             self.on_event(msg)
 
         elif t == "err":
             self._count("mcu_err")
+            code = msg.get("code")
+            if self._faults_seq is not None:
+                # GET_FAULTS 응답 중의 err. 이미 받은 코드면 다시 받은 것이라 표시만 한다(replay).
+                # 처음 받는 코드는 젯슨이 몰랐던 고장이므로 평소대로 처리한다
+                self._faults_rx += 1
+                self.faults_full.append(code)
+                if code in self._err_seen:
+                    msg = dict(msg, replay=True)
+            if code:
+                self._err_seen.add(code)
             self.on_error(msg)
 
     def _read_once(self):
@@ -414,6 +486,39 @@ class TeensyLink(object):
         self._tn_last[kind] = (boot, tn)
         return True
 
+    # ── GET_FAULTS (§3.5) ──────────────────────────────────
+    def _check_faults(self, tel):
+        """faults 를 6개로 잘랐거나(faults_more) err 를 받지 못한 코드가 있으면 GET_FAULTS 로 전체를 받는다.
+        같은 목록으로는 한 번만 묻고, 응답(FAULTS_END)의 n 이 받은 err 줄 수와 다르면 다시 묻는다."""
+        if self.proto != P.PROTO_REV or "FAULTS" not in self.caps:
+            return
+        codes = tel.get("faults") or []
+        more = bool(tel.get("faults_more"))
+        unseen = [c for c in codes if c not in self._err_seen]
+        if not (more or unseen):
+            return
+        sig = (tuple(codes), more)
+        now = time.monotonic()
+        if now - self._faults_at < self.FAULTS_GAP_S:
+            return
+        if self._faults_seq is None and sig == self._faults_sig and not unseen:
+            return                      # 이 목록은 이미 다 받았다
+        self._faults_sig = sig
+        self._faults_at = now
+        self._faults_rx = 0
+        self.faults_full = []
+        self._faults_seq = self.send("GET_FAULTS")
+        if self.log:
+            self.log.event("sys", "GET_FAULTS:" + ",".join(codes) + (":MORE" if more else ""))
+
+    def _faults_end(self, msg):
+        n = msg.get("n")
+        if n != self._faults_rx:        # err 줄이 빠졌다: 다음 텔레메트리에서 다시 묻는다
+            self._faults_sig = None
+            if self.log:
+                self.log.event("sys", "FAULTS_END_MISMATCH:%s/%s" % (self._faults_rx, n))
+        self._faults_seq = None
+
     def _rebooted(self, new_boot):
         """Teensy 재부팅: 이전 값과 진행 중 요청을 버리고 GET_INFO 부터 다시(§2.5 재부팅, §3.3-3)."""
         self._count("reboot")
@@ -422,6 +527,8 @@ class TeensyLink(object):
         self.boot_id = new_boot
         self.last_tel, self.last_mot, self._pair = {}, {}, None
         self._tn_last = {}
+        self._err_seen, self._faults_seq, self.faults_full = set(), None, []
+        self._faults_sig = None
         with self._lock:
             self._pending.clear()       # 재부팅 전에 만든 요청은 재전송하지 않는다
             self._sent.clear()
@@ -431,7 +538,7 @@ class TeensyLink(object):
     def mcu_flags(self):
         """상태머신 redirect 용 장치 플래그. 펌웨어가 mot 을 보내지 않으면 None.
         짝(같은 tn 의 tel·mot)이 없거나 오래됐으면 값을 None(불명)으로 둔다(§3.3-8)."""
-        if self.proto != "1.1" or "MOT" not in self.caps:
+        if self.proto != P.PROTO_REV or "MOT" not in self.caps:
             return None
         pair = self._pair
         if not pair or time.monotonic() - pair[2] > P.STALE_S:
@@ -441,9 +548,9 @@ class TeensyLink(object):
 
     @property
     def drv_enc_mode(self):
-        """주행 엔코더 모드(초안 8차 §4.7): 1 = 단일 엔코더 + 자이로, 2 = 좌우.
+        """주행 엔코더 모드(§4.7): 1 = 단일 엔코더 + 자이로, 2 = 좌우.
         v1.1 이 아니면 None, INFO 에 없으면 2(기존 조건)."""
-        if self.proto != "1.1":
+        if self.proto != P.PROTO_REV:
             return None
         try:
             return int(self.info.get("drv_enc_mode") or 2)

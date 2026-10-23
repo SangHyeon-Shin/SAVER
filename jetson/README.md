@@ -179,6 +179,19 @@ python -m saver.bridge --serve ui_dist        # Teensy 는 VID/PID 로 자동 �
 - 안전 규칙은 젯슨과 같습니다. 브리지는 S1 에서 `ARM`, `HOME` 을 보내므로 처음 연결은 모터와 블로워 전원을 끈 상태에서
   하고, `config.sim.json` 은 쓰지 않습니다.
 
+## 프로토콜 v1.1 (10/23 통일)
+
+젯슨은 **프로토콜 v1.1 펌웨어하고만 동작합니다**(`protocol/teensy_usb_protocol_v1.md` v1.1, 팀장 지시 10/23).
+연결할 때마다 `GET_INFO` 로 펌웨어 판(`proto` "1.1", `caps` 의 `AID`)을 확인합니다.
+
+| 펌웨어 | 젯슨 동작 |
+|---|---|
+| v1.1 | 비조회 명령에 `bid`·`aid`, `tel`·`mot` 짝, `faults` 가 잘리거나 `err` 를 못 받은 코드가 있으면 `GET_FAULTS` |
+| v1.0 (`GET_INFO` 를 `UNKNOWN_COMMAND` 로 거부) 또는 `caps` 에 `AID` 없음 | 판 불일치 `3-CM-001`(`FW_NOT_V11`)을 한 번 알리고, 조회와 정지 방향 명령 말고는 보내지 않음. S1 은 `INIT_ERROR`(`FW_VERSION`), 화면은 "장치 펌웨어 판이 맞지 않습니다" |
+| v1.1 이지만 `caps` 에 `DRIVE`·`HEAD_HOLD` 없음 | 압박점 탐색을 시작하지 않음(`UNSUPPORTED`) |
+
+펌웨어 판은 기록(`~/saver_logs/saver_*.csv`)의 `FW:1.1:…` 또는 `PROTO_MISMATCH_1.0` 줄로 확인합니다.
+
 ## 실행
 
 **터미널 1 — 가짜 Teensy**
@@ -186,6 +199,9 @@ python -m saver.bridge --serve ui_dist        # Teensy 는 VID/PID 로 자동 �
 ```bash
 python3 simulators/fake_teensy.py --port /tmp/ttyFAKE
 ```
+
+기본은 v1.1 모의 장치에 시뮬레이션 설정(`simulators/teensy_settings.sim.json`)입니다. `--no-settings` 는 설정값을 비운
+v1.1(실물 펌웨어 기본처럼 `ARM`·`HOME` 거부), `--fw 1.0` 은 v1.0 펌웨어(젯슨이 판 불일치로 처리)를 흉내 냅니다.
 
 실행 중 키보드로 고장을 주입할 수 있습니다.
 
@@ -263,15 +279,15 @@ UI ← {"type":"rejected","name":"CPR_START","reason":"device_not_ready","mcu":"
 ## 알려진 설계 결정
 
 1. **장치 선행조건 검사** — `state_machine_v2.json`의 `requires_mcu`. UI가 앞서가면 전이를 거부합니다.
-2. **압박점 확정은 장치 주도** — `SCAN_RESULT` 수신 즉시 `SET_CP_POINT`를 보냅니다.
-   UI의 [확인] 버튼 속도와 무관하게 장치가 `CPR_READY`에 올라갑니다.
+2. **압박점 확정은 탐색 뒤 장치 주도** — 탐색(`search.py`)이 압박점 위로 옮긴 뒤 S6 에서 `SET_CP_POINT(offset_mm=0)` 을
+   보내고, 장치가 접촉 영점을 잡아 `CPR_READY` 에 올라갑니다(v1.1). 탐색 결과가 없으면 보내지 않습니다.
 3. **sev 3 오류 → 안전정지** — 전이표에 `STOP`이 없는 상태에서는 `force("S11")`로 강제 이동하고
    그 사유를 로그에 남깁니다.
 4. **통신 두절** — Teensy가 `T_comm`까지 압박을 유지합니다(명세 §9). 브리지는 경고만 띄웁니다.
    `T_comm`은 한성윤 회신(10/1, 25 s)을 v1.1 구현 때 반영합니다. Teensy를 외부 5 V로 켜면
    USB를 뽑아도 Teensy가 꺼지지 않으므로 이 동작이 실기에서 실제로 작동합니다.
-5. **시작 seq 무작위** — Teensy는 최근 8개 seq를 기억하고 같은 seq는 실행하지 않습니다.
-   Jetson만 재시작되면 1부터 다시 세는 seq가 겹쳐 새 명령이 무시될 수 있어, 시작값을
-   1~65535 중 무작위로 둡니다(`protocol.initial_seq`). v1.1에서는 `GET_INFO`의 `last_seq`로 이어 갑니다.
+5. **오래된 요청은 `aid` 로 가림(v1.1)** — 비조회 명령에 `bid`(부팅 세션)와 `aid`(늘어나기만 하는 번호)를 싣고,
+   Jetson 만 재시작하면 `GET_INFO` 의 `last_seq`·`last_aid` 다음부터 이어 갑니다. 그 전에 나가는 조회의 seq 는
+   무작위로 시작합니다(`protocol.initial_seq`).
 6. **실측 표시 규칙** — UI는 연결 중 받은 숫자만 보여 주고, 생략되거나 오래된 필드는 "—"로 둡니다.
    오프라인 시연용 모의값이나 이전 값으로 채우지 않습니다(`ui/src/vitalsView.js`).

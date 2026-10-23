@@ -70,9 +70,10 @@
 
 ## 5. Teensy 연결과 통신
 
-- 기준: `protocol/teensy_usb_protocol_v1.md`(v1). 주행 탐색 명령은 `docs/protocol_v1.1_draft.md`(합의본, `protocol/` 반영 대기).
-- JSON Lines, `v:1`. 모든 명령에 `seq`, 수락과 거부 모두 ACK, 중복 `seq` 는 재실행 없이 ACK 만 다시 온다. 젯슨은
-  시작 seq 를 무작위로 둔다(젯슨만 재시작할 때 겹치지 않게).
+- 기준: `protocol/teensy_usb_protocol_v1.md` **v1.1**(10/23 통일, 합의본 본문은 부록 A). 젯슨은 v1.1 펌웨어하고만 동작한다.
+- JSON Lines, `v:1`(v1.1 도 1). 연결마다 `GET_INFO` 로 판 확인(`proto` "1.1", `caps` 의 `AID`). 조회 외 모든 명령에
+  `seq`, `bid`, `aid`. 수락과 거부 모두 ACK, 같은 `aid` 는 재실행 없이 원래 ACK 가 다시 온다.
+- v1.0 펌웨어(`GET_INFO` 거부)면 판 불일치 `3-CM-001` 을 알리고 조회·정지 명령만 보낸다. S1 은 `FW_VERSION` 오류로 끝난다.
 - 텔레메트리 기본 20 Hz. 측정하지 못한 필드는 0 이 아니라 생략된다. UI 는 생략되거나 오래된 값을 "—" 로 둔다.
 - Teensy 내부 상태(`IDLE`, `ARMED`, `HOMED`, `VACUUM_HOLD`, `CPR_READY`, `CPR_RUNNING`, `CPR_PAUSED`, `FAULT`, `ESTOP`)는
   S1~S13 과 다른 계층이다. 섞어 쓰지 않고 새 상태 이름을 만들지 않는다.
