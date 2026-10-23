@@ -743,6 +743,30 @@ Teensy 쪽 미구현(HOME 실제 복귀, ARM 인터록, PAUSE·STOP 압박 정�
 **수준**: 명세 `implemented`. 젯슨·UI `implemented`, 모의 장치와 브리지·키오스크 UI 로 v1.0·v1.1 경로 확인(`simulated`).
 펌웨어 `implemented`(PC 호스트 빌드와 단위시험), Teensy 툴체인 빌드와 실물 `planned`.
 
+### D-54 · 비상정지 버튼 미연결: 장치 상태 확인(S1 점검)에서 뺀다 (2026-10-23, 팀장 지시)
+
+**결정**: "비상정지 버튼은 연결을 안했으니까 장치상태확인(점검)에서는 빼라"(팀장 10/23).
+
+- 젯슨 설정 `estop_wired`(코드 기본 `true`). 결선 벤치 설정 `jetson/config.bench.json` 은 `false`. `false` 면 S1 초기화 점검
+  (`init_seq.py`)과 시연 메뉴 시작 점검(`unit_demo.py`)에서 텔레메트리의 `estop` 표시를 보지 않는다.
+- 장치가 `ESTOP` 상태로 보고하면 설정과 상관없이 점검은 실패한다(사유 `UNEXPECTED_MCU_STATE:ESTOP`, 시연은 `STATE:ESTOP`).
+  동작 중의 비상정지 표시와 `ESTOP` 상태는 그대로 정지 사유다. 바뀐 것은 점검뿐이다.
+- 오류 화면(S10)의 초기화 오류에서 늘 보이던 "비상정지 버튼을 확인하세요"를 뺐다. 상태머신 스냅숏에 `error_why`(INIT_ERROR 의
+  `why`)를 더해, 화면이 실제 사유를 문구와 원래 코드로 보인다(`ui/src/initReason.js`). 사유가 비상정지일 때만 비상정지 안내가 나온다.
+- 10/23 Teensy 수동 배치 펌웨어(`codex/teensy-v24-review-20261011` 378e058)는 비상정지 보조 접점이 없다는 설정
+  (`ESTOP_AUX_INSTALLED = false`)이라 `estop` 필드를 싣지 않는다. 코드 대조로는 이 펌웨어에서 S1 이 멈추는 곳이 비상정지가 아니라
+  `ARM` 거부(`VACUUM_RELEASE_NOT_VERIFIED`)와 `HOME` 거부(`HOME_UNAVAILABLE_NO_VERIFIED_LIMIT`)다(실기 미확인).
+  Teensy 쪽 요구와 선택지는 `docs/teensy_s1_check.md`(한건민 Codex 전달용).
+- `protocol/` §5 S1 행("비상정지 아님")은 고치지 않았다. 메시지 형식과 Teensy 동작은 그대로이고 젯슨 점검 설정만 바뀐다.
+  한건민 확인 뒤 §5 에 설정을 적는다.
+
+**주의**: 물리 비상정지가 연결되지 않은 동안에는 AGENTS.md 경계 3(소프트웨어 정지는 물리 비상정지를 대체하지 않는다)의 하드웨어
+차단 경로가 없다. 시연 중 장치 전원을 바로 끌 수단(전원 장치 스위치 등)을 정해 손 닿는 곳에 둔다. 펌웨어의
+`PHYSICAL_ESTOP_POWER_CUT_USER_CONFIRMED = true`(10/15 보고 근거)가 지금도 맞는지 한건민이 확인한다. 버튼을 연결하면
+`estop_wired` 를 `true` 로 바꾼다.
+
+**수준**: 젯슨·UI `implemented`, PC 모의 시험 `tested`(Jetson 410/410, UI smoke 172/172). 실기 `planned`.
+
 ## 보고서·논문
 
 ### D-30 · ILCOR 인용은 이렇게 구분한다
@@ -820,6 +844,9 @@ SAVER 는 ILCOR 이 인정하는 **"특정 상황(specific circumstances)" 예�
 | 단일 엔코더 모드 필수 설정 `drv_track_mm`, `drv_settle_delta_yaw_deg`, `drv_enc_side`(모터 2 좌우) 실측 (D-36) | 한건민 + 서정준 |
 | 메인 펌웨어 v1.1 주행 기능 구현 범위와 날짜(T3 10/13 전제) (초안 §10-17) | 한건민 |
 | 10/23 장치 완성 작업 참여 시간 (D-37) | 서정준 + 한건민 |
+| Teensy: S1 점검 통과(부팅 직후 음압 해제 판정, 리미트 없는 HOME 처리 선택) — `docs/teensy_s1_check.md` (D-54) | 한건민 + 신상현 |
+| 비상정지 미연결 동안의 전원 차단 수단과 `PHYSICAL_ESTOP_POWER_CUT_USER_CONFIRMED` 근거 확인 (D-54) | 한건민 + 신상현 |
+| `protocol/` §5 S1 행에 `estop_wired` 설정 반영 (D-54, 한건민 확인 뒤) | 신상현 + 한건민 |
 
 **추측으로 채우지 않습니다.** 값이 비어 있으면 해당 기능이 동작하지 않도록
 막아 두었고, 그게 정상 동작입니다.
