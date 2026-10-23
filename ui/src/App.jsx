@@ -275,7 +275,7 @@ export default function App() {
      연결이 없거나 개발 패널에서 모의를 강제하면 모의값(unitSim.js)으로, 화면에 '모의 데이터'로 표시한다 */
   const unitLive = bridge.connected && unitDemo && !demo.forceSim
   const onUnit = UNIT_IDS.includes(view)
-  const sim = useSimDevice({ on: onUnit && !unitLive, cfg: bridge.config })
+  const sim = useSimDevice({ on: onUnit && !unitLive, cfg: bridge.config, speed: parseFloat(QS.get('speed')) || 1 })
   const udemo = useSearchDemo({ eapd: demo.searchEapd, flat: demo.searchFlat, speed: parseFloat(QS.get('speed')) || 1, onDone: () => {} })
   const unitLiveRef = useRef(false)
   useEffect(() => {
@@ -309,7 +309,9 @@ export default function App() {
   const uStale = unitLive ? bridge.stale : false
   const uRadar = unitLive ? bridge.radar : sim.radar
   const simOn = { compress: sim.st.cpr, vacuum: sim.st.vac }
-  const uMsg = (u) => (unitLive ? bridge.unit : { unit: u, phase: simOn[u] ? 'running' : 'idle' })
+  const uMsg = (u) => (unitLive ? bridge.unit
+    : u === 'stiff' ? { unit: u, phase: sim.stiff.phase, stiff: sim.stiff.res }
+    : { unit: u, phase: simOn[u] ? 'running' : 'idle' })
   const uAct = (u, key) => ({
     onStart: () => (unitLive ? bridge.sendUnit(u, 'start') : sim.set(key, true)),
     onStop: () => (unitLive ? bridge.sendUnit(u, 'stop') : sim.set(key, false)),
@@ -336,6 +338,9 @@ export default function App() {
   } else if (view === 'compress') {
     body = <U.CompressUnit live={unitLive} linked={bridge.connected} tel={uTel} stale={uStale} cfg={bridge.config} msg={uMsg('compress')} waves={waves}
       onMenu={goMenu} {...uAct('compress', 'cpr')} />
+  } else if (view === 'stiff') {
+    body = <U.StiffUnit live={unitLive} linked={bridge.connected} tel={uTel} stale={uStale} cfg={bridge.config} msg={uMsg('stiff')}
+      onMenu={goMenu} {...uAct('stiff', 'stiff')} />
   } else if (view === 'vacuum') {
     body = <U.VacuumUnit live={unitLive} linked={bridge.connected} tel={uTel} stale={uStale} cfg={bridge.config} msg={uMsg('vacuum')}
       onMenu={goMenu} {...uAct('vacuum', 'vac')} />

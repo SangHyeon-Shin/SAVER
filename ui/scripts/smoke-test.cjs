@@ -49,9 +49,9 @@ const check = (name, ok, detail = '') => {
   console.log('\n── SAVER UI 스모크 테스트 ──\n')
 
   // 결선 시연 메뉴(D-51): 첫 화면은 메뉴다. [전체 UI]를 눌러야 S1 부터 기존 화면 흐름(모형)
-  check('00 첫 화면은 시연 메뉴: 전체 UI, 환자 상태, 압박, 구동, 흡착',
+  check('00 첫 화면은 시연 메뉴: 전체 UI, 환자 상태, 압박, 강성 측정, 흡착 (구동은 메뉴에서 뺌, 10/23)',
     await until(() => d.querySelectorAll('[data-unit]').length === 5, 3000)
-    && ['전체 UI', '환자 상태', '압박', '구동', '흡착'].every((t) => has(t)()))
+    && ['전체 UI', '환자 상태', '압박', '강성 측정', '흡착'].every((t) => has(t)()) && !d.querySelector('[data-unit="drive"]'))
   check('00 메뉴: 장치 미연결이면 모의 데이터 표시, 전체 UI 는 모형, 장치는 각 화면의 [시작]으로만',
     has('오프라인 · 모의 데이터')() && has('모형 화면')() && has('[시작]을 눌러야 움직입니다')())
   tap(d.querySelector('[data-unit="full"]'))
@@ -490,6 +490,15 @@ const check = (name, ok, detail = '') => {
     !cvN.running && cvN.depth === UV.NA && cvN.force === UV.NA && cvN.targetDepth === null && cvN.targetBpm === 110)
   check('유닛 표시: 압박 횟수는 받은 속도를 시간에 대해 더함(값 없음, 2초 넘게 끊긴 구간은 더하지 않음)',
     Math.abs(UV.countStep(0, 120, 1) - 2) < 1e-9 && UV.countStep(5, null, 1) === 5 && UV.countStep(5, 110, 3) === 5)
+  const svL = UV.stiffView({ of: 10, done: 10, n: 10, k_N_mm: 10.27, k_sd: 0.07, f_N: 519.7, d_mm: 50.61,
+    pts: [[51.3, 523.2], [49.7, 513.3], ['x', 1]] }, { target_depth_mm: 50, target_bpm: 110, force_max_N: 600, model_stiffness_N_mm: 10 })
+  check('유닛 표시: 강성 측정 결과(N/mm, 최대 힘, 최대 깊이, 진행, 편차), 비교선은 설정값이 있을 때만',
+    svL.complete && svL.kText === '10.3 N/mm' && svL.fText === '520 N' && svL.dText === '50.6 mm' && svL.progress === '10 / 10회'
+    && svL.sdText === '± 0.1' && svL.pts.length === 2 && svL.model === 10 && svL.forceMax === 600, JSON.stringify(svL))
+  const svN = UV.stiffView({ of: 10, done: 3 }, { stiff_cycles: 10 })
+  check('유닛 표시: 강성 측정 값이 없으면 —, 미완료, 비교선 없음',
+    !svN.complete && svN.kText === UV.NA && svN.fText === UV.NA && svN.progress === '3 / 10회' && svN.model === null
+    && UV.stiffView(null, {}).progress === UV.NA && UV.stiffView(null, { stiff_cycles: 10 }).of === 10)
   const vvL = UV.vacuumView({ state: 'VACUUM_HOLD', vac_kPa: -23.04, vac_leak: false }, false, { vacuum_target_kPa: -22.5 })
   check('유닛 표시: 흡착 음압, 목표, 고정 상태, 누설', vvL.kPaText === '-23.0 kPa' && vvL.targetText === '-22.5 kPa'
     && vvL.holding && vvL.leakText === '없음', JSON.stringify(vvL))
@@ -561,13 +570,25 @@ const check = (name, ok, detail = '') => {
   tap(BM('메뉴'))
 
   await menuBack()
-  tap(dm.querySelector('[data-unit="drive"]'))
-  check('구동: 압박 위치 찾기 화면, 왼쪽 아래 [메뉴], 진입만으로 시작 안 함',
-    await until(() => TM().includes('압박 위치 찾기'), 3000) && !!BM('메뉴') && !BM('취소') && dm.querySelectorAll('[data-pt]').length === 0)
-  tap(BM('찾기 시작'))
-  check('구동: 찾기 시작 → 반력 곡선(모의 데이터)', await until(() => dm.querySelectorAll('[data-pt]').length >= 5, 8000) && TM().includes('모의 데이터'))
+  tap(dm.querySelector('[data-unit="stiff"]'))
+  await until(() => TM().includes('힘-깊이'), 3000)
+  const sh = dm.querySelector('[data-hold]')
+  check('강성 측정: 진입만으로 시작 안 함, [길게 눌러 측정 시작], 결과 칸 —, 점 없음',
+    !TM().includes('만지지 마세요') && !!sh && sh.textContent.includes('측정 시작') && ust('유효 강성 / Stiffness') === '—'
+    && dm.querySelectorAll('[data-stiff-pt]').length === 0)
+  tap(sh); up(sh)
+  await wait(1300)
+  check('강성 측정: 짧게 눌렀다 떼면 시작하지 않음', !TM().includes('만지지 마세요'))
+  tap(dm.querySelector('[data-hold]'))
+  check('강성 측정: 1초 길게 누르면 측정(모의), 진행 회수와 힘-깊이 점이 늘어남',
+    await until(() => TM().includes('만지지 마세요') || dm.querySelectorAll('[data-stiff-pt]').length > 0, 4000))
+  check('강성 측정: 10회 뒤 저절로 멈추고 결과(N/mm), 점 10개와 기울기선, 모의 표시',
+    await until(() => TM().includes('측정 완료') && dm.querySelectorAll('[data-stiff-pt]').length === 10
+      && !!dm.querySelector('[data-stiff-line]'), 8000)
+    && /^\d+\.\d N\/mm$/.test(ust('유효 강성 / Stiffness') || '') && ust('측정 압박') === '10 / 10회'
+    && TM().includes('(모의)') && !dm.querySelector('[data-hold]').disabled, `${ust('유효 강성 / Stiffness')} ${ust('측정 압박')}`)
   tap(BM('메뉴'))
-  check('구동 → [메뉴] → 시연 메뉴', await menuBack())
+  check('강성 측정 → [메뉴] → 시연 메뉴', await menuBack())
 
   tap(dm.querySelector('[data-unit="full"]'))
   check('전체 UI: 다시 들어가면 처음(부팅 화면)부터, 모형 표시', await until(() => TM().includes('시스템 점검 중'), 3000) && !!dm.querySelector('[data-mock-chip]'))
@@ -577,6 +598,9 @@ const check = (name, ok, detail = '') => {
   check('전체 UI 모형: 왼쪽 위를 짧게 누르면 시연 메뉴로', await menuBack())
   const du = openDom('?unit=vacuum').window.document
   check('바로가기: ?unit=vacuum 은 흡착 화면', await until(() => (du.querySelector('#root')?.textContent || '').includes('흡착 고정'), 3000))
+  const dd = openDom('?unit=drive').window.document
+  check('개발용 바로가기: ?unit=drive 는 압박 위치 찾기 화면(메뉴에는 없음)',
+    await until(() => (dd.querySelector('#root')?.textContent || '').includes('압박 위치 찾기'), 3000))
 
   const vb = d.querySelector('#root [data-voice]')
   check('화면: 헤더에 다시 듣기와 소리 끄기 버튼', !!vb && vb.textContent.includes('다시 듣기') && vb.querySelectorAll('button').length === 2)

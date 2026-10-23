@@ -1,12 +1,13 @@
 import React, { useEffect, useRef, useState } from 'react'
 import { C } from '../tokens'
 import { Dark, Header, Btn, WavePanel } from '../ui'
-import { UNITS, NA, phaseView, patientView, compressView, vacuumView, countStep, waveDur, clock } from '../units'
+import { UNITS, NA, phaseView, patientView, compressView, stiffView, vacuumView, countStep, waveDur, clock } from '../units'
 
 /* ================= 결선 시연 메뉴와 유닛 화면 (D-51) =================
    운용 상태머신(S1~S13)의 노드가 아니다. 결선 포스터 시연에서 유닛 하나씩 보이는 화면이다.
    - 전체 UI: 기존 S1~S13 화면 흐름을 모형으로(장치 동작 없음) 처음부터 보인다(App.jsx).
-   - 환자 상태, 압박, 흡착: 이 파일. 구동: 압박 위치 찾기 화면(screens/Search.jsx)을 그대로 쓴다.
+   - 환자 상태, 압박, 강성 측정, 흡착: 이 파일. 강성 측정은 10/23 팀장 지시로 구동 대신 메뉴에 넣었다(D-53).
+     구동(압박 위치 찾기, screens/Search.jsx)은 메뉴에 없고 개발용 바로가기(?unit=drive)로만 연다.
    - 결선 시연 모드 브리지(--unit-demo)에 연결되면 받은 값만 그리고, 시작·정지는 요청만 보낸다.
      연결이 없으면 unitSim.js 의 모의값을 쓰고 '모의 데이터'로 표시한다.
    - 장치는 진입만으로 움직이지 않는다. 압박은 [시작]을 1초 길게 눌러야 요청한다. */
@@ -364,6 +365,116 @@ export function CompressUnit({ live, linked, tel, stale, cfg, msg, waves, onStar
   )
 }
 
+/* ---------- 강성 측정 ---------- */
+/** 압박 몇 주기 동안 받은 최대 힘과 최대 깊이로 유효 강성(기울기 = 힘 ÷ 깊이, N/mm)을 보인다.
+    장치 명령은 압박과 같다(브리지 unit_demo.py stiff). 측정 창이 끝나면 브리지가 압박을 멈춘다 */
+export function StiffUnit({ live, linked, tel, stale, cfg, msg, onStart, onStop, onMenu }) {
+  const cv = compressView(tel, stale, cfg)
+  const m = msg && msg.unit === 'stiff' ? msg : null
+  const sv = stiffView(m ? m.stiff : null, cfg)
+  const pv = phaseView(msg, 'stiff')
+  const running = pv.phase === 'running'
+  const busy = BUSY.includes(pv.phase)
+  const trend = useTrend(cv.forceNum, running)
+  const targets = [sv.targetDepth ? `목표 깊이 ${sv.targetDepth} mm` : '목표 깊이 미설정',
+    sv.targetBpm ? `${sv.targetBpm} 회/분` : null].filter(Boolean).join(' · ')
+  let band
+  if (running) band = <Band tone="danger">측정 중 — 만지지 마세요&nbsp;<span style={{ color: '#c98' }}>/ Do not touch</span></Band>
+  else if (pv.phase === 'done' && sv.k !== null) band = <Band tone="ok">측정 완료 · 유효 강성 {sv.kText}{live ? '' : ' (모의)'}</Band>
+  else band = <Band>{sv.of ? `압박 ${sv.of}회` : '압박 몇 회'} 동안 힘과 깊이를 재서 가슴 강성을 구합니다 · {targets}</Band>
+  let kSub = '최대 힘 ÷ 최대 깊이'
+  if (running) kSub = `측정 중 · ${sv.progress}`
+  else if (sv.complete) kSub = `최대 힘 ÷ 최대 깊이 · ${sv.n}회 평균`
+  else if (sv.k !== null) kSub = `부분 측정 · ${sv.n}회`
+  return (
+    <Dark>
+      <Header dark h={72} titleSize={26} title="강성 측정" titleEn="Chest Stiffness" right={<HeadRight live={live} linked={linked} pv={pv} />} />
+      {band}
+      <div style={{ flex: 1, display: 'flex', gap: 14, padding: '12px 16px', minHeight: 0 }}>
+        <div style={{ flex: 1.6, display: 'flex', flexDirection: 'column', gap: 12, minHeight: 0 }}>
+          <ForceDepth sv={sv} />
+          <TrendPanel label="압박력 추이 / Force" values={trend} unit="N" />
+        </div>
+        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 9, minHeight: 0 }}>
+          <UStat label="유효 강성 / Stiffness" value={sv.kText} sub={kSub} />
+          <UStat label="최대 힘 / Peak force" value={sv.fText}
+            sub={[sv.fKg, sv.forceMax ? `상한 ${sv.forceMax} N` : null].filter(Boolean).join(' · ') || null} />
+          <UStat label="최대 깊이 / Peak depth" value={sv.dText} sub={sv.targetDepth ? `목표 ${sv.targetDepth} mm` : '목표 미설정'} />
+          <div style={{ display: 'flex', gap: 9 }}>
+            <UStat small label="측정 압박" value={sv.progress} />
+            <UStat small label="편차 (N/mm)" value={sv.sdText} />
+          </div>
+        </div>
+      </div>
+      <BottomBar>
+        <Btn variant="ghostDark" w={150} h={58} fs={21} onPress={onMenu}>메뉴</Btn>
+        <StatusLine pv={pv} />
+        <HoldBtn disabled={busy} onDone={onStart} w={260}>길게 눌러 측정 시작</HoldBtn>
+        <Btn variant="danger" w={170} h={58} fs={23} disabled={!busy} onPress={onStop}>정지</Btn>
+      </BottomBar>
+    </Dark>
+  )
+}
+
+/** 힘-깊이 그림. 점: 주기마다 (최대 깊이, 최대 힘). 실선: 측정 기울기(유효 강성). 점선: 설계 계산 가정(설정값이 있을 때) */
+function ForceDepth({ sv }) {
+  const W = 600, H = 260, L = 58, R = 16, T = 14, B = 38
+  const ceil = (v, s) => Math.ceil(v / s) * s
+  const maxD = Math.max(0, ...sv.pts.map((p) => p[0]))
+  const maxF = Math.max(0, ...sv.pts.map((p) => p[1]))
+  const xMax = ceil(Math.max(60, (sv.targetDepth || 0) * 1.2, maxD * 1.15), 10)
+  const yMax = ceil(Math.max(200, sv.forceMax ? sv.forceMax * 1.1 : 0, maxF * 1.25), 100)
+  const yStep = yMax > 800 ? 200 : 100
+  const sx = (x) => L + (x / xMax) * (W - L - R)
+  const sy = (y) => T + (1 - y / yMax) * (H - T - B)
+  const ray = (k) => {
+    const x = Math.min(xMax, yMax / k)
+    return { x2: sx(x), y2: sy(k * x) }
+  }
+  const xt = [], yt = []
+  for (let x = 0; x <= xMax; x += 10) xt.push(x)
+  for (let y = 0; y <= yMax; y += yStep) yt.push(y)
+  const line = (o) => ({ vectorEffect: 'non-scaling-stroke', ...o })
+  return (
+    <div style={{ flex: 1.5, background: C.darkPane, border: `1px solid ${C.darkLine}`, borderRadius: 10, padding: '9px 12px',
+      display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+      <div style={{ fontSize: 15, color: C.darkSub, marginBottom: 3, display: 'flex', justifyContent: 'space-between', gap: 10 }}>
+        <span>힘-깊이 / Force–Depth · 기울기 = 강성</span>
+        <span style={{ display: 'flex', gap: 14, fontSize: 14 }}>
+          <span style={{ color: '#eef1f6' }}><span style={{ color: C.wave, fontWeight: 800 }}>━</span> 측정</span>
+          {sv.model ? <span><span style={{ color: '#8b94a3', fontWeight: 800 }}>┅</span> 설계 계산 가정 {sv.model} N/mm</span> : null}
+        </span>
+      </div>
+      <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" style={{ flex: 1, width: '100%', minHeight: 0, display: 'block' }}
+        role="img" aria-label="힘-깊이 그림">
+        {yt.map((y) => <line key={'y' + y} {...line({ x1: L, x2: W - R, y1: sy(y), y2: sy(y), stroke: '#2a3340', strokeWidth: 1 })} />)}
+        {xt.map((x) => <line key={'x' + x} {...line({ x1: sx(x), x2: sx(x), y1: T, y2: H - B, stroke: '#2a3340', strokeWidth: 1 })} />)}
+        {yt.map((y) => <text key={'ty' + y} x={L - 8} y={sy(y) + 5} fontSize="14" fill="#8b94a3" textAnchor="end">{y}</text>)}
+        {xt.map((x) => <text key={'tx' + x} x={sx(x)} y={H - B + 20} fontSize="14" fill="#8b94a3" textAnchor="middle">{x}</text>)}
+        <text x={W - R - 6} y={H - B - 8} fontSize="14" fill="#aeb6c2" textAnchor="end">깊이 (mm)</text>
+        <text x={L + 8} y={T + 16} fontSize="14" fill="#aeb6c2" textAnchor="start">힘 (N)</text>
+        {sv.forceMax ? (
+          <g>
+            <line {...line({ x1: L, x2: W - R, y1: sy(sv.forceMax), y2: sy(sv.forceMax), stroke: C.warning, strokeWidth: 1.5, strokeDasharray: '3 5' })} />
+            <text x={W - R - 4} y={sy(sv.forceMax) - 6} fontSize="13" fill="#FF8A3D" textAnchor="end">힘 상한 {sv.forceMax} N</text>
+          </g>
+        ) : null}
+        {sv.targetDepth ? (
+          <g>
+            <line {...line({ x1: sx(sv.targetDepth), x2: sx(sv.targetDepth), y1: T, y2: H - B, stroke: '#8b94a3', strokeWidth: 1.5, strokeDasharray: '6 5' })} />
+            <text x={sx(sv.targetDepth) - 6} y={T + 14} fontSize="13" fill="#aeb6c2" textAnchor="end">목표 {sv.targetDepth} mm</text>
+          </g>
+        ) : null}
+        {sv.model ? <line data-stiff-model {...line({ x1: sx(0), y1: sy(0), ...ray(sv.model), stroke: '#8b94a3', strokeWidth: 2, strokeDasharray: '7 6' })} /> : null}
+        {sv.k !== null ? <line data-stiff-line {...line({ x1: sx(0), y1: sy(0), ...ray(sv.k), stroke: C.wave, strokeWidth: 3 })} /> : null}
+        {sv.pts.map((p, i) => (
+          <circle key={i} data-stiff-pt cx={sx(p[0])} cy={sy(p[1])} r="6" fill={C.wave} stroke="#0f141b" strokeWidth="2" />
+        ))}
+      </svg>
+    </div>
+  )
+}
+
 /* ---------- 흡착 ---------- */
 export function VacuumUnit({ live, linked, tel, stale, cfg, msg, onStart, onStop, onMenu }) {
   const vv = vacuumView(tel, stale, cfg)
@@ -438,7 +549,7 @@ function Gauge({ kPa, target, holding }) {
 }
 
 /* ---------- 아이콘 ---------- */
-const ICON_COLOR = { patient: C.ppg, compress: C.wave, drive: '#f5b642', vacuum: C.breath }
+const ICON_COLOR = { patient: C.ppg, compress: C.wave, stiff: '#f5b642', drive: '#f5b642', vacuum: C.breath }
 const sv = { width: 58, height: 58, viewBox: '0 0 48 48', fill: 'none', stroke: 'currentColor', strokeWidth: 2.6,
   strokeLinecap: 'round', strokeLinejoin: 'round', 'aria-hidden': true }
 function IconScreens() {
@@ -462,6 +573,14 @@ const ICON = {
       <path d="M24 5v18M17 16l7 7 7-7" />
       <rect x="15" y="26" width="18" height="6" rx="2" />
       <path d="M6 40h36" />
+    </svg>
+  ),
+  stiff: (
+    <svg {...sv}>
+      <path d="M8 40V8M8 40h32" />
+      <path d="M8 40L36 14" />
+      <circle cx="17" cy="32" r="2.6" fill="currentColor" /><circle cx="25" cy="24.5" r="2.6" fill="currentColor" />
+      <circle cx="32" cy="18" r="2.6" fill="currentColor" />
     </svg>
   ),
   drive: (

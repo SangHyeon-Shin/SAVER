@@ -12,14 +12,16 @@ import { radarView } from './radarView.js'
 export const NA = '—'
 const num = (v) => typeof v === 'number' && Number.isFinite(v)
 
-/** 메뉴의 유닛 4개. 전체 UI 는 메뉴에서 따로 그린다 */
+/** 메뉴의 유닛 4개. 전체 UI 는 메뉴에서 따로 그린다.
+    10/23 팀장: 구동(주행)이 아직 구현되지 않아 메뉴에서 빼고 강성 측정을 넣었다(D-53) */
 export const UNITS = [
   { id: 'patient', title: '환자 상태', en: 'Patient', desc: '호흡 · 심박수 · 산소포화도', src: '레이더 · 손가락 센서' },
   { id: 'compress', title: '압박', en: 'Compression', desc: '깊이 · 속도 · 강도 · 횟수', src: '압박 유닛' },
-  { id: 'drive', title: '구동', en: 'Drive', desc: '압박 위치 찾기', src: '운반 및 탐색 유닛' },
+  { id: 'stiff', title: '강성 측정', en: 'Stiffness', desc: '누르는 힘과 깊이로 가슴 강성', src: '압박 유닛 · 하중셀' },
   { id: 'vacuum', title: '흡착', en: 'Vacuum', desc: '바닥 음압 고정', src: '흡착 유닛' },
 ]
-export const UNIT_IDS = UNITS.map((u) => u.id)
+/** 화면 이름. 구동(압박 위치 찾기)은 메뉴에 없고 개발용 바로가기(?unit=drive)로만 연다 */
+export const UNIT_IDS = UNITS.map((u) => u.id).concat(['drive'])
 
 /* ---------- 브리지 사유 코드 → 화면 문구 ---------- */
 const REASON = {
@@ -27,7 +29,9 @@ const REASON = {
   LINK_CHECKING: '장치를 확인하고 있습니다 · 잠시 뒤 다시 누르세요',
   FW_VERSION: '장치 펌웨어 판이 맞지 않습니다 (v1.1 필요)',
   LINK_DOWN: '장치 연결이 끊겼습니다',
-  TARGET_NOT_SET: '목표 깊이가 설정되지 않았습니다 (설정 파일 필요)',
+  TARGET_NOT_SET: '목표 깊이·속도가 설정되지 않았습니다 (설정 파일 필요)',
+  STIFF_NO_DATA: '힘이나 깊이 값을 받지 못해 강성을 구하지 못했습니다',
+  STIFF_TIMEOUT: '장치 값이 끊겨 측정을 마치지 못했습니다',
   NOT_READY: '장치가 압박 준비 상태가 아닙니다 (흡착 없이 압박하려면 시연용 펌웨어 필요)',
   NO_STATUS: '장치 상태를 받지 못했습니다',
   TIMEOUT: '장치 응답이 없습니다',
@@ -69,7 +73,7 @@ const STEP = {
   START_CPR: '압박 시작 중', VACUUM_ON: '바닥에 붙이는 중', SEARCH: '위치 찾는 중',
   STOP_CPR: '멈추는 중', VACUUM_OFF: '해제하는 중', DRIVE_STOP: '멈추는 중',
 }
-const RUNNING = { compress: '압박 중', vacuum: '고정 중', drive: '위치 찾는 중', patient: '측정 중' }
+const RUNNING = { compress: '압박 중', vacuum: '고정 중', drive: '위치 찾는 중', patient: '측정 중', stiff: '측정 중' }
 
 /** 유닛 동작 상태 → { text, tone }. tone: idle | busy | run | ok | warn */
 export function phaseView(msg, unit) {
@@ -135,6 +139,36 @@ export function compressView(tel, stale, cfg) {
 export function countStep(count, rate, dtS) {
   if (!num(rate) || rate <= 0 || !(dtS > 0) || dtS > 2) return count
   return count + (rate * dtS) / 60
+}
+
+/* ---------- 강성 측정 ---------- */
+/** 브리지(unit_demo.py)가 보낸 강성 측정 진행과 결과(st) → 화면 문구. 받은 값만 쓴다(없으면 —).
+    유효 강성 k = 주기 최대 힘 ÷ 주기 최대 깊이(N/mm). 설계 계산 가정값은 비교선으로만 쓴다 */
+export function stiffView(st, cfg) {
+  const s = st || {}
+  const c = cfg || {}
+  const pos = (v) => (num(v) && v > 0 ? v : null)
+  const k = pos(s.k_N_mm)
+  const f = pos(s.f_N)
+  const d = pos(s.d_mm)
+  const of = pos(s.of) || pos(c.stiff_cycles)
+  const done = num(s.done) && s.done > 0 ? s.done : 0
+  const n = num(s.n) && s.n > 0 ? s.n : 0
+  const pts = Array.isArray(s.pts) ? s.pts.filter((p) => Array.isArray(p) && pos(p[0]) && num(p[1])) : []
+  return {
+    k, f, d, n, of, done, pts,
+    complete: !!of && done >= of && k !== null,
+    kText: k === null ? NA : `${k.toFixed(1)} N/mm`,
+    fText: f === null ? NA : `${Math.round(f)} N`,
+    fKg: f === null ? null : `약 ${Math.round(f / 9.81)} kgf`,
+    dText: d === null ? NA : `${d.toFixed(1)} mm`,
+    sdText: k === null || !num(s.k_sd) ? NA : `± ${s.k_sd.toFixed(1)}`,
+    progress: of ? `${Math.min(done, of)} / ${of}회` : NA,
+    model: pos(c.model_stiffness_N_mm),
+    targetDepth: pos(c.target_depth_mm),
+    targetBpm: pos(c.target_bpm),
+    forceMax: pos(c.force_max_N),
+  }
 }
 
 /* ---------- 흡착 ---------- */
