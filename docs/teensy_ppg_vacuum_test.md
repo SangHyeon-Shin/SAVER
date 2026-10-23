@@ -126,6 +126,11 @@
 ## 1. 젯슨에서 확인하는 방법 (신상현, 펌웨어 반영 뒤)
 
 1. 젯슨 저장소를 이 브랜치로 갱신하고 브리지를 다시 띄운다(UI 묶음 `jetson/ui_dist`는 이번에 바뀌지 않았다).
+   설치 스크립트로 서비스를 쓴 젯슨이면 `saver-update` 하나로 된다(`git pull --ff-only` 뒤 브리지 서비스 재시작).
+   먼저 서비스가 시연 모드인지 본다: `systemctl cat saver-bridge | grep ExecStart` 에 `--unit-demo` 와 `config.bench.json`.
+   없으면 운용 모드라 재시작한 브리지가 S1 에서 `ARM`, `HOME` 을 보낸다. 그때는
+   `bash ~/SAVER/jetson/setup/setup_jetson.sh --unit-demo --config jetson/config.bench.json --skip-apt --no-claude`.
+   서비스 없이 직접 띄우려면:
    ```bash
    python3 -m saver.bridge --unit-demo --serial /dev/saver-teensy --config config.bench.json
    ```
