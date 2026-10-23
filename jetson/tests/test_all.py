@@ -31,12 +31,16 @@ a = P.AidCounter(P.AID_MAX - 1); ck("aid 순환 없음, 한도 뒤 None", [a.nex
 ck("명령 분류: 조회 4, 정지 4", len(P.QUERY_CMDS) == 4 and len(P.STOP_CMDS) == 4 and set(P.QUERY_CMDS + P.STOP_CMDS) <= set(P.CMD))
 _EXD = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "protocol", "examples")
 _ex_bad = []
-for _fn in ("commands.jsonl", "telemetry.jsonl"):
+for _fn in ("commands.jsonl", "telemetry.jsonl", "v11_worst_case.jsonl"):
     for _ln in open(os.path.join(_EXD, _fn), "rb").read().split(b"\n"):
         if _ln and (P.decode(_ln) is None or len(_ln) > P.MAX_BODY):
             _ex_bad.append((_fn, _ln[:40]))
 _exc = [P.decode(l) for l in open(os.path.join(_EXD, "commands.jsonl"), "rb").read().split(b"\n") if l]
 ck("명세 예제(protocol/examples) 모든 줄 수신 가능, 본문 511 byte 이하", not _ex_bad, str(_ex_bad[:2]))
+_wc = [P.decode(l) for l in open(os.path.join(_EXD, "v11_worst_case.jsonl"), "rb").read().split(b"\n") if l]
+ck("최악값 줄(Teensy 생성 함수): tel·mot·INFO 포함, 모두 수신",
+   len(_wc) >= 14 and all(_wc) and {"tel", "mot"} <= set(m.get("t") for m in _wc)
+   and any(m.get("evt") == "INFO" for m in _wc), str(len(_wc)))
 ck("명세 예제: 첫 명령은 GET_INFO, 앞쪽 비조회 명령은 bid·aid 를 싣는다(v1.1)",
    _exc[0]["cmd"] == "GET_INFO" and all("bid" in m and "aid" in m for m in _exc[:20] if m["cmd"] not in P.QUERY_CMDS))
 
