@@ -1,5 +1,55 @@
 # 한건민 전달 — Teensy 4.1 ↔ Jetson Nano 통신
 
+## 프로토콜 v1.1 통신 계층 (2026-10-23, 신상현(Claude Code) 작성, 한건민 검토 필요)
+
+팀장 지시("프로토콜을 v1.1로 통일, 젯슨과 틴시 모두")로 메인 펌웨어에 v1.1(`docs/protocol_v1.1_draft.md`
+8차 합의본, 10/4) 통신 계층을 넣었습니다. **실물에 올리기 전에 형님 검토가 필요합니다.** Teensy 툴체인
+컴파일은 하지 못했고(pjrc.com 접속 불가), 아래 PC 빌드로만 컴파일과 동작을 확인했습니다.
+
+> **결선(10/24)에는 이 판을 올리지 않습니다.** 형님 로컬 v1.1 펌웨어(10/23 "v1.1 통신 지원, 자동 HOME·탐색 미지원")가
+> 결선 기준이고, 이 판은 대조·검토용 참고 구현입니다(D-52).
+
+| 파일 | 내용 |
+|---|---|
+| `saver_proto.h` | 엄격한 JSON 검사, 32비트 정수(`jsonU32`), 실수 형식(§3.4), 511 byte 를 넘으면 실패하는 줄 작성기, `tel`(tn·boot_id·faults_more), `mot`, `INFO`, 완료 이벤트, `VACUUM_RELEASED`, `FAULTS_END` 생성기. 기존 함수 이름은 그대로 |
+| `saver_v11.h` (새 파일) | §2.5 기록(`act_cur`, `act_rej`, `cmd_last`, `aid_max`)과 판단 순서, 파라미터 정규화, 활성 오류 목록(심각도 3→2→1, 6개 + `faults_more`) |
+| `saver_teensy.ino` | 명령 처리 v1.1. 정지 명령은 구조 검사 뒤 버전·상태·bid·aid 보다 먼저 정지 출력, `GET_INFO`·`GET_FAULTS`, busy 와 완료 이벤트, DISARM 음압 판정과 `rearm_lock`, `VACUUM_OFF` 해제 확인과 `2-VU-008`, 송신은 `Serial.write` + LF 하나(CR 없음), 주기 tel·mot 은 송신 버퍼가 모자라면 짝째 버림 |
+| `tests/host/` (새 폴더) | `saver_teensy.ino` 를 고치지 않고 PC 에서 컴파일하는 대용 헤더와 장면 시험, 가상 포트(`--pty`) |
+
+지금 펌웨어로 하는 일과 하지 않는 일
+
+- 구동(HOME, 접촉 탐색, 주행, 음압 블로워, 압박)은 여전히 `[구현]` 입니다. `3b. 구동 훅`의 함수만 채우면 됩니다.
+  `SAVER_HW_HEAD_MOTION`, `SAVER_HW_DRIVE_MOTION` 이 0 이면 `GET_INFO caps` 에서 `DRIVE`·`HEAD_HOLD`·`CP_ZERO` 를 빼고
+  해당 명령을 거부합니다(HOME → `HOME_UNAVAILABLE`, 나머지 → `LIMIT_UNSET 2-TU-008`). 성공을 꾸며 보내지 않습니다.
+- §7.1 설정값(`g_cfg`)은 모두 0(미설정)입니다. 압력 변환식과 해제 판정값이 없어 `vac_released` 가 false 로 남으므로
+  **`ARM` 은 `VACUUM_NOT_RELEASED` 로 거부됩니다**(7차 합의 그대로). `commands.jsonl` 의 v1.0 줄(bid·aid 없음)은 `AID_REQUIRED` 입니다.
+- `boot_id` 는 EEPROM 4160~4163(값과 보수, 리니어 보정 칸 4096~4135 뒤)의 부팅 횟수입니다. 부팅마다 4 byte 를 씁니다.
+
+시험 (저장소 루트, `build/` 는 git 이 무시)
+
+```bash
+cd teensy && g++ -std=c++11 -Wall -Wextra -o test test_saver_proto.cpp && ./test && cd ..
+mkdir -p build
+g++ -std=c++14 -Wall -Wextra -I teensy/tests/host -o build/saver_host teensy/tests/host/host_test.cpp
+./build/saver_host                        # 기본 빌드 7장면
+g++ -std=c++14 -Wall -Wextra -DSAVER_HOST_HOOKS -DSAVER_HW_HEAD_MOTION=1 -DSAVER_HW_DRIVE_MOTION=1 \
+    -I teensy/tests/host -o build/saver_host_hooks teensy/tests/host/host_test.cpp
+./build/saver_host_hooks                  # 가짜 구동 훅 9장면(시뮬레이션 설정값, 실기 금지)
+./build/saver_host --pty                  # 리눅스·맥: "PTY /dev/pts/N" 에 젯슨 TeensyLink 를 붙여 본다
+```
+
+`test_saver_proto.cpp` 는 최악값 줄을 `protocol/examples/v11_worst_case.jsonl` 과 대조합니다(젯슨 시험이 같은 파일을
+`protocol.decode` 로 읽음). 생성기를 바꾸면 `teensy` 폴더에서 `./test --write-fixture` 로 다시 만드세요.
+
+형님께 확인 부탁드릴 것
+
+1. 구동 훅 이름과 나눈 방식(`hw*Start`, `hw*Tick` 은 제어 주기에서, 심각도 3 은 훅 안에서 바로 `raiseFault`)
+2. `STOP_CPR`·`PAUSE_CPR` 의 정지 출력을 v1.0 처럼 `motorsOff()`(주행 포함)로 둔 것, 이때 진행 중인 `DRIVE_STEP` 도 `STOPPED`
+3. 비상정지 진입 때 `motorsOff()` 를 더 부르고 `3-MU-002` 를 활성 오류 목록에 넣은 것
+4. `TRIAL_COMPRESSION`, `STIFFNESS_SCAN` 은 v1.1 의 busy 이름과 결과 형식이 없어 항상 `LIMIT_UNSET` 으로 거부
+5. EEPROM 부팅 횟수 주소(4160~4163)와 부팅마다 쓰기
+6. `RESET_FAULT` 의 원인 확인(`cleared = false`)은 그대로 두었습니다
+
 ## 핀 충돌 정리 (2026-10-02)
 
 - 음압 모터 2 RUN **34→32**, EN **35→37**. PPG 보호 핀과 음압+압력 시험도 함께 수정했습니다.
@@ -48,13 +98,14 @@ test/linear_sensor_test/tests/check_linear.ps1`. 저장·손상·쓰기 실패·
 protocol/
   teensy_usb_protocol_v1.md   ★ 명세서 — 이게 기준입니다
   examples/
-    commands.jsonl            Jetson → Teensy 예제 (일부러 불량 줄 5개 포함)
-    telemetry.jsonl           Teensy → Jetson 예제
+    commands.jsonl            Jetson → Teensy 예제 v1.1 (마지막 7줄은 일부러 넣은 거부 사례)
+    telemetry.jsonl           Teensy → Jetson 예제 v1.1
+    v11_worst_case.jsonl      메시지 종류별 최대 길이 줄 14개 (Teensy·Jetson 시험이 함께 씀)
 teensy/
   pinmap.h                    ★ Teensy 4.1 외곽 핀 0~41 통합 배정
   saver_proto.h               ★ JSON 파서/생성기 — 그대로 쓰세요
   saver_teensy.ino            통신 골격 — [구현] 표시된 곳만 채우면 됩니다
-  test_saver_proto.cpp        파서 단위시험 (PC에서 실행, 26개 통과 확인됨)
+  test_saver_proto.cpp        파서 단위시험 (PC에서 실행, 10/23 v1.1 기준 118개 통과)
 ```
 
 ## 왜 이렇게 만들었는지
